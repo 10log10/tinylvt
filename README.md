@@ -18,7 +18,7 @@ Rents can be redistributed to community members to achieve common value ownershi
 
 ## Valuation by Auction
 
-A central problem in land value taxation is the valuation of rents, so they can be charged to resource possessors.
+The core of a land value tax is some mechanism that determines value.
 
 Traditional property valuation for tax purposes uses real estate transaction data to predict property prices based on the similarities between properties to be valued and properties that have sold recently. The most useful sales are between unrelated parties, called "arm's length" sales, since they show how a property would sell on the open market. Sales between related individuals, or sales with other goods involved in the transaction, might not indicate the open market value.
 
@@ -77,7 +77,7 @@ Based on the [Zero to Production](https://github.com/LukeMathWalker/zero-to-prod
 
 ### Dependencies
 
-- The same as those used in zero2prod, where possible, though perhaps with SeaORM
+- The same as those used in zero2prod, where possible
 - [`rust_decimal`](https://crates.io/crates/rust-decimal) for currency
 
 ### Database Schema
@@ -91,9 +91,11 @@ communities table (
 
 users table (
     id  # immutable user_id
-    email  # for login
+    username  # immutable, for login
     password_hash  # for login
-    display_name  # visible to others
+    display_name  # mutable, for display, not unique
+    email  # for notifications
+    email_verified
 )
 
 # the valid community members

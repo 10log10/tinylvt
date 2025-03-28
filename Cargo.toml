@@ -1,0 +1,4 @@
+[workspace]
+# members= ["backend", "payloads", "ui"]
+members= ["backend", "email-hash"]
+resolver = "3"
