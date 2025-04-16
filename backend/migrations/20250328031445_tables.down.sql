@@ -40,6 +40,8 @@ DROP TABLE IF EXISTS auction_params;
 DROP TABLE IF EXISTS site_images;
 DROP TABLE IF EXISTS spaces;
 DROP TABLE IF EXISTS sites;
+DROP TABLE IF EXISTS open_hours_weekday;
+DROP TABLE IF EXISTS open_hours;
 DROP TABLE IF EXISTS community_membership_schedule;
 DROP TABLE IF EXISTS community_members;
 DROP TABLE IF EXISTS user_roles;
