@@ -92,6 +92,22 @@ CREATE TABLE auction_params (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
+-- Open hours for a site when possession takes place.
+CREATE TABLE open_hours (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    timezone TEXT NOT NULL -- IANA time zone, e.g. 'America/Los_Angeles'
+);
+
+-- If a day of the week is absent, the site is assumed to be closed that day.
+CREATE TABLE open_hours_weekday (
+    open_hours_id UUID NOT NULL REFERENCES open_hours (id),
+    -- 1 = Monday, 7 = Sunday
+    day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+    open_time TIME NOT NULL,  -- Local time
+    close_time TIME NOT NULL, -- Local time
+    PRIMARY KEY (open_hours_id, day_of_week)
+);
+
 -- A location consisting of indivisible spaces available for rent, and for
 -- which auctions take place.
 CREATE TABLE sites (
@@ -100,6 +116,16 @@ CREATE TABLE sites (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     default_auction_params_id UUID NOT NULL REFERENCES auction_params (id),
+    -- Duration of possession and period between auctions.
+    possession_period INTERVAL NOT NULL,
+    -- Amount of time before the change in possession that the auction begins.
+    -- Auctions start at prev_auction_start_time + possession_period -
+    -- auction_lead_time. If no previous auction, the next day is used or the
+    -- next time the site is open, or if it is already open the next whole
+    -- multiple of the posession period from the start of the open hours.
+    auction_lead_time INTERVAL NOT NULL,
+    -- If not present, the site is assumed to be open all the time.
+    open_hours_id UUID REFERENCES open_hours (id),
     -- Whether this site is available for auction.
     is_available BOOLEAN NOT NULL DEFAULT true,
     -- Image is optional if the location is otherwise well-described.
