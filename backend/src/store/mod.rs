@@ -38,6 +38,20 @@ pub mod model {
 
     #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
     #[sqlx(transparent)]
+    pub struct TokenId(pub Uuid);
+
+    #[derive(Debug, Clone, FromRow)]
+    pub struct Token {
+        pub id: TokenId,
+        pub action: String,
+        pub used: bool,
+        pub expires_at: Timestamp,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+    #[sqlx(transparent)]
     pub struct RoleId(pub String);
 
     #[derive(Debug, Clone, FromRow)]
@@ -258,7 +272,7 @@ pub mod community {
 pub mod user {
     use sqlx::{Error, PgPool};
 
-    use super::model::User;
+    use super::model::{User, UserId};
 
     /// Create a new user as would happen during signup.
     pub async fn create(
@@ -283,6 +297,14 @@ pub mod user {
         .await
     }
 
+    /// Create a new user as would happen during signup.
+    pub async fn read(conn: &PgPool, id: &UserId) -> Result<User, Error> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1;")
+            .bind(id)
+            .fetch_one(conn)
+            .await
+    }
+
     /// Update fields that are not in the signup process.
     pub async fn update(conn: &PgPool, user: &User) -> Result<User, Error> {
         sqlx::query_as::<_, User>(
@@ -299,5 +321,12 @@ pub mod user {
         .bind(&user.id)
         .fetch_one(conn)
         .await
+    }
+
+    pub async fn delete(conn: &PgPool, id: &UserId) -> Result<User, Error> {
+        sqlx::query_as::<_, User>("DELETE FROM users WHERE id = $1;")
+            .bind(id)
+            .fetch_one(conn)
+            .await
     }
 }

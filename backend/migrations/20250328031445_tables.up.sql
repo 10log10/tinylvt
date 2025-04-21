@@ -18,6 +18,17 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
+-- Tokens are emailed and are specific to 'email_verification', 'password_reset'
+-- actions.
+CREATE TABLE tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- the token
+    action TEXT NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT false, -- can only be used once
+    expires_at TIMESTAMPTZ NOT NULL, -- must be used before expiry
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
+
 -- 'leader',  -- Only one leader
 -- 'coleader',  -- Same privileges as leader, but can have multiple
 -- 'moderator',  -- Lower-level privileges, but above member

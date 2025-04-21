@@ -6,13 +6,26 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-files = "0.6.6"
+actix-identity = "0.8.0"
+actix-session = { version = "0.10.1", features = ["cookie-session"] }
+actix-web = "4.10.2"
 anyhow = "1.0.97"
+argon2 = { version = "0.5.3", features = ["std"] }
 jiff = { version = "0.2", features = ["serde"] }
 jiff-sqlx = { version = "0.1.1", features = ["postgres"] }
+payloads = { path = "../payloads" }
+# argon2 depends on an older version of rand_core with a now-deprecated trait
+rand_core = { version = "0.6.4", features = ["std"] }
 rust_decimal = { version = "1.37.1", features = ["serde", "macros"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sqlx = { version = "0.8", features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal" ] }
 sqlx-postgres = "0.8.3"
+thiserror = "2.0.12"
 tokio = { version = "1.44.1", features = ["full"] }
+tracing = "0.1.41"
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.19", features = ["registry", "env-filter"] }
 uuid = { version = "1.16.0", features = ["v4"] }
