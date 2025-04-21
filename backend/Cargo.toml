@@ -17,6 +17,7 @@ jiff-sqlx = { version = "0.1.1", features = ["postgres"] }
 payloads = { path = "../payloads" }
 # argon2 depends on an older version of rand_core with a now-deprecated trait
 rand_core = { version = "0.6.4", features = ["std"] }
+reqwest = { version = "0.12.15", features = ["json", "cookies"] }
 rust_decimal = { version = "1.37.1", features = ["serde", "macros"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }

@@ -295,6 +295,11 @@ BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+CREATE TRIGGER tokens_set_updated_at
+BEFORE UPDATE ON tokens
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER community_members_set_updated_at
 BEFORE UPDATE ON community_members
 FOR EACH ROW

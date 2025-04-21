@@ -8,14 +8,23 @@ use actix_session::{
     SessionMiddleware, config::BrowserSession, storage::CookieSessionStore,
 };
 use actix_web::cookie::{Key, time::Duration};
+use actix_web::dev::Server;
 use actix_web::{App, HttpServer, web};
 use sqlx::PgPool;
+use std::net::TcpListener;
 
-pub async fn startup(config: Config) -> std::io::Result<()> {
+/// Build the server, but not await it.
+///
+/// Returns the port that the server has bound to by modifying the config.
+pub async fn build(config: &mut Config) -> std::io::Result<Server> {
     let secret_key = Key::generate(); // key for signing session cookies
     let db_pool =
         web::Data::new(PgPool::connect(&config.database_url).await.unwrap());
-    HttpServer::new(move || {
+
+    // OS assigns the port if binding to 0
+    let listener = TcpListener::bind(format!("{}:{}", config.ip, config.port))?;
+    config.port = listener.local_addr()?.port();
+    let server = HttpServer::new(move || {
         App::new()
             // Use signed cookie to track user id
             // Redis would be better (can invalidate sessions; persists between
@@ -40,21 +49,26 @@ pub async fn startup(config: Config) -> std::io::Result<()> {
             )
             .app_data(db_pool.clone())
     })
-    .bind((config.ip, 8081))?
-    .run()
-    .await
+    .listen(listener)?
+    .run();
+    Ok(server)
 }
 
 pub struct Config {
-    database_url: String,
-    ip: String, // set to "0.0.0.0" for public access, "127.0.0.1" for local dev
+    pub database_url: String,
+    /// set to "0.0.0.0" for public access, "127.0.0.1" for local dev
+    pub ip: String,
+    /// set to 0 to get an os-assigned port
+    pub port: u16,
 }
 
 impl Config {
     pub fn from_env() -> Self {
+        use std::env::var;
         Config {
-            database_url: std::env::var("DATABASE_URL").unwrap(),
-            ip: std::env::var("IP_ADDRESS").unwrap(),
+            database_url: var("DATABASE_URL").unwrap(),
+            ip: var("IP_ADDRESS").unwrap(),
+            port: var("PORT").unwrap().parse().unwrap(),
         }
     }
 }

@@ -1,6 +1,7 @@
 -- Drop triggers
 DROP TRIGGER IF EXISTS communities_set_updated_at ON communities;
 DROP TRIGGER IF EXISTS users_set_updated_at ON users;
+DROP TRIGGER IF EXISTS tokens_set_updated_at ON tokens;
 DROP TRIGGER IF EXISTS community_members_set_updated_at ON community_members;
 DROP TRIGGER IF EXISTS community_membership_schedule_set_updated_at ON
 community_membership_schedule;
