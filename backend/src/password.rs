@@ -1,4 +1,5 @@
 use crate::store::model::{User, UserId};
+use crate::store::user;
 use crate::telemetry::spawn_blocking_with_tracing;
 use anyhow::Context;
 use argon2::password_hash::SaltString;
@@ -17,6 +18,7 @@ pub enum AuthError {
     UnexpectedError(#[from] anyhow::Error),
 }
 
+#[derive(serde::Deserialize)]
 pub struct Credentials {
     pub username: String,
     pub password: SecretBox<String>,
@@ -113,6 +115,33 @@ pub async fn change_password(
     .execute(pool)
     .await
     .context("Failed to change user's password in the database.")?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct NewUserDetails {
+    username: String,
+    email: String,
+    password: SecretBox<String>,
+}
+
+#[tracing::instrument(name = "Create user", skip(new_user_details, pool))]
+pub async fn create_user(
+    new_user_details: NewUserDetails,
+    pool: &PgPool,
+) -> Result<(), anyhow::Error> {
+    let password_hash = spawn_blocking_with_tracing(move || {
+        compute_password_hash(new_user_details.password)
+    })
+    .await?
+    .context("Failed to hash password")?;
+    user::create(
+        pool,
+        &new_user_details.username,
+        &new_user_details.email,
+        password_hash.expose_secret(),
+    )
+    .await?;
     Ok(())
 }
 

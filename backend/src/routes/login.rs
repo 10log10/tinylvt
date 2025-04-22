@@ -3,7 +3,6 @@ use actix_web::{
     HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError,
     body::BoxBody, dev::HttpServiceFactory, http::header::LOCATION, post, web,
 };
-use secrecy::SecretBox;
 use sqlx::PgPool;
 
 use crate::password::{AuthError, Credentials, validate_credentials};
@@ -35,29 +34,19 @@ impl ResponseError for LoginError {
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct FormData {
-    username: String,
-    password: SecretBox<String>,
-}
-
 #[tracing::instrument(
-    skip(form, pool),
+    skip(credentials, pool),
     fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
 )]
 #[post("/login")]
 async fn login(
     request: HttpRequest,
-    form: web::Json<FormData>,
+    credentials: web::Form<Credentials>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, LoginError> {
-    let credentials = Credentials {
-        username: form.0.username,
-        password: form.0.password,
-    };
     tracing::Span::current()
         .record("username", tracing::field::display(&credentials.username));
-    match validate_credentials(credentials, &pool).await {
+    match validate_credentials(credentials.0, &pool).await {
         Ok(user_id) => {
             tracing::Span::current()
                 .record("user_id", tracing::field::display(&user_id.0));

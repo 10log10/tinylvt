@@ -41,7 +41,7 @@ pub async fn build(config: &mut Config) -> std::io::Result<Server> {
                 )
                 .build(),
             )
-            .service(web::scope("/api").service(routes::api_routes()))
+            .service(routes::api_routes())
             // static files service
             .service(
                 actix_files::Files::new("/", "../ui/dist/")

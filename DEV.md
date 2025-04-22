@@ -39,3 +39,11 @@ DATABASE_URL=postgresql://user:password@localhost:5432/database IP_ADDRESS=127.0
 pip install sqlfluff
 sqlfluff lint migrations --dialect postgres
 ```
+
+## Too many open files
+
+Probably need to raise the socket/file descriptor limit. Do so temporarily with:
+
+```
+ulimit -n 65535
+```

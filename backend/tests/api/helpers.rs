@@ -8,10 +8,25 @@ const DEFAULT_DB: &str = "tinylvt";
 
 pub struct TestApp {
     pub address: String,
+    #[allow(unused)]
     pub port: u16,
     pub db_pool: PgPool,
     pub api_client: reqwest::Client,
     _database_drop_guard: DropDatabaseGuard,
+}
+
+impl TestApp {
+    pub async fn post_login<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(format!("{}/login", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
 }
 
 pub async fn spawn_app() -> TestApp {
@@ -73,4 +88,9 @@ async fn setup_database() -> Result<(PgPool, DropDatabaseGuard), Error> {
     let conn = PgPool::connect(&format!("{DATABASE_URL}/{new_db}")).await?;
     MIGRATOR.run(&conn).await?;
     Ok((conn, guard))
+}
+
+pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
+    assert_eq!(response.status().as_u16(), 303);
+    assert_eq!(response.headers().get("Location").unwrap(), location);
 }
