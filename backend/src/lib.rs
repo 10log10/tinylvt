@@ -41,7 +41,16 @@ pub async fn build(config: &mut Config) -> std::io::Result<Server> {
                 )
                 .build(),
             )
-            .service(routes::api_routes())
+            .service(
+                web::scope("/api")
+                    .route("/health_check", web::get().to(routes::health_check))
+                    .route("/login", web::post().to(routes::login::login))
+                    .route("/logout", web::post().to(routes::login::logout))
+                    .route(
+                        "/create_account",
+                        web::post().to(routes::login::create_account),
+                    ),
+            )
             // static files service
             .service(
                 actix_files::Files::new("/", "../ui/dist/")

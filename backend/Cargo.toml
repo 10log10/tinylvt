@@ -12,6 +12,7 @@ actix-session = { version = "0.10.1", features = ["cookie-session"] }
 actix-web = "4.10.2"
 anyhow = "1.0.97"
 argon2 = { version = "0.5.3", features = ["std"] }
+derive_more = { version = "2.0.1", features = ["display"] }
 jiff = { version = "0.2", features = ["serde"] }
 jiff-sqlx = { version = "0.1.1", features = ["postgres"] }
 payloads = { path = "../payloads" }

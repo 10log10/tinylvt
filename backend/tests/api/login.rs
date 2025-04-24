@@ -27,7 +27,7 @@ async fn create_account() -> anyhow::Result<()> {
     });
     let response = app
         .api_client
-        .post(format!("{}/create_account", &app.address))
+        .post(format!("{}/api/create_account", &app.address))
         .form(&new_user_body)
         .send()
         .await?;

@@ -21,7 +21,7 @@ impl TestApp {
         Body: serde::Serialize,
     {
         self.api_client
-            .post(format!("{}/login", &self.address))
+            .post(format!("{}/api/login", &self.address))
             .form(body)
             .send()
             .await

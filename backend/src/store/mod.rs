@@ -1,5 +1,6 @@
 pub mod model {
 
+    use derive_more::Display;
     use jiff_sqlx::{Time, Timestamp};
     use rust_decimal::Decimal;
     use sqlx::FromRow;
@@ -7,7 +8,9 @@ pub mod model {
     use uuid::Uuid;
 
     /// Id type wrapper helps ensure we don't mix up ids for different tables.
-    #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+    ///
+    /// Display is derived to make it easier to log events with the id.
+    #[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type)]
     #[sqlx(transparent)]
     pub struct CommunityId(pub Uuid);
 
@@ -19,7 +22,7 @@ pub mod model {
         pub updated_at: Timestamp,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+    #[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type)]
     #[sqlx(transparent)]
     pub struct UserId(pub Uuid);
 

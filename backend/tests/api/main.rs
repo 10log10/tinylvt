@@ -11,7 +11,7 @@ async fn health_check() -> anyhow::Result<()> {
 
     let response = app
         .api_client
-        .get(format!("{}/health_check", app.address))
+        .get(format!("{}/api/health_check", app.address))
         .send()
         .await?;
 

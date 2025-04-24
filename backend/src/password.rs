@@ -125,7 +125,11 @@ pub struct NewUserDetails {
     password: SecretBox<String>,
 }
 
-#[tracing::instrument(name = "Create user", skip(new_user_details, pool))]
+#[tracing::instrument(
+    name = "Create user",
+    skip(new_user_details, pool),
+    fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
+)]
 pub async fn create_user(
     new_user_details: NewUserDetails,
     pool: &PgPool,
@@ -135,13 +139,20 @@ pub async fn create_user(
     })
     .await?
     .context("Failed to hash password")?;
-    user::create(
+    let new_user_id = user::create(
         pool,
         &new_user_details.username,
         &new_user_details.email,
         password_hash.expose_secret(),
     )
-    .await?;
+    .await?
+    .id;
+    tracing::Span::current()
+        .record(
+            "username",
+            tracing::field::display(&new_user_details.username),
+        )
+        .record("user_id", tracing::field::display(&new_user_id));
     Ok(())
 }
 
