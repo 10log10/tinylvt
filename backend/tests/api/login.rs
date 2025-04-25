@@ -1,11 +1,12 @@
 use reqwest::StatusCode;
 
-use crate::helpers::{assert_is_redirect_to, spawn_app};
+use crate::helpers::spawn_app;
 
 #[tokio::test]
 async fn login_refused() -> anyhow::Result<()> {
     let app = spawn_app().await;
 
+    // test a login with an invalid user
     let login_body = serde_json::json!({
         "username": "random-username",
         "password": "random-password"
@@ -13,6 +14,13 @@ async fn login_refused() -> anyhow::Result<()> {
     let response = app.post_login(&login_body).await;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.text().await?, "Authentication failed");
+
+    // login check should fail
+    let response = app.post_login_check().await;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.text().await?, "");
 
     Ok(())
 }
@@ -20,18 +28,13 @@ async fn login_refused() -> anyhow::Result<()> {
 #[tokio::test]
 async fn create_account() -> anyhow::Result<()> {
     let app = spawn_app().await;
-    let new_user_body = serde_json::json!({
-        "username": "random-username",
-        "password": "a-password",
-        "email": "anemail@example.com",
-    });
-    let response = app
-        .api_client
-        .post(format!("{}/api/create_account", &app.address))
-        .form(&new_user_body)
-        .send()
-        .await?;
 
-    assert_is_redirect_to(&response, "/login");
+    app.create_account().await;
+
+    // check for valid session
+    let response = app.post_login_check().await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
     Ok(())
 }

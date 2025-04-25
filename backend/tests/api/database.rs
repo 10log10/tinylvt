@@ -10,11 +10,8 @@ use sqlx::{Error, PgPool};
 use sqlx_postgres::types::PgInterval;
 
 use backend::store::{
-    self,
-    model::{
-        AuctionParams, AuctionParamsId, Community, CommunityId, OpenHours,
-        OpenHoursId, OpenHoursWeekday, Site, SiteId, Space, User,
-    },
+    self, AuctionParams, AuctionParamsId, Community, CommunityId, OpenHours,
+    OpenHoursId, OpenHoursWeekday, Site, SiteId, Space, User,
 };
 
 use crate::helpers::spawn_app;
@@ -58,7 +55,12 @@ async fn test_populate() -> Result<(), Error> {
     let app = spawn_app().await;
     let conn = &app.db_pool;
 
-    let community = store::community::create(conn, "Test Community").await?;
+    let community = sqlx::query_as::<_, Community>(
+        "INSERT INTO communities (name) VALUES ($1) RETURNING *;",
+    )
+    .bind("Test Community")
+    .fetch_one(conn)
+    .await?;
     let _users = populate_users(conn, &community.id).await?;
     let open_hours = populate_open_hours(conn).await?;
     let auction_params = populate_auction_params(conn).await?;
@@ -77,7 +79,7 @@ async fn populate_users(
     let roles = ["leader", "coleader", "member"];
 
     for (i, role) in roles.iter().enumerate() {
-        let mut user = store::user::create(
+        let mut user = store::create_user(
             conn,
             &format!("{role}_user"),
             &format!("{role}@example.com"),
@@ -87,7 +89,7 @@ async fn populate_users(
         user.display_name = Some(format!("{role} user"));
         user.email_verified = true;
         user.balance = dec!(1000.000000);
-        store::user::update(conn, &user).await?;
+        store::update_user(conn, &user).await?;
 
         sqlx::query(
             "INSERT INTO community_members (

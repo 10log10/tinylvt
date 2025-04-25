@@ -27,6 +27,39 @@ impl TestApp {
             .await
             .expect("Failed to execute request.")
     }
+
+    pub async fn post_login_check(&self) -> reqwest::Response {
+        self.api_client
+            .post(format!("{}/api/login_check", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn create_account(&self) {
+        let body = serde_json::json!({
+            "username": "alice",
+            "password": "supersecret",
+            "email": "alice@example.com",
+        });
+        let response = self
+            .api_client
+            .post(format!("{}/api/create_account", &self.address))
+            .form(&body)
+            .send()
+            .await
+            .expect("Failed to execute request.");
+        assert_is_redirect_to(&response, "/login");
+
+        // do login
+        let response = self.post_login(&body).await;
+
+        assert_is_redirect_to(&response, "/");
+    }
+
+    // pub async fn create_community(&self) {
+    //
+    // }
 }
 
 pub async fn spawn_app() -> TestApp {

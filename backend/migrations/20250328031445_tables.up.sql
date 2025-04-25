@@ -37,16 +37,14 @@ CREATE TABLE user_roles (
     id TEXT PRIMARY KEY,  -- e.g., 'leader', 'moderator'
     display_name TEXT NOT NULL,
     rank INTEGER NOT NULL,  -- useful for sorting or privileges
-    scope TEXT NOT NULL DEFAULT 'community',
     CHECK (rank >= 0)
 );
 
-INSERT INTO user_roles (id, display_name, rank, scope) VALUES
-('admin', 'Administrator', 0, 'system'), -- cross-community access
-('leader', 'Leader', 1, 'community'),
-('coleader', 'Co-Leader', 2, 'community'),
-('moderator', 'Moderator', 3, 'community'),
-('member', 'Member', 4, 'community');
+INSERT INTO user_roles (id, display_name, rank) VALUES
+('leader', 'Leader', 1),
+('coleader', 'Co-Leader', 2),
+('moderator', 'Moderator', 3),
+('member', 'Member', 4);
 
 CREATE TABLE community_members (
     -- Cascade: if a community is deleted, memberships are deleted too
@@ -177,9 +175,9 @@ CREATE TABLE site_images (
 
 -- Get around circular dependency for foreign key constraint.
 ALTER TABLE sites ADD CONSTRAINT fk_sites_site_images FOREIGN KEY
-(site_image_id) REFERENCES site_images (id);
+(site_image_id) REFERENCES site_images (id) ON DELETE SET NULL;
 ALTER TABLE spaces ADD CONSTRAINT fk_spaces_site_images FOREIGN KEY
-(site_image_id) REFERENCES site_images (id);
+(site_image_id) REFERENCES site_images (id) ON DELETE SET NULL;
 
 CREATE TABLE auctions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -218,7 +216,8 @@ CREATE INDEX idx_space_rounds_space_id ON space_rounds (space_id);
 CREATE INDEX idx_space_rounds_round_id ON space_rounds (round_id);
 CREATE INDEX idx_space_rounds_round_space ON space_rounds (round_id, space_id);
 
--- All bids for spaces in an auction round that meet the minimum bid increment.
+-- All bids for spaces in an auction round that meet (are) the minimum bid
+-- increment.
 --
 -- A user must have the necessary balance to place a bid.
 --

@@ -1,5 +1,4 @@
-use crate::store::model::{User, UserId};
-use crate::store::user;
+use crate::store;
 use crate::telemetry::spawn_blocking_with_tracing;
 use anyhow::Context;
 use argon2::password_hash::SaltString;
@@ -12,7 +11,7 @@ use sqlx::PgPool;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AuthError {
-    #[error("Invalid credentials.")]
+    #[error("Invalid credentials")]
     InvalidCredentials(#[source] anyhow::Error),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
@@ -21,14 +20,14 @@ pub enum AuthError {
 #[derive(serde::Deserialize)]
 pub struct Credentials {
     pub username: String,
-    pub password: SecretBox<String>,
+    password: SecretBox<String>,
 }
 
 #[tracing::instrument(name = "Validate credentials", skip(credentials, pool))]
 pub async fn validate_credentials(
     credentials: Credentials,
     pool: &PgPool,
-) -> Result<UserId, AuthError> {
+) -> Result<store::UserId, AuthError> {
     let mut user_id = None;
     // fallback password hash to prevent timing differences
     let mut expected_password_hash = SecretBox::new(Box::new(
@@ -60,8 +59,8 @@ pub async fn validate_credentials(
 async fn get_stored_credentials(
     username: &str,
     pool: &PgPool,
-) -> Result<Option<(UserId, SecretBox<String>)>, anyhow::Error> {
-    let user = sqlx::query_as::<_, User>(
+) -> Result<Option<(store::UserId, SecretBox<String>)>, anyhow::Error> {
+    let user = sqlx::query_as::<_, store::User>(
         r#"SELECT * FROM users WHERE username = $1;"#,
     )
     .bind(username)
@@ -95,7 +94,7 @@ fn verify_password_hash(
 
 #[tracing::instrument(name = "Change password", skip(password, pool))]
 pub async fn change_password(
-    user_id: UserId,
+    user_id: store::UserId,
     password: SecretBox<String>,
     pool: &PgPool,
 ) -> Result<(), anyhow::Error> {
@@ -139,7 +138,7 @@ pub async fn create_user(
     })
     .await?
     .context("Failed to hash password")?;
-    let new_user_id = user::create(
+    let new_user_id = store::create_user(
         pool,
         &new_user_details.username,
         &new_user_details.email,

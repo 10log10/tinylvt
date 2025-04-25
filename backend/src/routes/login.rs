@@ -25,8 +25,8 @@ pub async fn login(
     match validate_credentials(credentials.0, &pool).await {
         Ok(user_id) => {
             tracing::Span::current()
-                .record("user_id", tracing::field::display(&user_id.0));
-            Identity::login(&request.extensions(), user_id.0.to_string())
+                .record("user_id", tracing::field::display(&user_id));
+            Identity::login(&request.extensions(), user_id.to_string())
                 .map_err(|e| APIError::UnexpectedError(e.into()))?;
             Ok(HttpResponse::SeeOther()
                 .insert_header((LOCATION, "/"))
@@ -44,6 +44,12 @@ pub async fn login(
             Err(e)
         }
     }
+}
+
+#[tracing::instrument(skip(user))]
+pub async fn login_check(user: Identity) -> Result<HttpResponse, APIError> {
+    get_user_id(&user)?;
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[tracing::instrument(skip(user))]

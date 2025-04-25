@@ -45,6 +45,10 @@ pub async fn build(config: &mut Config) -> std::io::Result<Server> {
                 web::scope("/api")
                     .route("/health_check", web::get().to(routes::health_check))
                     .route("/login", web::post().to(routes::login::login))
+                    .route(
+                        "/login_check",
+                        web::post().to(routes::login::login_check),
+                    )
                     .route("/logout", web::post().to(routes::login::logout))
                     .route(
                         "/create_account",
