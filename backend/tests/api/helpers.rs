@@ -1,5 +1,10 @@
-use backend::{Config, build};
+use backend::{Config, build, telemetry};
+use payloads::requests;
+use reqwest::StatusCode;
+use serde::Serialize;
 use sqlx::{Error, PgPool, migrate::Migrator};
+use tracing_log::LogTracer;
+use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 static MIGRATOR: Migrator = sqlx::migrate!();
@@ -16,13 +21,14 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    pub async fn post_login<Body>(&self, body: &Body) -> reqwest::Response
-    where
-        Body: serde::Serialize,
-    {
+    pub async fn post(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+    ) -> reqwest::Response {
         self.api_client
-            .post(format!("{}/api/login", &self.address))
-            .form(body)
+            .post(format!("{}/api/{path}", &self.address))
+            .json(body)
             .send()
             .await
             .expect("Failed to execute request.")
@@ -36,33 +42,47 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
-    pub async fn create_account(&self) {
-        let body = serde_json::json!({
-            "username": "alice",
-            "password": "supersecret",
-            "email": "alice@example.com",
-        });
-        let response = self
-            .api_client
-            .post(format!("{}/api/create_account", &self.address))
-            .form(&body)
-            .send()
-            .await
-            .expect("Failed to execute request.");
+    // function to populat test data below
+
+    pub async fn create_test_account(&self) {
+        let body = requests::CreateAccount {
+            username: "alice".into(),
+            password: "supersecret".into(),
+            email: "alice@example.com".into(),
+        };
+        let response = self.post("create_account", &body).await;
         assert_is_redirect_to(&response, "/login");
 
         // do login
-        let response = self.post_login(&body).await;
+        let response = self.post("login", &body).await;
 
         assert_is_redirect_to(&response, "/");
     }
 
-    // pub async fn create_community(&self) {
-    //
-    // }
+    pub async fn create_second_test_account(&self) {
+        let body = requests::CreateAccount {
+            username: "bob".into(),
+            password: "bobspw".into(),
+            email: "bob@example.com".into(),
+        };
+        let response = self.post("create_account", &body).await;
+        assert_is_redirect_to(&response, "/login");
+    }
+
+    pub async fn create_test_community(&self) {
+        let body = requests::CreateCommunity {
+            name: "Test community".into(),
+        };
+        let response = self.post("create_community", &body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
 
 pub async fn spawn_app() -> TestApp {
+    let subscriber = telemetry::get_subscriber("warn".into());
+    let _ = LogTracer::init();
+    let _ = subscriber.try_init();
+
     let (conn, guard) = setup_database().await.unwrap();
     let db_url = format!("{DATABASE_URL}/{}", guard.1);
     let mut config = Config {
@@ -96,6 +116,9 @@ pub async fn spawn_app() -> TestApp {
 #[derive(Clone)]
 pub struct DropDatabaseGuard(PgPool, String);
 
+// TODO: currently this can emit a warning since the tokio runtime is already
+// being torn down by the time sqlx is executing the command. Need some sort of
+// test wrapper with catch_unwind.
 impl Drop for DropDatabaseGuard {
     fn drop(&mut self) {
         let conn = self.0.clone();

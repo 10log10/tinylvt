@@ -207,6 +207,19 @@ bidder_eligibility table (
 )
 ```
 
+## User roles
+- leader
+    - only one
+    - can promote/demote coleaders
+- coleader
+    - can add/remove community members
+    - can promote/demote moderators
+- moderator
+    - can edit auction params, sites, spaces, 
+- member
+    - can participate in auctions
+    - elibible for distributions
+
 ## Notes
 
 [^spectrum_auction_wikipedia]: https://en.wikipedia.org/wiki/Spectrum_auction#Auction_structure

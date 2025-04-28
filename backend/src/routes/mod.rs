@@ -2,10 +2,26 @@ pub mod community;
 pub mod login;
 
 use actix_identity::{Identity, error::GetIdentityError};
-use actix_web::{HttpResponse, Responder, ResponseError, body::BoxBody};
+use actix_web::{
+    HttpResponse, Responder, ResponseError, body::BoxBody,
+    dev::HttpServiceFactory, web,
+};
 use uuid::Uuid;
 
 use crate::store;
+
+pub fn api_services() -> impl HttpServiceFactory {
+    web::scope("/api")
+        .route("/health_check", web::get().to(health_check))
+        .route("/login", web::post().to(login::login))
+        .route("/login_check", web::post().to(login::login_check))
+        .route("/logout", web::post().to(login::logout))
+        .route("/create_account", web::post().to(login::create_account))
+        .route(
+            "/create_community",
+            web::post().to(community::create_community),
+        )
+}
 
 pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("healthy")
@@ -18,6 +34,8 @@ pub enum APIError {
     AuthError(#[source] anyhow::Error),
     #[error("Invalid login session")]
     GetIdentityError(#[source] GetIdentityError),
+    #[error("Bad request")]
+    BadRequest(#[source] anyhow::Error),
     #[error("Something went wrong")]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -30,6 +48,9 @@ impl ResponseError for APIError {
             }
             Self::GetIdentityError(_) => {
                 HttpResponse::Unauthorized().body(self.to_string())
+            }
+            Self::BadRequest(e) => {
+                HttpResponse::BadRequest().body(format!("{self}: {e}"))
             }
             Self::UnexpectedError(_) => {
                 HttpResponse::InternalServerError().body(self.to_string())

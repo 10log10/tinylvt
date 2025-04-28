@@ -47,3 +47,9 @@ Probably need to raise the socket/file descriptor limit. Do so temporarily with:
 ```
 ulimit -n 65535
 ```
+
+## Viewing logs
+
+```
+RUST_LOG=backend=info cargo test long_community_name_rejected -- --nocapture
+```

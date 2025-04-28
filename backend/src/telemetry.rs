@@ -2,12 +2,16 @@ use actix_web::rt::task::JoinHandle;
 use tracing::Subscriber;
 use tracing::subscriber::set_global_default;
 use tracing_log::LogTracer;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
+use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt};
 
 pub fn get_subscriber(env_filter: String) -> impl Subscriber + Sync + Send {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(env_filter));
-    Registry::default().with(env_filter)
+    let stderr = fmt::Layer::new()
+        .with_writer(std::io::stderr)
+        .pretty()
+        .with_span_events(fmt::format::FmtSpan::CLOSE);
+    Registry::default().with(env_filter).with(stderr)
 }
 
 /// Register a subscriber as global default to process span data.

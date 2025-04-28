@@ -1,3 +1,4 @@
+use payloads::requests;
 use reqwest::StatusCode;
 
 use crate::helpers::spawn_app;
@@ -11,7 +12,7 @@ async fn login_refused() -> anyhow::Result<()> {
         "username": "random-username",
         "password": "random-password"
     });
-    let response = app.post_login(&login_body).await;
+    let response = app.post("login", &login_body).await;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.text().await?, "Authentication failed");
@@ -29,12 +30,33 @@ async fn login_refused() -> anyhow::Result<()> {
 async fn create_account() -> anyhow::Result<()> {
     let app = spawn_app().await;
 
-    app.create_account().await;
+    app.create_test_account().await;
 
     // check for valid session
     let response = app.post_login_check().await;
 
     assert_eq!(response.status(), StatusCode::OK);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn long_username_email_rejected() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    let mut body = requests::CreateAccount {
+        username: (0..52).map(|_| "X").collect::<String>(),
+        email: "anemail@example.com".into(),
+        password: "a-password".into(),
+    };
+    let response = app.post("create_account", &body).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    body.username = "username".into();
+    body.email =
+        format!("{}@example.clom", (0..300).map(|_| "X").collect::<String>());
+    let response = app.post("create_account", &body).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     Ok(())
 }

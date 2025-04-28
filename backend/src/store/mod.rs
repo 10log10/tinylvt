@@ -276,7 +276,7 @@ pub async fn create_community(
     .bind(&community.id)
     .bind(leader_id)
     .bind("leader")
-    .fetch_one(&mut *tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;

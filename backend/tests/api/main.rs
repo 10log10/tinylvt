@@ -1,3 +1,4 @@
+mod community;
 mod database;
 mod helpers;
 mod login;

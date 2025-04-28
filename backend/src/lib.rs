@@ -41,25 +41,12 @@ pub async fn build(config: &mut Config) -> std::io::Result<Server> {
                 )
                 .build(),
             )
-            .service(
-                web::scope("/api")
-                    .route("/health_check", web::get().to(routes::health_check))
-                    .route("/login", web::post().to(routes::login::login))
-                    .route(
-                        "/login_check",
-                        web::post().to(routes::login::login_check),
-                    )
-                    .route("/logout", web::post().to(routes::login::logout))
-                    .route(
-                        "/create_account",
-                        web::post().to(routes::login::create_account),
-                    ),
-            )
+            .service(routes::api_services())
             // static files service
-            .service(
-                actix_files::Files::new("/", "../ui/dist/")
-                    .index_file("index.html"),
-            )
+            // .service(
+            // actix_files::Files::new("/", "../ui/dist/")
+            // .index_file("index.html"),
+            // )
             .app_data(db_pool.clone())
     })
     .listen(listener)?

@@ -119,8 +119,8 @@ pub async fn change_password(
 
 #[derive(serde::Deserialize)]
 pub struct NewUserDetails {
-    username: String,
-    email: String,
+    pub username: String,
+    pub email: String,
     password: SecretBox<String>,
 }
 

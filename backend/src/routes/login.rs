@@ -3,6 +3,7 @@ use actix_web::{
     HttpMessage, HttpRequest, HttpResponse, Responder, http::header::LOCATION,
     web,
 };
+use payloads::requests::{EMAIL_MAX_LEN, USERNAME_MAX_LEN};
 use sqlx::PgPool;
 
 use crate::password::{
@@ -17,7 +18,7 @@ use super::{APIError, get_user_id};
 )]
 pub async fn login(
     request: HttpRequest,
-    credentials: web::Form<Credentials>,
+    credentials: web::Json<Credentials>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     tracing::Span::current()
@@ -61,12 +62,25 @@ pub async fn logout(user: Identity) -> impl Responder {
         .finish()
 }
 
+// TODO: return error if email is not a valid format
 #[tracing::instrument(skip(new_user_details, pool))]
 pub async fn create_account(
     request: HttpRequest,
-    new_user_details: web::Form<NewUserDetails>,
+    new_user_details: web::Json<NewUserDetails>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
+    if new_user_details.username.len() > USERNAME_MAX_LEN {
+        return Err(APIError::BadRequest(anyhow::anyhow!(
+            "Username too long (>{} characters).",
+            USERNAME_MAX_LEN
+        )));
+    }
+    if new_user_details.email.len() > EMAIL_MAX_LEN {
+        return Err(APIError::BadRequest(anyhow::anyhow!(
+            "Email too long (>{} characters).",
+            EMAIL_MAX_LEN
+        )));
+    }
     create_user(new_user_details.0, &pool).await?;
     Ok(HttpResponse::SeeOther()
         .insert_header((LOCATION, "/login"))
