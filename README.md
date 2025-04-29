@@ -75,150 +75,19 @@ Care must be taken to avoid cheating in the rent redistribution. Since rents hav
 
 Based on the [Zero to Production](https://github.com/LukeMathWalker/zero-to-production) reference text.
 
-### Dependencies
-
-- The same as those used in zero2prod, where possible
-- [`rust_decimal`](https://crates.io/crates/rust-decimal) for currency
-
-### Database Schema
-
-```
-# a sybil-resistant community group for rent redistribution
-communities table (
-    id
-    name  # name of the community
-)
-
-users table (
-    id  # immutable user_id
-    username  # immutable, for login
-    password_hash  # for login
-    display_name  # mutable, for display, not unique
-    email  # for notifications
-    email_verified
-)
-
-# the valid community members
-community_members table (
-    id
-    community_id  # references the communities table
-    user_id
-    verified
-    role?  # e.g. "admin", that can add or remove other community members
-)
-
-# a divisible location containing indivisible spaces for possession that are all
-# auctioned together. this defines what is covered under a single ascending
-# auction.
-# e.g. a room containing seats, or a building containing rooms
-# (name, community_id) are unique
-sites table (
-    id
-    name
-    community_id  # sites are managed by a community, and site
-                  # rents are redistributed to this community
-    auction_params_id  # default auction parameters
-)
-
-# an indivisible space available for possession.
-# e.g. one seat or two seats in a bundle
-spaces table (
-    id
-    site_id
-    name
-    eligibility_points  # used for activity rule
-    active  # whether this space is available for auction, since
-            # bundling and spaces may change
-)
-
-# images of the site layout, can have multiple per site
-sitemaps table (
-    id
-    site_id
-    image_name
-    sitemap_image
-)
-
-# table of auction parameters
-auction_params table (
-    id
-    round_duration  # length of each round
-    bid_increment  # encoding TBD, e.g. a,b,c,d coefficients of
-                   # `a + b*round_num + c*round_num^2 + current_minimum^d`
-    activity_rule_params  # encoding TBD, e.g. 50% eligibility threshold after
-                          # 10 rounds, 80% after another 10 rounds, etc
-)
-
-# a complete auction instance, including rounds and results, for a specific site
-auctions table (
-    id
-    site_id
-    start_timestamp  # start time of the auction
-    end_timestamp?  # end time of the auction, once concluded
-    auction_params_id # parameters for this particular auction instance
-)
-
-auction_rounds table (
-    id
-    auction_id
-    round_num
-    start_timestamp
-    end_timestamp  # the start time + the duration of this round
-    elegibility_threshold  # fraction of a bidder's eligibility that must be
-                           # met, e.g. 80%
-)
-
-space_rounds table (
-    space_id, round_id  # indexed by this pair
-    minimum_bid  # minimum value to obtain possession, after bid increment;
-                 # starts at 0 on round 1
-    winner_user_id?  # user id of the person obtaining possession at this point;
-                     # can be None. if there's multiple bids, one is picked at
-                     # random
-)
-
-# all bids that reach the minimum bid value for this space-round, and the user
-# has eligibility. the minimum bid is the bid value
-bids table (
-    id
-    space_id, round_id
-    user_id
-)
-
-# for automated bidding if demand functions are simple.
-# e.g. just wants any seat for x price, or with specification of each seat's
-# value
-strategies table (
-    id
-    auction_id
-    user_id
-    strategy  # how to bid during this auction; encoding TBD
-)
-
-bidder_eligibility table (
-    id
-    round_id
-    user_id
-    eligibility_points  # number of points the bidder has for this round. if
-                        # threshold is not reached, next round's points are
-                        # reduced. # not present on the first round; the second
-                        # rounds eligibility is based on the first round's
-                        # activity
-)
-```
-
-## User roles
-- leader
-    - only one
-    - can promote/demote coleaders
-- coleader
-    - can add/remove community members
+### User roles
+- Member
+    - can participate in auctions and receive distributions
+- Moderator
+    - can add/remove members
+- Coleader
+    - can edit auction params, sites, spaces
     - can promote/demote moderators
-- moderator
-    - can edit auction params, sites, spaces, 
-- member
-    - can participate in auctions
-    - elibible for distributions
+    - can promote new coleaders
+- Leader
+    - only one leader
+    - can promote/demote coleaders
+    - can self demote to coleader and give leadership to a coleader
 
 ## Notes
 

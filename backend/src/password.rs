@@ -27,7 +27,7 @@ pub struct Credentials {
 pub async fn validate_credentials(
     credentials: Credentials,
     pool: &PgPool,
-) -> Result<store::UserId, AuthError> {
+) -> Result<payloads::UserId, AuthError> {
     let mut user_id = None;
     // fallback password hash to prevent timing differences
     let mut expected_password_hash = SecretBox::new(Box::new(
@@ -59,7 +59,7 @@ pub async fn validate_credentials(
 async fn get_stored_credentials(
     username: &str,
     pool: &PgPool,
-) -> Result<Option<(store::UserId, SecretBox<String>)>, anyhow::Error> {
+) -> Result<Option<(payloads::UserId, SecretBox<String>)>, anyhow::Error> {
     let user = sqlx::query_as::<_, store::User>(
         r#"SELECT * FROM users WHERE username = $1;"#,
     )
@@ -94,7 +94,7 @@ fn verify_password_hash(
 
 #[tracing::instrument(name = "Change password", skip(password, pool))]
 pub async fn change_password(
-    user_id: store::UserId,
+    user_id: payloads::UserId,
     password: SecretBox<String>,
     pool: &PgPool,
 ) -> Result<(), anyhow::Error> {

@@ -25,3 +25,12 @@ pub async fn create_community(
         .map_err(anyhow::Error::from)?;
     Ok(HttpResponse::Ok().finish())
 }
+
+// #[tracing::instrument(skip(user, pool), ret)]
+// pub async fn invite_community_member(
+// user: Identity,
+// details: web::Json<requests::InviteCommunityMember>,
+// pool: web::Data<PgPool>,
+// ) -> Result<HttpResponse, APIError> {
+// let user_id = get_user_id(&user)?;
+// }

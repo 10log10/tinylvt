@@ -8,8 +8,6 @@ use actix_web::{
 };
 use uuid::Uuid;
 
-use crate::store;
-
 pub fn api_services() -> impl HttpServiceFactory {
     web::scope("/api")
         .route("/health_check", web::get().to(health_check))
@@ -27,7 +25,6 @@ pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("healthy")
 }
 
-/// Public login errors. Only the top-level message is sent.
 #[derive(Debug, thiserror::Error)]
 pub enum APIError {
     #[error("Authentication failed")]
@@ -59,13 +56,13 @@ impl ResponseError for APIError {
     }
 }
 
-fn get_user_id(user: &Identity) -> Result<store::UserId, APIError> {
+fn get_user_id(user: &Identity) -> Result<payloads::UserId, APIError> {
     let id_str = user.id().map_err(APIError::GetIdentityError)?;
     // special case: since this is used in so many routes, the user_id is
     // recorded here, but attaches to the span for the api route itself
     tracing::Span::current()
         .record("user_id", tracing::field::display(&id_str));
-    Ok(store::UserId(
+    Ok(payloads::UserId(
         Uuid::parse_str(&id_str).map_err(anyhow::Error::from)?,
     ))
 }

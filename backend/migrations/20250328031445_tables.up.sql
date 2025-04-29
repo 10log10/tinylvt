@@ -51,8 +51,8 @@ CREATE TABLE community_members (
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     role TEXT REFERENCES user_roles (id) NOT NULL,
-    -- Time of join, mutable for correction purposes (created_at is immutable)
-    joined_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    -- Time of join, just an invite until accepted
+    joined_at TIMESTAMPTZ DEFAULT null,
     -- Time of last activity in this community
     active_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     -- An inactive member is ineligible to receive distributions.

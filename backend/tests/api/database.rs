@@ -10,9 +10,10 @@ use sqlx::{Error, PgPool};
 use sqlx_postgres::types::PgInterval;
 
 use backend::store::{
-    self, AuctionParams, AuctionParamsId, Community, CommunityId, OpenHours,
-    OpenHoursId, OpenHoursWeekday, Site, SiteId, Space, User,
+    self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
+    OpenHoursWeekday, Site, SiteId, Space, User,
 };
+use payloads::{CommunityId, responses::Community};
 
 use crate::helpers::spawn_app;
 
@@ -35,8 +36,8 @@ async fn test_community() -> Result<(), Error> {
     .fetch_one(&conn)
     .await?;
 
-    assert!(timestamp_is_recent(community.created_at.to_jiff()));
-    assert!(timestamp_is_recent(community.updated_at.to_jiff()));
+    assert!(timestamp_is_recent(community.created_at));
+    assert!(timestamp_is_recent(community.updated_at));
 
     let community_retrieved = sqlx::query_as::<_, Community>(
         "SELECT * FROM communities WHERE id = $1;",
