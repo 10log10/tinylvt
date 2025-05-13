@@ -15,7 +15,10 @@ async fn login_refused() -> anyhow::Result<()> {
     let response = app.post("login", &login_body).await;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(response.text().await?, "Authentication failed");
+    assert_eq!(
+        response.text().await?,
+        "Authentication failed: Invalid credentials"
+    );
 
     // login check should fail
     let response = app.post_login_check().await;
@@ -30,7 +33,7 @@ async fn login_refused() -> anyhow::Result<()> {
 async fn create_account() -> anyhow::Result<()> {
     let app = spawn_app().await;
 
-    app.create_test_account().await;
+    app.create_alice_user().await;
 
     // check for valid session
     let response = app.post_login_check().await;

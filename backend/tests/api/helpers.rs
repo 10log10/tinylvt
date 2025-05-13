@@ -1,5 +1,8 @@
 use backend::{Config, build, telemetry};
-use payloads::requests;
+use payloads::{
+    requests,
+    responses::{self, Community},
+};
 use reqwest::StatusCode;
 use serde::Serialize;
 use sqlx::{Error, PgPool, migrate::Migrator};
@@ -42,31 +45,88 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
-    // function to populat test data below
+    pub async fn get(&self, path: &str) -> reqwest::Response {
+        self.api_client
+            .get(format!("{}/api/{path}", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
 
-    pub async fn create_test_account(&self) {
-        let body = requests::CreateAccount {
-            username: "alice".into(),
-            password: "supersecret".into(),
-            email: "alice@example.com".into(),
-        };
+    // functions to populate test data below
+
+    /// Create a test account that is verified.
+    pub async fn create_alice_user(&self) {
+        let body = alice_credentials();
         let response = self.post("create_account", &body).await;
         assert_is_redirect_to(&response, "/login");
+        self.mark_user_email_verified(&body.username).await;
 
         // do login
         let response = self.post("login", &body).await;
-
         assert_is_redirect_to(&response, "/");
     }
 
-    pub async fn create_second_test_account(&self) {
-        let body = requests::CreateAccount {
-            username: "bob".into(),
-            password: "bobspw".into(),
-            email: "bob@example.com".into(),
-        };
+    pub async fn create_bob_user(&self) {
+        let body = bob_credentials();
         let response = self.post("create_account", &body).await;
         assert_is_redirect_to(&response, "/login");
+        self.mark_user_email_verified(&body.username).await;
+    }
+
+    pub async fn login_bob(&self) {
+        self.post("logout", &()).await;
+        let response = self.post("login", &bob_credentials()).await;
+        assert_is_redirect_to(&response, "/");
+    }
+
+    /// Get the communities for the currently logged in user.
+    pub async fn get_communities(&self) -> Vec<Community> {
+        let response = self.get("communities").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        response.json::<Vec<Community>>().await.unwrap()
+    }
+
+    /// Returns the path component for the invite
+    pub async fn invite_bob(&self) -> String {
+        let communities = self.get_communities().await;
+        let community_id = communities.first().unwrap().id;
+        let body = requests::InviteCommunityMember {
+            community_id,
+            new_member_email: Some(bob_credentials().email),
+        };
+        let response = self.post("invite_member", &body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        response.text().await.unwrap()
+    }
+
+    pub async fn accept_invite(&self) {
+        // get the first invite received
+        let invites = self
+            .get("invites")
+            .await
+            .json::<Vec<responses::CommunityInvite>>()
+            .await
+            .unwrap();
+        let first = invites.first().unwrap();
+        assert_eq!(first.community_name, "Test community");
+
+        // accept the invite
+        self.post(&format!("accept_invite/{}", first.id), &()).await;
+
+        // check that we're now a part of the community
+        let communities = self.get_communities().await;
+        assert!(!communities.is_empty());
+    }
+
+    async fn mark_user_email_verified(&self, username: &str) {
+        // mark email as verified
+        sqlx::query("UPDATE users SET email_verified = $1 WHERE username = $2")
+            .bind(true)
+            .bind(username)
+            .execute(&self.db_pool)
+            .await
+            .unwrap();
     }
 
     pub async fn create_test_community(&self) {
@@ -75,6 +135,22 @@ impl TestApp {
         };
         let response = self.post("create_community", &body).await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+}
+
+fn alice_credentials() -> requests::CreateAccount {
+    requests::CreateAccount {
+        username: "alice".into(),
+        password: "supersecret".into(),
+        email: "alice@example.com".into(),
+    }
+}
+
+fn bob_credentials() -> requests::CreateAccount {
+    requests::CreateAccount {
+        username: "bob".into(),
+        password: "bobspw".into(),
+        email: "bob@example.com".into(),
     }
 }
 

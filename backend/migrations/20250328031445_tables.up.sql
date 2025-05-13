@@ -1,6 +1,6 @@
 CREATE TABLE communities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
@@ -11,7 +11,8 @@ CREATE TABLE users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     display_name VARCHAR(255),
-    -- If email ownership has been verified; required for distributions
+    -- If email ownership has been verified; part of signup flow, required to
+    -- create or join communities
     email_verified BOOLEAN NOT NULL DEFAULT false,
     balance NUMERIC(20, 6) NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
@@ -51,8 +52,6 @@ CREATE TABLE community_members (
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     role TEXT REFERENCES user_roles (id) NOT NULL,
-    -- Time of join, just an invite until accepted
-    joined_at TIMESTAMPTZ DEFAULT null,
     -- Time of last activity in this community
     active_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     -- An inactive member is ineligible to receive distributions.
@@ -66,6 +65,15 @@ CREATE TABLE community_members (
 CREATE UNIQUE INDEX one_leader_per_community
 ON community_members (community_id)
 WHERE role = 'leader';
+
+CREATE TABLE community_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    -- If provided, the accepting user email must match. Otherwise it's an open
+    -- invite to anyone with the invite id.
+    email VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
 
 -- A past/future schedule of community membership that results in automatic
 -- updating of the `is_active` state.

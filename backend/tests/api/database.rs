@@ -1,3 +1,7 @@
+//! Some basic database tests.
+//!
+//! Though backend::store defines its own level of API interface, most tests are
+//! at the http route level.
 use std::str::FromStr;
 
 use jiff::{
@@ -11,7 +15,7 @@ use sqlx_postgres::types::PgInterval;
 
 use backend::store::{
     self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
-    OpenHoursWeekday, Site, SiteId, Space, User,
+    OpenHoursWeekday, Site, SiteId, Space, StoreError, User,
 };
 use payloads::{CommunityId, responses::Community};
 
@@ -52,7 +56,7 @@ async fn test_community() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_populate() -> Result<(), Error> {
+async fn test_populate() -> Result<(), StoreError> {
     let app = spawn_app().await;
     let conn = &app.db_pool;
 
@@ -63,6 +67,10 @@ async fn test_populate() -> Result<(), Error> {
     .fetch_one(conn)
     .await?;
     let _users = populate_users(conn, &community.id).await?;
+    // check that we get a unique constaint error if attempting to populate the
+    // same usernames
+    let result = populate_users(conn, &community.id).await;
+    assert!(matches!(result, Err(StoreError::NotUnique(_))));
     let open_hours = populate_open_hours(conn).await?;
     let auction_params = populate_auction_params(conn).await?;
     let site =
@@ -76,7 +84,7 @@ async fn test_populate() -> Result<(), Error> {
 async fn populate_users(
     conn: &PgPool,
     community_id: &CommunityId,
-) -> Result<Vec<User>, Error> {
+) -> Result<Vec<User>, StoreError> {
     let roles = ["leader", "coleader", "member"];
 
     for (i, role) in roles.iter().enumerate() {
@@ -106,9 +114,9 @@ async fn populate_users(
         .await?;
     }
 
-    sqlx::query_as::<_, User>("SELECT * FROM users;")
+    Ok(sqlx::query_as::<_, User>("SELECT * FROM users;")
         .fetch_all(conn)
-        .await
+        .await?)
 }
 
 async fn populate_open_hours(conn: &PgPool) -> Result<OpenHours, Error> {

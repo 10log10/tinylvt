@@ -1,4 +1,4 @@
-use crate::store;
+use crate::store::{self, StoreError};
 use crate::telemetry::spawn_blocking_with_tracing;
 use anyhow::Context;
 use argon2::password_hash::SaltString;
@@ -132,11 +132,12 @@ pub struct NewUserDetails {
 pub async fn create_user(
     new_user_details: NewUserDetails,
     pool: &PgPool,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), StoreError> {
     let password_hash = spawn_blocking_with_tracing(move || {
         compute_password_hash(new_user_details.password)
     })
-    .await?
+    .await
+    .map_err(anyhow::Error::from)?
     .context("Failed to hash password")?;
     let new_user_id = store::create_user(
         pool,

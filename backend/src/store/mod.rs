@@ -6,7 +6,10 @@ use sqlx::{Error, FromRow, PgPool};
 use sqlx_postgres::types::PgInterval;
 use uuid::Uuid;
 
-use payloads::{CommunityId, UserId, responses::Community};
+use payloads::{
+    CommunityId, InviteId, RoleId, UserId,
+    responses::{self, Community},
+};
 
 /// A complete user row that stays in the backend.
 #[derive(Debug, Clone, FromRow)]
@@ -41,33 +44,6 @@ pub struct Token {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct RoleId(pub String);
-
-impl RoleId {
-    pub fn is_mmeber(&self) -> bool {
-        self.0 == "member"
-    }
-    pub fn is_moderator(&self) -> bool {
-        self.0 == "moderator"
-    }
-    pub fn is_coleader(&self) -> bool {
-        self.0 == "coleader"
-    }
-    pub fn is_leader(&self) -> bool {
-        self.0 == "leader"
-    }
-
-    /// If the role is moderator or higher rank
-    pub fn is_ge_moderator(&self) -> bool {
-        self.is_moderator() || self.is_ge_coleader()
-    }
-    pub fn is_ge_coleader(&self) -> bool {
-        self.is_coleader() || self.is_leader()
-    }
-}
-
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRole {
     pub id: RoleId,
@@ -81,8 +57,6 @@ pub struct CommunityMember {
     pub community_id: CommunityId,
     pub user_id: UserId,
     pub role: RoleId,
-    #[sqlx(try_from = "SqlxTs")]
-    pub joined_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub active_at: Timestamp,
     #[sqlx(try_from = "OptionalTimestamp")]
@@ -106,6 +80,15 @@ impl From<OptionalTimestamp> for Option<Timestamp> {
 /// A type that can only exist if the interior CommunityMember has been
 /// validated to exist.
 pub struct ValidatedMember(CommunityMember);
+
+#[derive(Debug, Clone, FromRow)]
+pub struct CommunityInvite {
+    pub id: InviteId,
+    pub community_id: CommunityId,
+    pub email: Option<String>,
+    #[sqlx(try_from = "SqlxTs")]
+    pub created_at: Timestamp,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(transparent)]
@@ -313,9 +296,16 @@ pub struct AuditLog {
 /// Create a community and add the creating user as the leader.
 pub async fn create_community(
     name: &str,
-    leader_id: UserId, // initial leader of community
+    user_id: UserId, // initial leader of community
     pool: &PgPool,
-) -> Result<Community, Error> {
+) -> Result<Community, StoreError> {
+    let user = read_user(pool, &user_id).await?;
+    if !user.email_verified {
+        return Err(StoreError::UnverifiedEmail);
+    }
+    if name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
+        return Err(StoreError::FieldTooLong);
+    }
     let mut tx = pool.begin().await?;
 
     let community = sqlx::query_as::<_, Community>(
@@ -329,9 +319,9 @@ pub async fn create_community(
         "INSERT INTO community_members (community_id, user_id, role)
         VALUES ($1, $2, $3);",
     )
-    .bind(&community.id)
-    .bind(leader_id)
-    .bind("leader")
+    .bind(community.id)
+    .bind(user_id)
+    .bind(RoleId::leader())
     .execute(&mut *tx)
     .await?;
 
@@ -346,8 +336,14 @@ pub async fn create_user(
     username: &str,
     email: &str,
     password_hash: &str,
-) -> Result<User, Error> {
-    sqlx::query_as::<_, User>(
+) -> Result<User, StoreError> {
+    if username.len() > payloads::requests::USERNAME_MAX_LEN {
+        return Err(StoreError::FieldTooLong);
+    }
+    if email.len() > payloads::requests::EMAIL_MAX_LEN {
+        return Err(StoreError::FieldTooLong);
+    }
+    let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (
                 username,
                 email,
@@ -360,7 +356,8 @@ pub async fn create_user(
     .bind(email)
     .bind(password_hash)
     .fetch_one(pool)
-    .await
+    .await?;
+    Ok(user)
 }
 
 /// Create a new user as would happen during signup.
@@ -397,40 +394,156 @@ pub async fn delete_user(conn: &PgPool, id: &UserId) -> Result<User, Error> {
 }
 
 pub async fn get_validated_member(
-    conn: &PgPool,
     user_id: &UserId,
     community_id: &CommunityId,
-) -> Result<ValidatedMember, Error> {
-    Ok(ValidatedMember(
-        sqlx::query_as::<_, CommunityMember>(
-            "SELECT * FROM community_members WHERE
+    pool: &PgPool,
+) -> Result<ValidatedMember, StoreError> {
+    let Some(member) = sqlx::query_as::<_, CommunityMember>(
+        "SELECT * FROM community_members WHERE
             community_id = $1 AND user_id = $2;",
-        )
-        .bind(community_id)
-        .bind(user_id)
-        .fetch_one(conn)
-        .await?,
-    ))
+    )
+    .bind(community_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Err(StoreError::MemberNotFound);
+    };
+    Ok(ValidatedMember(member))
 }
 
 pub async fn invite_community_member(
-    conn: &PgPool,
     actor: &ValidatedMember,
-    user_to_add: &UserId,
-) -> anyhow::Result<()> {
+    new_member_email: &Option<String>,
+    pool: &PgPool,
+) -> Result<InviteId, StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(anyhow::anyhow!(
-            "Must be a moderator to add community members."
-        ));
+        return Err(StoreError::RequiresModeratorPermissions);
     }
+    let invite = sqlx::query_as::<_, CommunityInvite>(
+        "INSERT INTO community_invites (community_id, email)
+        VALUES ($1, $2) RETURNING *;",
+    )
+    .bind(actor.0.community_id)
+    .bind(new_member_email)
+    .fetch_one(pool)
+    .await?;
+    Ok(invite.id)
+}
+
+pub async fn accept_invite(
+    user_id: &UserId,
+    invite_id: &payloads::InviteId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    let user = read_user(pool, user_id).await?;
+    if !user.email_verified {
+        return Err(StoreError::UnverifiedEmail);
+    }
+    let invite = sqlx::query_as::<_, CommunityInvite>(
+        "SELECT * FROM community_invites WHERE id = $1;",
+    )
+    .bind(invite_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(invite) = invite else {
+        return Err(StoreError::InvalidInvite);
+    };
+    if let Some(invite_email) = invite.email {
+        if invite_email != user.email {
+            return Err(StoreError::MismatchedInviteEmail);
+        }
+    }
+
+    let mut tx = pool.begin().await?;
+
     sqlx::query(
         "INSERT INTO community_members (community_id, user_id, role)
         VALUES ($1, $2, $3);",
     )
-    .bind(&actor.0.community_id)
-    .bind(user_to_add)
-    .bind("member")
-    .execute(conn)
+    .bind(invite.community_id)
+    .bind(user_id)
+    .bind(RoleId::member())
+    .execute(&mut *tx)
     .await?;
+
+    sqlx::query("DELETE FROM community_invites WHERE id = $1")
+        .bind(invite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
     Ok(())
+}
+
+pub async fn get_communities(
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<Community>, StoreError> {
+    Ok(sqlx::query_as::<_, Community>(
+        "SELECT b.*
+        FROM community_members a
+        JOIN communities b ON a.community_id = b.id
+        WHERE a.user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_invites(
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<responses::CommunityInvite>, StoreError> {
+    let user = read_user(pool, user_id).await?;
+    // Need to make sure this user actually owns this email before showing them
+    // the invites they've received
+    if !user.email_verified {
+        return Err(StoreError::UnverifiedEmail);
+    }
+    Ok(sqlx::query_as::<_, responses::CommunityInvite>(
+        "SELECT
+            a.*,
+            b.name as community_name
+        FROM community_invites a
+        JOIN communities b ON a.community_id = b.id
+        WHERE a.email = $1",
+    )
+    .bind(user.email)
+    .fetch_all(pool)
+    .await?)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error("Email not yet verified")]
+    UnverifiedEmail,
+    #[error("Moderator permissions required")]
+    RequiresModeratorPermissions,
+    #[error("Mismatched invite email")]
+    MismatchedInviteEmail,
+    #[error("Field too long")]
+    FieldTooLong,
+    #[error("Invalid invite")]
+    InvalidInvite,
+    #[error("Member not found")]
+    MemberNotFound,
+    #[error("Unique constraint violation")]
+    NotUnique(#[source] sqlx::Error),
+    #[error("Unexpected database error")]
+    Database(#[source] sqlx::Error),
+    #[error("Unexpected error")]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl From<Error> for StoreError {
+    fn from(e: Error) -> Self {
+        if let Error::Database(db_err) = &e {
+            if db_err.code().as_deref() == Some("23505") {
+                return StoreError::NotUnique(e);
+            }
+        }
+        StoreError::Database(e)
+    }
 }
