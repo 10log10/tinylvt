@@ -1961,9 +1961,11 @@ dependencies = [
  "derive_more 2.0.1",
  "jiff",
  "jiff-sqlx",
+ "reqwest",
  "rust_decimal",
  "serde",
  "sqlx",
+ "thiserror",
  "uuid",
 ]
 

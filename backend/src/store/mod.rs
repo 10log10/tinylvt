@@ -57,10 +57,7 @@ pub struct CommunityMember {
     pub community_id: CommunityId,
     pub user_id: UserId,
     pub role: RoleId,
-    #[sqlx(try_from = "SqlxTs")]
-    pub active_at: Timestamp,
-    #[sqlx(try_from = "OptionalTimestamp")]
-    pub inactive_at: Option<Timestamp>,
+    pub is_active: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -381,7 +378,7 @@ pub async fn update_user(pool: &PgPool, user: &User) -> Result<User, Error> {
     .bind(&user.display_name)
     .bind(user.email_verified)
     .bind(user.balance)
-    .bind(&user.id)
+    .bind(user.id)
     .fetch_one(pool)
     .await
 }
@@ -511,6 +508,25 @@ pub async fn get_invites(
         WHERE a.email = $1",
     )
     .bind(user.email)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_members(
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<Vec<responses::CommunityMember>, StoreError> {
+    Ok(sqlx::query_as::<_, responses::CommunityMember>(
+        "SELECT
+            a.role,
+            a.is_active,
+            b.username,
+            b.display_name
+        FROM community_members a
+        JOIN users b ON a.user_id = b.id
+        WHERE a.community_id = $1",
+    )
+    .bind(actor.0.community_id)
     .fetch_all(pool)
     .await?)
 }

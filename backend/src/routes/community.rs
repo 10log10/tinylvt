@@ -1,6 +1,9 @@
 use actix_identity::Identity;
 use actix_web::{HttpResponse, get, post, web};
-use payloads::requests::{self, CreateCommunity};
+use payloads::{
+    CommunityId,
+    requests::{self, CreateCommunity},
+};
 use sqlx::PgPool;
 
 use crate::store;
@@ -47,7 +50,7 @@ pub async fn invite_community_member(
         &pool,
     )
     .await?;
-    Ok(HttpResponse::Ok().body(format!("/api/invite/{invite_id}")))
+    Ok(HttpResponse::Ok().json(format!("/api/invite/{invite_id}")))
 }
 
 /// Get the invites the user has received
@@ -72,4 +75,18 @@ pub async fn accept_invite(
     let user_id = get_user_id(&user)?;
     store::accept_invite(&user_id, &path, &pool).await?;
     Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/members")]
+pub async fn get_members(
+    user: Identity,
+    community_id: web::Json<CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &community_id, &pool).await?;
+    let members = store::get_members(&validated_member, &pool).await?;
+    Ok(HttpResponse::Ok().json(members))
 }

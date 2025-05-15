@@ -23,6 +23,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::invite_community_member)
         .service(community::get_invites)
         .service(community::accept_invite)
+        .service(community::get_members)
 }
 
 pub async fn health_check() -> impl Responder {

@@ -1,10 +1,6 @@
 use backend::{Config, build, telemetry};
-use payloads::{
-    requests,
-    responses::{self, Community},
-};
+use payloads::requests;
 use reqwest::StatusCode;
-use serde::Serialize;
 use sqlx::{Error, PgPool, migrate::Migrator};
 use tracing_log::LogTracer;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -15,111 +11,72 @@ const DATABASE_URL: &str = "postgresql://user:password@localhost:5432";
 const DEFAULT_DB: &str = "tinylvt";
 
 pub struct TestApp {
-    pub address: String,
     #[allow(unused)]
     pub port: u16,
     pub db_pool: PgPool,
-    pub api_client: reqwest::Client,
+    pub client: payloads::APIClient,
     _database_drop_guard: DropDatabaseGuard,
 }
 
+/// Functions to populate test data
+///
+/// Using anyhow::Result lets us get a backtrace from when the error was fist
+/// converted to anyhow::Result. Run with RUST_BACKTRACE=1 to view.
 impl TestApp {
-    pub async fn post(
-        &self,
-        path: &str,
-        body: &impl Serialize,
-    ) -> reqwest::Response {
-        self.api_client
-            .post(format!("{}/api/{path}", &self.address))
-            .json(body)
-            .send()
-            .await
-            .expect("Failed to execute request.")
-    }
-
-    pub async fn post_login_check(&self) -> reqwest::Response {
-        self.api_client
-            .post(format!("{}/api/login_check", &self.address))
-            .send()
-            .await
-            .expect("Failed to execute request.")
-    }
-
-    pub async fn get(&self, path: &str) -> reqwest::Response {
-        self.api_client
-            .get(format!("{}/api/{path}", &self.address))
-            .send()
-            .await
-            .expect("Failed to execute request.")
-    }
-
-    // functions to populate test data below
-
     /// Create a test account that is verified.
-    pub async fn create_alice_user(&self) {
+    pub async fn create_alice_user(&self) -> anyhow::Result<()> {
         let body = alice_credentials();
-        let response = self.post("create_account", &body).await;
-        assert_is_redirect_to(&response, "/login");
-        self.mark_user_email_verified(&body.username).await;
+        self.client.create_account(&body).await?;
+        self.mark_user_email_verified(&body.username).await?;
 
         // do login
-        let response = self.post("login", &body).await;
-        assert_is_redirect_to(&response, "/");
+        self.client.login(&body).await?;
+        Ok(())
     }
 
-    pub async fn create_bob_user(&self) {
+    pub async fn create_bob_user(&self) -> anyhow::Result<()> {
         let body = bob_credentials();
-        let response = self.post("create_account", &body).await;
-        assert_is_redirect_to(&response, "/login");
-        self.mark_user_email_verified(&body.username).await;
+        self.client.create_account(&body).await?;
+        self.mark_user_email_verified(&body.username).await?;
+        Ok(())
     }
 
-    pub async fn login_bob(&self) {
-        self.post("logout", &()).await;
-        let response = self.post("login", &bob_credentials()).await;
-        assert_is_redirect_to(&response, "/");
-    }
-
-    /// Get the communities for the currently logged in user.
-    pub async fn get_communities(&self) -> Vec<Community> {
-        let response = self.get("communities").await;
-        assert_eq!(response.status(), StatusCode::OK);
-        response.json::<Vec<Community>>().await.unwrap()
+    pub async fn login_bob(&self) -> anyhow::Result<()> {
+        self.client.logout().await?;
+        self.client.login(&bob_credentials()).await?;
+        Ok(())
     }
 
     /// Returns the path component for the invite
-    pub async fn invite_bob(&self) -> String {
-        let communities = self.get_communities().await;
+    pub async fn invite_bob(&self) -> anyhow::Result<String> {
+        let communities = self.client.get_communities().await?;
         let community_id = communities.first().unwrap().id;
-        let body = requests::InviteCommunityMember {
+        let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: Some(bob_credentials().email),
         };
-        let response = self.post("invite_member", &body).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        response.text().await.unwrap()
+        Ok(self.client.invite_member(&details).await?)
     }
 
-    pub async fn accept_invite(&self) {
+    pub async fn accept_invite(&self) -> anyhow::Result<()> {
         // get the first invite received
-        let invites = self
-            .get("invites")
-            .await
-            .json::<Vec<responses::CommunityInvite>>()
-            .await
-            .unwrap();
+        let invites = self.client.get_invites().await?;
         let first = invites.first().unwrap();
         assert_eq!(first.community_name, "Test community");
 
         // accept the invite
-        self.post(&format!("accept_invite/{}", first.id), &()).await;
+        self.client.accept_invite(&first.id).await?;
 
         // check that we're now a part of the community
-        let communities = self.get_communities().await;
+        let communities = self.client.get_communities().await?;
         assert!(!communities.is_empty());
+        Ok(())
     }
 
-    async fn mark_user_email_verified(&self, username: &str) {
+    async fn mark_user_email_verified(
+        &self,
+        username: &str,
+    ) -> anyhow::Result<()> {
         // mark email as verified
         sqlx::query("UPDATE users SET email_verified = $1 WHERE username = $2")
             .bind(true)
@@ -127,14 +84,25 @@ impl TestApp {
             .execute(&self.db_pool)
             .await
             .unwrap();
+        Ok(())
     }
 
-    pub async fn create_test_community(&self) {
+    pub async fn create_test_community(&self) -> anyhow::Result<()> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
         };
-        let response = self.post("create_community", &body).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        self.client.create_community(&body).await?;
+        Ok(())
+    }
+
+    pub async fn create_two_person_community(&self) -> anyhow::Result<()> {
+        self.create_alice_user().await?;
+        self.create_test_community().await?;
+        self.invite_bob().await?;
+        self.create_bob_user().await?;
+        self.login_bob().await?;
+        self.accept_invite().await?;
+        Ok(())
     }
 }
 
@@ -177,10 +145,12 @@ pub async fn spawn_app() -> TestApp {
     tokio::spawn(server);
 
     TestApp {
-        address: format!("http://127.0.0.1:{}", config.port),
         port: config.port,
         db_pool: conn,
-        api_client: client,
+        client: payloads::APIClient {
+            address: format!("http://127.0.0.1:{}", config.port),
+            inner_client: client,
+        },
         _database_drop_guard: guard,
     }
 }
@@ -222,7 +192,15 @@ async fn setup_database() -> Result<(PgPool, DropDatabaseGuard), Error> {
     Ok((conn, guard))
 }
 
-pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
-    assert_eq!(response.status().as_u16(), 303);
-    assert_eq!(response.headers().get("Location").unwrap(), location);
+/// Assert that the result of an API action results in a specific status code.
+pub fn assert_status_code<T>(
+    result: Result<T, payloads::ClientError>,
+    expected: StatusCode,
+) {
+    match result {
+        Err(payloads::ClientError::APIError(code, _)) => {
+            assert_eq!(code, expected)
+        }
+        _ => panic!("Expected APIError"),
+    };
 }

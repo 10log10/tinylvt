@@ -1,8 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{
-    HttpMessage, HttpRequest, HttpResponse, Responder, http::header::LOCATION,
-    web,
-};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, web};
 use sqlx::PgPool;
 
 use crate::password::{
@@ -28,9 +25,7 @@ pub async fn login(
                 .record("user_id", tracing::field::display(&user_id));
             Identity::login(&request.extensions(), user_id.to_string())
                 .map_err(|e| APIError::UnexpectedError(e.into()))?;
-            Ok(HttpResponse::SeeOther()
-                .insert_header((LOCATION, "/"))
-                .finish())
+            Ok(HttpResponse::Ok().finish())
         }
         Err(e) => {
             let e = match e {
@@ -53,12 +48,10 @@ pub async fn login_check(user: Identity) -> Result<HttpResponse, APIError> {
 }
 
 #[tracing::instrument(skip(user))]
-pub async fn logout(user: Identity) -> impl Responder {
+pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
     let _ = get_user_id(&user); // to instrument the user_id, if exists
     user.logout();
-    HttpResponse::SeeOther()
-        .insert_header((LOCATION, "/login"))
-        .finish()
+    Ok(HttpResponse::Ok().finish())
 }
 
 // TODO: return error if email is not a valid format
@@ -69,7 +62,5 @@ pub async fn create_account(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     create_user(new_user_details.0, &pool).await?;
-    Ok(HttpResponse::SeeOther()
-        .insert_header((LOCATION, "/login"))
-        .finish())
+    Ok(HttpResponse::Ok().finish())
 }

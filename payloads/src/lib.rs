@@ -33,7 +33,7 @@ pub mod requests {
 }
 
 pub mod responses {
-    use crate::{CommunityId, InviteId};
+    use crate::{CommunityId, InviteId, RoleId};
     use jiff::Timestamp;
     use jiff_sqlx::Timestamp as SqlxTs;
     use serde::{Deserialize, Serialize};
@@ -49,6 +49,7 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
+    /// Details about a community invite, excluding the target coomunity id.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct CommunityInvite {
@@ -57,9 +58,20 @@ pub mod responses {
         #[sqlx(try_from = "SqlxTs")]
         pub created_at: Timestamp,
     }
+
+    /// Details about a community member for a community one is a part of.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+    pub struct CommunityMember {
+        username: String,
+        display_name: Option<String>,
+        role: RoleId,
+        is_active: bool,
+    }
 }
 
 use derive_more::Display;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -126,4 +138,170 @@ impl RoleId {
     pub fn is_ge_coleader(&self) -> bool {
         self.is_coleader() || self.is_leader()
     }
+}
+
+type ReqwestResult = Result<reqwest::Response, reqwest::Error>;
+
+/// An API client for interfacing with the backend.
+pub struct APIClient {
+    pub address: String,
+    pub inner_client: reqwest::Client,
+}
+
+/// Helper methods for http actions
+impl APIClient {
+    fn format_url(&self, path: &str) -> String {
+        format!("{}/api/{path}", &self.address)
+    }
+
+    async fn post(&self, path: &str, body: &impl Serialize) -> ReqwestResult {
+        self.inner_client
+            .post(self.format_url(path))
+            .json(body)
+            .send()
+            .await
+    }
+
+    async fn empty_post(&self, path: &str) -> ReqwestResult {
+        self.inner_client.post(self.format_url(path)).send().await
+    }
+
+    async fn get(&self, path: &str, body: &impl Serialize) -> ReqwestResult {
+        self.inner_client
+            .get(self.format_url(path))
+            .json(body)
+            .send()
+            .await
+    }
+
+    async fn empty_get(&self, path: &str) -> ReqwestResult {
+        self.inner_client.get(self.format_url(path)).send().await
+    }
+}
+
+/// Methods on the backend API
+impl APIClient {
+    pub async fn health_check(&self) -> Result<(), ClientError> {
+        let response = self.empty_get("health_check").await?;
+        ok_empty(response).await
+    }
+
+    pub async fn create_account(
+        &self,
+        details: &requests::CreateAccount,
+    ) -> Result<(), ClientError> {
+        let response = self.post("create_account", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn login(
+        &self,
+        details: &requests::CreateAccount,
+    ) -> Result<(), ClientError> {
+        let response = self.post("login", &details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn logout(&self) -> Result<(), ClientError> {
+        let response = self.empty_post("logout").await?;
+        ok_empty(response).await
+    }
+
+    /// Check if the user is logged in.
+    pub async fn login_check(&self) -> Result<bool, ClientError> {
+        let response = self.empty_post("login_check").await?;
+        match response.status() {
+            StatusCode::OK => Ok(true),
+            StatusCode::UNAUTHORIZED => Ok(false),
+            _ => Err(ClientError::APIError(
+                response.status(),
+                response.text().await?,
+            )),
+        }
+    }
+
+    pub async fn create_community(
+        &self,
+        details: &requests::CreateCommunity,
+    ) -> Result<(), ClientError> {
+        let response = self.post("create_community", &details).await?;
+        ok_empty(response).await
+    }
+
+    /// Get the communities for the currently logged in user.
+    pub async fn get_communities(
+        &self,
+    ) -> Result<Vec<responses::Community>, ClientError> {
+        let response = self.empty_get("communities").await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_invites(
+        &self,
+    ) -> Result<Vec<responses::CommunityInvite>, ClientError> {
+        let response = self.empty_get("invites").await?;
+        ok_body(response).await
+    }
+
+    /// Returns the path component for the invite to construct a URL with.
+    pub async fn invite_member(
+        &self,
+        details: &requests::InviteCommunityMember,
+    ) -> Result<String, ClientError> {
+        let response = self.post("invite_member", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn accept_invite(
+        &self,
+        invite_id: &InviteId,
+    ) -> Result<(), ClientError> {
+        let response = self
+            .empty_post(&format!("accept_invite/{invite_id}"))
+            .await?;
+        ok_empty(response).await
+    }
+
+    /// Get the communities for the currently logged in user.
+    pub async fn get_members(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::CommunityMember>, ClientError> {
+        let response = self.get("members", community_id).await?;
+        ok_body(response).await
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ClientError {
+    /// An unhandled API error to display, containing response text.
+    #[error("{0}")]
+    APIError(StatusCode, String),
+    #[error("Network error")]
+    Network(#[from] reqwest::Error),
+}
+
+/// Deserialize a successful request into the desired type, or return an
+/// appropriate error.
+pub async fn ok_body<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, ClientError> {
+    if !response.status().is_success() {
+        return Err(ClientError::APIError(
+            response.status(),
+            response.text().await?,
+        ));
+    }
+    Ok(response.json::<T>().await?)
+}
+
+/// Check that an empty response is OK, returning a ClientError if not.
+pub async fn ok_empty(response: reqwest::Response) -> Result<(), ClientError> {
+    if !response.status().is_success() {
+        return Err(ClientError::APIError(
+            response.status(),
+            response.text().await?,
+        ));
+    }
+    Ok(())
 }

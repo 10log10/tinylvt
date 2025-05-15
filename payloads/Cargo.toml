@@ -9,9 +9,11 @@ edition = "2024"
 derive_more = { workspace = true }
 jiff = { workspace = true }
 jiff-sqlx = { workspace = true, optional = true }
+reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true, optional = true }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [features]

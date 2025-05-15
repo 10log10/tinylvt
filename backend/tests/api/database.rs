@@ -46,7 +46,7 @@ async fn test_community() -> Result<(), Error> {
     let community_retrieved = sqlx::query_as::<_, Community>(
         "SELECT * FROM communities WHERE id = $1;",
     )
-    .bind(&community.id)
+    .bind(community.id)
     .fetch_one(&conn)
     .await?;
 
@@ -108,7 +108,7 @@ async fn populate_users(
           ) VALUES ($1, $2, $3);",
         )
         .bind(community_id)
-        .bind(&user.id)
+        .bind(user.id)
         .bind(role)
         .execute(conn)
         .await?;

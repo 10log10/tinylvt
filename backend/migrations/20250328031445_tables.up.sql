@@ -30,33 +30,19 @@ CREATE TABLE tokens (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
+-- Roles:
 -- 'leader',  -- Only one leader
 -- 'coleader',  -- Same privileges as leader, but can have multiple
 -- 'moderator',  -- Lower-level privileges, but above member
 -- 'member'  -- Default membership level
-CREATE TABLE user_roles (
-    id TEXT PRIMARY KEY,  -- e.g., 'leader', 'moderator'
-    display_name TEXT NOT NULL,
-    rank INTEGER NOT NULL,  -- useful for sorting or privileges
-    CHECK (rank >= 0)
-);
-
-INSERT INTO user_roles (id, display_name, rank) VALUES
-('leader', 'Leader', 1),
-('coleader', 'Co-Leader', 2),
-('moderator', 'Moderator', 3),
-('member', 'Member', 4);
-
 CREATE TABLE community_members (
     -- Cascade: if a community is deleted, memberships are deleted too
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    role TEXT REFERENCES user_roles (id) NOT NULL,
-    -- Time of last activity in this community
-    active_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    role TEXT NOT NULL,
     -- An inactive member is ineligible to receive distributions.
     -- Can be set automatically by community_membership_schedule if user matches
-    inactive_at TIMESTAMPTZ DEFAULT null,
+    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (community_id, user_id)
@@ -75,7 +61,7 @@ CREATE TABLE community_invites (
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
--- A past/future schedule of community membership that results in automatic
+-- A future schedule of community membership that results in automatic
 -- updating of the `is_active` state.
 --
 -- There can be multiple entries for a given email address if membership comes
@@ -91,7 +77,19 @@ CREATE TABLE community_membership_schedule (
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    email VARCHAR(255),  -- email or username identifier
+    username VARCHAR(50),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
+
+-- The historical log of community membership
+CREATE TABLE community_membership_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ NOT NULL,
+    user_id UUID NOT NULL REFERENCES users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
@@ -218,6 +216,8 @@ CREATE TABLE space_rounds (
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
     winning_user_id UUID REFERENCES users (id),
+    -- space value at the conclusion of this round
+    value NUMERIC(20, 6) NOT NULL,
     PRIMARY KEY (space_id, round_id)
 );
 CREATE INDEX idx_space_rounds_space_id ON space_rounds (space_id);
@@ -314,6 +314,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER community_membership_schedule_set_updated_at
 BEFORE UPDATE ON community_membership_schedule
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER community_membership_history_set_updated_at
+BEFORE UPDATE ON community_membership_history
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
