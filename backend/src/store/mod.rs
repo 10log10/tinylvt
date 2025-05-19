@@ -1,6 +1,7 @@
 use derive_more::Display;
 use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::Timestamp as SqlxTs;
+use jiff_sqlx::ToSqlx;
 use rust_decimal::Decimal;
 use sqlx::{Error, FromRow, PgPool};
 use sqlx_postgres::types::PgInterval;
@@ -529,6 +530,126 @@ pub async fn get_members(
     .bind(actor.0.community_id)
     .fetch_all(pool)
     .await?)
+}
+
+pub async fn set_membership_schedule(
+    actor: &ValidatedMember,
+    schedule: &[payloads::MembershipSchedule],
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "DELETE FROM community_membership_schedule
+        WHERE community_id = $1",
+    )
+    .bind(actor.0.community_id)
+    .execute(&mut *tx)
+    .await?;
+
+    for sched_elem in schedule {
+        sqlx::query(
+            "INSERT INTO community_membership_schedule (
+                community_id,
+                start_at,
+                end_at,
+                email
+            ) VALUES ($1, $2, $3, $4);",
+        )
+        .bind(actor.0.community_id)
+        .bind(sched_elem.start_at.to_sqlx())
+        .bind(sched_elem.end_at.to_sqlx())
+        .bind(&sched_elem.email)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(())
+}
+
+pub async fn get_membership_schedule(
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<Vec<payloads::MembershipSchedule>, StoreError> {
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    Ok(sqlx::query_as::<_, payloads::MembershipSchedule>(
+        "SELECT * FROM community_membership_schedule
+        WHERE community_id = $1",
+    )
+    .bind(actor.0.community_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct MemberInSchedule {
+    community_id: CommunityId,
+    user_id: UserId,
+    email: String,
+}
+
+/// Update members' is_active status in all communities based on the schedule,
+/// if they are present in the schedule.
+pub async fn update_is_active_from_schedule(
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Get all (community, user) pairs in the schedule table. Only these
+    // community members are to have their is_active status updated.
+    let community_members_in_schedule = sqlx::query_as::<_, MemberInSchedule>(
+        "SELECT DISTINCT
+            a.community_id,
+            a.email,
+            u.id as user_id
+        FROM community_membership_schedule a
+        JOIN users u ON a.email = u.email;",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let now = Timestamp::now().to_sqlx();
+    // Might as well make sure we update everything or nothing to avoid
+    // partially completed state.
+    let mut tx = pool.begin().await?;
+    for community_member in community_members_in_schedule {
+        // Set is_active if we can find a matching row in the schedule where the
+        // user is meant to be a member.
+        sqlx::query(
+            "UPDATE community_members
+            SET is_active = EXISTS (
+                SELECT 1
+                FROM community_membership_schedule a
+                WHERE 
+                    a.email = $1
+                    AND a.community_id = $2
+                    AND a.start_at <= $3
+                    AND a.end_at > $4
+            )
+            WHERE
+                community_members.user_id = $5
+                AND community_members.community_id = $6",
+        )
+        .bind(&community_member.email)
+        .bind(community_member.community_id)
+        .bind(now)
+        .bind(now)
+        .bind(community_member.user_id)
+        .bind(community_member.community_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]

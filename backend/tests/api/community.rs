@@ -39,3 +39,23 @@ async fn community_invite_flow() -> anyhow::Result<()> {
     assert_eq!(members.len(), 2);
     Ok(())
 }
+
+#[tokio::test]
+async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.create_schedule(&community_id).await?;
+
+    backend::store::update_is_active_from_schedule(&app.db_pool).await?;
+    let members = app.client.get_members(&community_id).await?;
+
+    for member in members {
+        match member.username.as_str() {
+            "alice" => assert!(member.is_active),
+            "bob" => assert!(!member.is_active),
+            _ => (),
+        };
+    }
+
+    Ok(())
+}

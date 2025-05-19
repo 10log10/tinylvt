@@ -1,5 +1,6 @@
 use backend::{Config, build, telemetry};
-use payloads::requests;
+use jiff::{Span, Timestamp};
+use payloads::{CommunityId, requests};
 use reqwest::StatusCode;
 use sqlx::{Error, PgPool, migrate::Migrator};
 use tracing_log::LogTracer;
@@ -87,21 +88,55 @@ impl TestApp {
         Ok(())
     }
 
-    pub async fn create_test_community(&self) -> anyhow::Result<()> {
+    pub async fn create_test_community(&self) -> anyhow::Result<CommunityId> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
         };
-        self.client.create_community(&body).await?;
-        Ok(())
+        Ok(self.client.create_community(&body).await?)
     }
 
-    pub async fn create_two_person_community(&self) -> anyhow::Result<()> {
+    pub async fn create_two_person_community(
+        &self,
+    ) -> anyhow::Result<CommunityId> {
         self.create_alice_user().await?;
-        self.create_test_community().await?;
+        let community_id = self.create_test_community().await?;
         self.invite_bob().await?;
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
+        Ok(community_id)
+    }
+
+    pub async fn create_schedule(
+        &self,
+        community_id: &CommunityId,
+    ) -> anyhow::Result<()> {
+        self.client.login(&alice_credentials()).await?;
+        let schedule = vec![
+            payloads::MembershipSchedule {
+                // alice is active
+                start_at: Timestamp::now() - Span::new().hours(1),
+                end_at: Timestamp::now() + Span::new().hours(1),
+                email: alice_credentials().email,
+            },
+            payloads::MembershipSchedule {
+                // bob is not active
+                start_at: Timestamp::now() - Span::new().hours(2),
+                end_at: Timestamp::now() - Span::new().hours(1),
+                email: bob_credentials().email,
+            },
+        ];
+        let body = requests::SetMembershipSchedule {
+            community_id: *community_id,
+            schedule,
+        };
+        self.client.set_membership_schedule(&body).await?;
+        // check that we can read it back
+        let received_schedule = self
+            .client
+            .get_membership_schedule(&body.community_id)
+            .await?;
+        assert_eq!(body.schedule, received_schedule);
         Ok(())
     }
 }

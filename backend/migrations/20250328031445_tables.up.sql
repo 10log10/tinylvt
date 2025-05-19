@@ -77,8 +77,7 @@ CREATE TABLE community_membership_schedule (
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ NOT NULL,
-    email VARCHAR(255),  -- email or username identifier
-    username VARCHAR(50),
+    email VARCHAR(255) NOT NULL,  -- email identifier
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );

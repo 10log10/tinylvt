@@ -1,3 +1,16 @@
+use jiff::Timestamp;
+use jiff_sqlx::Timestamp as SqlxTs;
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct MembershipSchedule {
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub start_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub end_at: Timestamp,
+    pub email: String,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use serde::{Deserialize, Serialize};
@@ -29,6 +42,13 @@ pub mod requests {
     pub struct InviteCommunityMember {
         pub community_id: CommunityId,
         pub new_member_email: Option<String>,
+    }
+
+    /// An empty schedule can be used to delete the schedule entirely.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct SetMembershipSchedule {
+        pub community_id: CommunityId,
+        pub schedule: Vec<super::MembershipSchedule>,
     }
 }
 
@@ -63,10 +83,10 @@ pub mod responses {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct CommunityMember {
-        username: String,
-        display_name: Option<String>,
-        role: RoleId,
-        is_active: bool,
+        pub username: String,
+        pub display_name: Option<String>,
+        pub role: RoleId,
+        pub is_active: bool,
     }
 }
 
@@ -223,9 +243,9 @@ impl APIClient {
     pub async fn create_community(
         &self,
         details: &requests::CreateCommunity,
-    ) -> Result<(), ClientError> {
+    ) -> Result<CommunityId, ClientError> {
         let response = self.post("create_community", &details).await?;
-        ok_empty(response).await
+        ok_body(response).await
     }
 
     /// Get the communities for the currently logged in user.
@@ -268,6 +288,24 @@ impl APIClient {
         community_id: &CommunityId,
     ) -> Result<Vec<responses::CommunityMember>, ClientError> {
         let response = self.get("members", community_id).await?;
+        ok_body(response).await
+    }
+
+    /// Get the communities for the currently logged in user.
+    pub async fn set_membership_schedule(
+        &self,
+        details: &requests::SetMembershipSchedule,
+    ) -> Result<(), ClientError> {
+        let response = self.post("membership_schedule", &details).await?;
+        ok_empty(response).await
+    }
+
+    /// Get the communities for the currently logged in user.
+    pub async fn get_membership_schedule(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<MembershipSchedule>, ClientError> {
+        let response = self.get("membership_schedule", &community_id).await?;
         ok_body(response).await
     }
 }
