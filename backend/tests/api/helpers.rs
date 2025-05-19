@@ -91,6 +91,7 @@ impl TestApp {
     pub async fn create_test_community(&self) -> anyhow::Result<CommunityId> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
+            new_members_default_active: true,
         };
         Ok(self.client.create_community(&body).await?)
     }

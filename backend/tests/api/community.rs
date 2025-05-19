@@ -19,6 +19,7 @@ async fn long_community_name_rejected() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: (0..300).map(|_| "X").collect::<String>(),
+        new_members_default_active: true,
     };
     let result = app.client.create_community(&body).await;
 

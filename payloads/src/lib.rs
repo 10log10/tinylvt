@@ -36,6 +36,7 @@ pub mod requests {
     #[derive(Debug, Serialize, Deserialize)]
     pub struct CreateCommunity {
         pub name: String,
+        pub new_members_default_active: bool,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +64,7 @@ pub mod responses {
     pub struct Community {
         pub id: CommunityId,
         pub name: String,
+        pub new_members_default_active: bool,
         #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
         pub created_at: Timestamp,
         #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]

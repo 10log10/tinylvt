@@ -2,6 +2,7 @@ use derive_more::Display;
 use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::Timestamp as SqlxTs;
 use jiff_sqlx::ToSqlx;
+use payloads::requests;
 use rust_decimal::Decimal;
 use sqlx::{Error, FromRow, PgPool};
 use sqlx_postgres::types::PgInterval;
@@ -293,7 +294,7 @@ pub struct AuditLog {
 
 /// Create a community and add the creating user as the leader.
 pub async fn create_community(
-    name: &str,
+    details: &requests::CreateCommunity,
     user_id: UserId, // initial leader of community
     pool: &PgPool,
 ) -> Result<Community, StoreError> {
@@ -301,15 +302,19 @@ pub async fn create_community(
     if !user.email_verified {
         return Err(StoreError::UnverifiedEmail);
     }
-    if name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
+    if details.name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
         return Err(StoreError::FieldTooLong);
     }
     let mut tx = pool.begin().await?;
 
     let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name) VALUES ($1) RETURNING *;",
+        "INSERT INTO communities (
+            name,
+            new_members_default_active
+        ) VALUES ($1, $2) RETURNING *;",
     )
-    .bind(name)
+    .bind(&details.name)
+    .bind(details.new_members_default_active)
     .fetch_one(&mut *tx)
     .await?;
 

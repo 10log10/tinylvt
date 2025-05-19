@@ -34,7 +34,8 @@ async fn test_community() -> Result<(), Error> {
     let conn = app.db_pool;
     let name = "community".to_string();
     let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name) VALUES ($1) RETURNING *;",
+        "INSERT INTO communities (name, new_members_default_active)
+        VALUES ($1, false) RETURNING *;",
     )
     .bind(name)
     .fetch_one(&conn)
