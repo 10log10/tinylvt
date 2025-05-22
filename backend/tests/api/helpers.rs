@@ -140,6 +140,61 @@ impl TestApp {
         assert_eq!(body.schedule, received_schedule);
         Ok(())
     }
+
+    pub async fn create_test_site(
+        &self,
+        community_id: &CommunityId,
+    ) -> anyhow::Result<payloads::SiteId> {
+        let default_auction_params = payloads::AuctionParams {
+            round_duration: Span::new().minutes(1),
+            bid_increment: rust_decimal::dec!(1.0),
+            activity_rule_params: payloads::ActivityRuleParams {
+                eligibility_progression: vec![
+                    (0, 0.5),
+                    (10, 0.75),
+                    (20, 0.9),
+                    (30, 1.0),
+                ],
+            },
+        };
+        let site = payloads::Site {
+            community_id: *community_id,
+            name: "test site".into(),
+            description: Some("test description".into()),
+            default_auction_params,
+            possession_period: Span::new().hours(1),
+            auction_lead_time: Span::new().minutes(45),
+            proxy_bidding_lead_time: Span::new().days(1),
+            open_hours: None,
+            is_available: true,
+        };
+        let site_id = self.client.create_site(&site).await?;
+        let retrieved = self.client.get_site(&site_id).await?.site_details;
+        assert_eq!(site.community_id, retrieved.community_id);
+        assert_eq!(site.name, retrieved.name);
+        assert_eq!(site.description, retrieved.description);
+        assert_eq!(
+            site.default_auction_params
+                .round_duration
+                .compare(retrieved.default_auction_params.round_duration)?,
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            site.default_auction_params.bid_increment,
+            retrieved.default_auction_params.bid_increment
+        );
+        assert_eq!(
+            site.auction_lead_time
+                .compare(retrieved.auction_lead_time)?,
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            site.proxy_bidding_lead_time.fieldwise(),
+            retrieved.proxy_bidding_lead_time
+        );
+        assert_eq!(site.is_available, retrieved.is_available);
+        Ok(site_id)
+    }
 }
 
 fn alice_credentials() -> requests::CreateAccount {

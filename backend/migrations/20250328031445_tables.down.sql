@@ -3,8 +3,6 @@ DROP TRIGGER IF EXISTS communities_set_updated_at ON communities;
 DROP TRIGGER IF EXISTS users_set_updated_at ON users;
 DROP TRIGGER IF EXISTS tokens_set_updated_at ON tokens;
 DROP TRIGGER IF EXISTS community_members_set_updated_at ON community_members;
-DROP TRIGGER IF EXISTS community_membership_history_set_updated_at ON
-community_membership_history;
 DROP TRIGGER IF EXISTS community_membership_schedule_set_updated_at ON
 community_membership_schedule;
 DROP TRIGGER IF EXISTS sites_set_updated_at ON sites;
@@ -45,7 +43,6 @@ DROP TABLE IF EXISTS spaces;
 DROP TABLE IF EXISTS sites;
 DROP TABLE IF EXISTS open_hours_weekday;
 DROP TABLE IF EXISTS open_hours;
-DROP TABLE IF EXISTS community_membership_history;
 DROP TABLE IF EXISTS community_membership_schedule;
 DROP TABLE IF EXISTS community_members;
 DROP TABLE IF EXISTS tokens;

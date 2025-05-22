@@ -15,9 +15,9 @@ use sqlx_postgres::types::PgInterval;
 
 use backend::store::{
     self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
-    OpenHoursWeekday, Site, SiteId, Space, StoreError, User,
+    OpenHoursWeekday, Site, Space, StoreError, User,
 };
-use payloads::{CommunityId, responses::Community};
+use payloads::{CommunityId, SiteId, responses::Community};
 
 use crate::helpers::spawn_app;
 
@@ -163,9 +163,10 @@ async fn populate_auction_params(
         ..Default::default()
     })
     .bind(dec!(1.000000))
-    .bind(serde_json::Value::String(
-        "placeholder eligibility rules".into(),
-    ))
+    .bind(
+        serde_json::Value::from_str(r#"{"eligibility_progression":[]}"#)
+            .unwrap(),
+    )
     .fetch_one(conn)
     .await
 }
@@ -183,12 +184,17 @@ async fn populate_site(
             default_auction_params_id,
             possession_period,
             auction_lead_time,
+            proxy_bidding_lead_time,
             open_hours_id
-        ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;",
     )
     .bind(community_id)
     .bind("Test Site")
     .bind(auction_params_id)
+    .bind(PgInterval {
+        microseconds: HOUR_MICROSECONDS,
+        ..Default::default()
+    })
     .bind(PgInterval {
         microseconds: HOUR_MICROSECONDS,
         ..Default::default()

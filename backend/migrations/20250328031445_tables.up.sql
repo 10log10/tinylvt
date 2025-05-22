@@ -25,6 +25,7 @@ CREATE TABLE users (
 -- actions.
 CREATE TABLE tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- the token
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     action TEXT NOT NULL,
     used BOOLEAN NOT NULL DEFAULT false, -- can only be used once
     expires_at TIMESTAMPTZ NOT NULL, -- must be used before expiry
@@ -84,17 +85,8 @@ CREATE TABLE community_membership_schedule (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
--- The historical log of community membership
-CREATE TABLE community_membership_history (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
-    start_at TIMESTAMPTZ NOT NULL,
-    end_at TIMESTAMPTZ NOT NULL,
-    user_id UUID NOT NULL REFERENCES users (id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
-);
-
+-- Auction parameters are immutable and copy-on-write if they are used in a
+-- past auction.
 CREATE TABLE auction_params (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Length of time of each round.
@@ -108,7 +100,8 @@ CREATE TABLE auction_params (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
--- Open hours for a site when possession takes place.
+-- Open hours for a site when possession takes place. Can be used for holidays
+-- by updating the open hours within a week of the closure.
 CREATE TABLE open_hours (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     timezone TEXT NOT NULL -- IANA time zone, e.g. 'America/Los_Angeles'
@@ -116,11 +109,11 @@ CREATE TABLE open_hours (
 
 -- If a day of the week is absent, the site is assumed to be closed that day.
 CREATE TABLE open_hours_weekday (
-    open_hours_id UUID NOT NULL REFERENCES open_hours (id),
+    open_hours_id UUID NOT NULL REFERENCES open_hours (id) ON DELETE CASCADE,
     -- 1 = Monday, 7 = Sunday
     day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
     open_time TIME NOT NULL,  -- Local time
-    close_time TIME NOT NULL, -- Local time
+    close_time TIME NOT NULL, -- Local time (if before open_time, is next day)
     PRIMARY KEY (open_hours_id, day_of_week)
 );
 
@@ -135,11 +128,10 @@ CREATE TABLE sites (
     -- Duration of possession and period between auctions.
     possession_period INTERVAL NOT NULL,
     -- Amount of time before the change in possession that the auction begins.
-    -- Auctions start at prev_auction_start_time + possession_period -
-    -- auction_lead_time. If no previous auction, the next day is used or the
-    -- next time the site is open, or if it is already open the next whole
-    -- multiple of the posession period from the start of the open hours.
     auction_lead_time INTERVAL NOT NULL,
+    -- Amount of time before the start of auction that the auction row exists
+    -- and proxy bids can be prepared.
+    proxy_bidding_lead_time INTERVAL NOT NULL,
     -- If not present, the site is assumed to be open all the time.
     open_hours_id UUID REFERENCES open_hours (id),
     -- Whether this site is available for auction.
@@ -186,9 +178,13 @@ ALTER TABLE sites ADD CONSTRAINT fk_sites_site_images FOREIGN KEY
 ALTER TABLE spaces ADD CONSTRAINT fk_spaces_site_images FOREIGN KEY
 (site_image_id) REFERENCES site_images (id) ON DELETE SET NULL;
 
+
 CREATE TABLE auctions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     site_id UUID NOT NULL REFERENCES sites (id) ON DELETE CASCADE,
+    -- The specific possession period being auctioned.
+    possession_start_at TIMESTAMPTZ NOT NULL,
+    possession_end_at TIMESTAMPTZ NOT NULL,
     -- Start and end times of the auction.
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ, -- Filled in when the auction completes.
@@ -315,11 +311,6 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER community_membership_schedule_set_updated_at
 BEFORE UPDATE ON community_membership_schedule
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER community_membership_history_set_updated_at
-BEFORE UPDATE ON community_membership_history
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

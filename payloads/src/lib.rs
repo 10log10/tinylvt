@@ -1,14 +1,64 @@
-use jiff::Timestamp;
-use jiff_sqlx::Timestamp as SqlxTs;
+use jiff::{Span, Timestamp, civil::Time};
+use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
+use rust_decimal::Decimal;
+#[cfg(feature = "use-sqlx")]
+use sqlx::{FromRow, Type};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
 pub struct MembershipSchedule {
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub start_at: Timestamp,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub end_at: Timestamp,
     pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
+pub struct AuctionParams {
+    #[sqlx(try_from = "SqlxSpan")]
+    pub round_duration: Span,
+    pub bid_increment: Decimal,
+    pub activity_rule_params: ActivityRuleParams,
+}
+
+/// Contents of the `activity_rule_params` JSONB column of `auction_params`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityRuleParams {
+    /// Maps the round number to a 0-1 value indicating fraction of eligibility
+    /// required.
+    pub eligibility_progression: Vec<(i64, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenHours {
+    pub timezone: String,
+    pub days_of_week: Vec<OpenHoursWeekday>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
+pub struct OpenHoursWeekday {
+    pub day_of_week: i16,
+    #[sqlx(try_from = "jiff_sqlx::Time")]
+    pub open_time: Time,
+    #[sqlx(try_from = "jiff_sqlx::Time")]
+    pub close_time: Time,
+}
+
+/// An empty schedule can be used to delete the schedule entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Site {
+    pub community_id: CommunityId,
+    pub name: String,
+    pub description: Option<String>,
+    pub default_auction_params: AuctionParams,
+    pub possession_period: Span,
+    pub auction_lead_time: Span,
+    pub proxy_bidding_lead_time: Span,
+    pub open_hours: Option<OpenHours>,
+    pub is_available: bool,
 }
 
 pub mod requests {
@@ -71,7 +121,7 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
-    /// Details about a community invite, excluding the target coomunity id.
+    /// Details about a community invite, excluding the target community id.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct CommunityInvite {
@@ -90,6 +140,15 @@ pub mod responses {
         pub role: RoleId,
         pub is_active: bool,
     }
+
+    /// Details about a community member for a community one is a part of.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Site {
+        pub site_id: super::SiteId,
+        pub site_details: super::Site,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
 }
 
 use derive_more::Display;
@@ -101,30 +160,34 @@ use uuid::Uuid;
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct UserId(pub Uuid);
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct CommunityId(pub Uuid);
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct InviteId(pub Uuid);
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct TokenId(pub Uuid);
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type), sqlx(transparent))]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct RoleId(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct SiteId(pub Uuid);
 
 impl RoleId {
     pub fn member() -> Self {
@@ -308,6 +371,22 @@ impl APIClient {
         community_id: &CommunityId,
     ) -> Result<Vec<MembershipSchedule>, ClientError> {
         let response = self.get("membership_schedule", &community_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_site(
+        &self,
+        site: &Site,
+    ) -> Result<SiteId, ClientError> {
+        let response = self.post("create_site", &site).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<responses::Site, ClientError> {
+        let response = self.get("site", &site_id).await?;
         ok_body(response).await
     }
 }

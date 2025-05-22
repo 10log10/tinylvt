@@ -1,10 +1,12 @@
 use derive_more::Display;
+use jiff::Span;
 use jiff::{Timestamp, civil::Time};
-use jiff_sqlx::Timestamp as SqlxTs;
 use jiff_sqlx::ToSqlx;
-use payloads::requests;
+use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
+use payloads::{SiteId, requests};
 use rust_decimal::Decimal;
-use sqlx::{Error, FromRow, PgPool};
+use sqlx::types::Json;
+use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
 use sqlx_postgres::types::PgInterval;
 use uuid::Uuid;
 
@@ -44,14 +46,6 @@ pub struct Token {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub struct UserRole {
-    pub id: RoleId,
-    pub display_name: String,
-    pub rank: i32,
-    pub scope: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -108,23 +102,24 @@ pub struct CommunityMembershipSchedule {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
 pub struct AuctionParamsId(pub Uuid);
 
 #[derive(Debug, Clone, FromRow)]
 pub struct AuctionParams {
     pub id: AuctionParamsId,
-    pub round_duration: PgInterval,
+    #[sqlx(try_from = "SqlxSpan")]
+    pub round_duration: Span,
     pub bid_increment: Decimal,
-    pub activity_rule_params: serde_json::Value,
+    pub activity_rule_params: Json<payloads::ActivityRuleParams>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
 pub struct OpenHoursId(pub Uuid);
 
@@ -144,10 +139,6 @@ pub struct OpenHoursWeekday {
     pub close_time: Time,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct SiteId(pub Uuid);
-
 #[derive(Debug, Clone, FromRow)]
 pub struct Site {
     pub id: SiteId,
@@ -155,8 +146,12 @@ pub struct Site {
     pub name: String,
     pub description: Option<String>,
     pub default_auction_params_id: AuctionParamsId,
-    pub possession_period: PgInterval,
-    pub auction_lead_time: PgInterval,
+    #[sqlx(try_from = "SqlxSpan")]
+    pub possession_period: Span,
+    #[sqlx(try_from = "SqlxSpan")]
+    pub auction_lead_time: Span,
+    #[sqlx(try_from = "SqlxSpan")]
+    pub proxy_bidding_lead_time: Span,
     pub open_hours_id: Option<OpenHoursId>,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
@@ -209,6 +204,10 @@ pub struct AuctionId(pub Uuid);
 pub struct Auction {
     pub id: AuctionId,
     pub site_id: SiteId,
+    #[sqlx(try_from = "SqlxTs")]
+    pub posession_start_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    pub posession_end_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub start_at: Timestamp,
     #[sqlx(try_from = "OptionalTimestamp")]
@@ -657,12 +656,181 @@ pub async fn update_is_active_from_schedule(
     Ok(())
 }
 
+pub async fn create_site(
+    details: &payloads::Site,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<Site, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+    let mut tx = pool.begin().await?;
+
+    let open_hours_id = match &details.open_hours {
+        Some(hours) => Some(create_open_hours(hours, &mut tx).await?),
+        None => None,
+    };
+    let auction_params_id =
+        create_auction_params(&details.default_auction_params, &mut tx).await?;
+
+    let site = sqlx::query_as::<_, Site>(
+        "INSERT INTO sites (
+            community_id,
+            name,
+            description,
+            default_auction_params_id,
+            possession_period,
+            auction_lead_time,
+            proxy_bidding_lead_time,
+            open_hours_id,
+            is_available
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+    )
+    .bind(actor.0.community_id)
+    .bind(&details.name)
+    .bind(&details.description)
+    .bind(auction_params_id)
+    .bind(span_to_interval(&details.possession_period)?)
+    .bind(span_to_interval(&details.auction_lead_time)?)
+    .bind(span_to_interval(&details.proxy_bidding_lead_time)?)
+    .bind(open_hours_id)
+    .bind(details.is_available)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(site)
+}
+
+async fn create_open_hours(
+    open_hours: &payloads::OpenHours,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<OpenHoursId, StoreError> {
+    let open_hours_id = sqlx::query_as::<_, OpenHoursId>(
+        "INSERT INTO open_hours (timezone) VALUES ($1) RETURNING id",
+    )
+    .bind(&open_hours.timezone)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    for day_of_week in &open_hours.days_of_week {
+        sqlx::query(
+            "INSERT INTO open_hours_weekday (
+                open_hours_id,
+                day_of_week,
+                open_time,
+                close_time
+            ) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(&open_hours_id)
+        .bind(day_of_week.day_of_week)
+        .bind(day_of_week.open_time.to_sqlx())
+        .bind(day_of_week.close_time.to_sqlx())
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(open_hours_id)
+}
+
+async fn create_auction_params(
+    params: &payloads::AuctionParams,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<AuctionParamsId, StoreError> {
+    Ok(sqlx::query_as::<_, AuctionParamsId>(
+        "INSERT INTO auction_params (
+                round_duration,
+                bid_increment,
+                activity_rule_params
+            ) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(span_to_interval(&params.round_duration)?)
+    .bind(params.bid_increment)
+    .bind(Json(params.activity_rule_params.clone()))
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+pub async fn get_site_community_id(
+    site_id: &SiteId,
+    pool: &PgPool,
+) -> Result<CommunityId, StoreError> {
+    Ok(sqlx::query_as::<_, CommunityId>(
+        "SELECT community_id FROM sites WHERE id = $1",
+    )
+    .bind(site_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn get_site(
+    site_id: &SiteId,
+    pool: &PgPool,
+) -> Result<payloads::responses::Site, StoreError> {
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+    let open_hours = match &site.open_hours_id {
+        Some(open_hours_id) => {
+            let days_of_week = sqlx::query_as::<_, payloads::OpenHoursWeekday>(
+                "SELECT * FROM open_hours_weekday WHERE open_hours_id = $1",
+            )
+            .bind(open_hours_id)
+            .fetch_all(pool)
+            .await?;
+            let timezone = sqlx::query_as::<_, OpenHours>(
+                "SELECT timezone FROM open_hours WHERE id = $1",
+            )
+            .bind(open_hours_id)
+            .fetch_one(pool)
+            .await?
+            .timezone;
+            Some(payloads::OpenHours {
+                days_of_week,
+                timezone,
+            })
+        }
+        None => None,
+    };
+    let default_auction_params = sqlx::query_as::<_, AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(site.default_auction_params_id)
+    .fetch_one(pool)
+    .await?;
+    let default_auction_params = payloads::AuctionParams {
+        round_duration: default_auction_params.round_duration,
+        bid_increment: default_auction_params.bid_increment,
+        activity_rule_params: default_auction_params.activity_rule_params.0,
+    };
+    let site_details = payloads::Site {
+        community_id: site.community_id,
+        name: site.name,
+        description: site.description,
+        default_auction_params,
+        possession_period: site.possession_period,
+        auction_lead_time: site.auction_lead_time,
+        proxy_bidding_lead_time: site.proxy_bidding_lead_time,
+        open_hours,
+        is_available: site.is_available,
+    };
+    Ok(payloads::responses::Site {
+        site_id: site.id,
+        site_details,
+        created_at: site.created_at,
+        updated_at: site.updated_at,
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
     UnverifiedEmail,
     #[error("Moderator permissions required")]
     RequiresModeratorPermissions,
+    #[error("Coleader permissions required")]
+    RequiresColeaderPermissions,
     #[error("Mismatched invite email")]
     MismatchedInviteEmail,
     #[error("Field too long")]
@@ -671,6 +839,8 @@ pub enum StoreError {
     InvalidInvite,
     #[error("Member not found")]
     MemberNotFound,
+    #[error("Span too large")]
+    SpanTooLarge(Box<Span>),
     #[error("Unique constraint violation")]
     NotUnique(#[source] sqlx::Error),
     #[error("Unexpected database error")]
@@ -688,4 +858,32 @@ impl From<Error> for StoreError {
         }
         StoreError::Database(e)
     }
+}
+
+/// Balance a jiff::Span according to the units that can be stored in a Postgres
+/// interval.
+pub fn span_to_interval(span: &Span) -> Result<PgInterval, StoreError> {
+    span_to_interval_opt(span).ok_or(StoreError::SpanTooLarge(Box::new(*span)))
+}
+
+fn span_to_interval_opt(span: &Span) -> Option<PgInterval> {
+    let microseconds = span
+        .get_milliseconds()
+        .checked_add(span.get_milliseconds().checked_mul(1_000)?)?
+        .checked_add(span.get_seconds().checked_mul(1_000_000)?)?
+        .checked_add(span.get_minutes().checked_mul(60 * 1_000_000)?)?
+        .checked_add(
+            (span.get_hours() as i64).checked_mul(60 * 60 * 1_000_000)?,
+        )?;
+    let days = span
+        .get_days()
+        .checked_add(span.get_weeks().checked_mul(7)?)?;
+    let months = span
+        .get_months()
+        .checked_add((span.get_years() as i32).checked_mul(12)?)?;
+    Some(PgInterval {
+        microseconds,
+        days,
+        months,
+    })
 }

@@ -1,5 +1,6 @@
 pub mod community;
 pub mod login;
+pub mod site;
 
 use actix_identity::Identity;
 use actix_web::{
@@ -26,6 +27,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_members)
         .service(community::set_membership_schedule)
         .service(community::get_membership_schedule)
+        .service(site::create_site)
+        .service(site::get_site)
 }
 
 pub async fn health_check() -> impl Responder {

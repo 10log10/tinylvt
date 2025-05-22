@@ -2,6 +2,7 @@ mod community;
 mod database;
 mod helpers;
 mod login;
+mod site;
 
 use helpers::spawn_app;
 
