@@ -1,3 +1,4 @@
+use anyhow::Context;
 use derive_more::Display;
 use jiff::Span;
 use jiff::{Timestamp, civil::Time};
@@ -119,7 +120,7 @@ pub struct AuctionParams {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
 pub struct OpenHoursId(pub Uuid);
 
@@ -714,6 +715,15 @@ async fn create_open_hours(
     .fetch_one(&mut **tx)
     .await?;
 
+    insert_open_hours_weekdays(&open_hours_id, open_hours, tx).await?;
+    Ok(open_hours_id)
+}
+
+async fn insert_open_hours_weekdays(
+    open_hours_id: &OpenHoursId,
+    open_hours: &payloads::OpenHours,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(), StoreError> {
     for day_of_week in &open_hours.days_of_week {
         sqlx::query(
             "INSERT INTO open_hours_weekday (
@@ -723,14 +733,14 @@ async fn create_open_hours(
                 close_time
             ) VALUES ($1, $2, $3, $4)",
         )
-        .bind(&open_hours_id)
+        .bind(open_hours_id)
         .bind(day_of_week.day_of_week)
         .bind(day_of_week.open_time.to_sqlx())
         .bind(day_of_week.close_time.to_sqlx())
         .execute(&mut **tx)
         .await?;
     }
-    Ok(open_hours_id)
+    Ok(())
 }
 
 async fn create_auction_params(
@@ -780,7 +790,7 @@ pub async fn get_site(
             .fetch_all(pool)
             .await?;
             let timezone = sqlx::query_as::<_, OpenHours>(
-                "SELECT timezone FROM open_hours WHERE id = $1",
+                "SELECT * FROM open_hours WHERE id = $1",
             )
             .bind(open_hours_id)
             .fetch_one(pool)
@@ -823,6 +833,139 @@ pub async fn get_site(
     })
 }
 
+pub async fn update_site(
+    update_site: &payloads::requests::UpdateSite,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<responses::Site, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let details = &update_site.site_details;
+
+    let existing_site =
+        sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+            .bind(update_site.site_id)
+            .fetch_one(pool)
+            .await?;
+
+    let mut tx = pool.begin().await?;
+
+    let new_open_hours_id = update_open_hours(
+        &existing_site.open_hours_id,
+        &details.open_hours,
+        &mut tx,
+    )
+    .await?;
+
+    let new_auction_params_id =
+        create_auction_params(&details.default_auction_params, &mut tx).await?;
+
+    sqlx::query(
+        "UPDATE sites SET
+            name = $1,
+            description = $2,
+            default_auction_params_id = $3,
+            possession_period = $4,
+            auction_lead_time = $5,
+            proxy_bidding_lead_time = $6,
+            open_hours_id = $7,
+            is_available = $8
+        WHERE id = $9",
+    )
+    .bind(&details.name)
+    .bind(&details.description)
+    .bind(new_auction_params_id)
+    .bind(span_to_interval(&details.possession_period)?)
+    .bind(span_to_interval(&details.auction_lead_time)?)
+    .bind(span_to_interval(&details.proxy_bidding_lead_time)?)
+    .bind(new_open_hours_id)
+    .bind(details.is_available)
+    .bind(existing_site.id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let site = get_site(&existing_site.id, pool).await?;
+
+    cleanup_unused_auction_params(pool).await;
+    Ok(site)
+}
+
+async fn cleanup_unused_auction_params(pool: &PgPool) {
+    if let Err(e) = sqlx::query(
+        "DELETE FROM auction_params p
+        WHERE NOT EXISTS (
+            SELECT FROM sites
+            WHERE default_auction_params_id = p.id
+        ) AND NOT EXISTS (
+            SELECT FROM auctions
+            WHERE auction_params_id = p.id
+        );",
+    )
+    .execute(pool)
+    .await
+    .context("cleanup unused auction params")
+    {
+        tracing::error!("{e:#}");
+    }
+}
+
+/// Update an existing open hours (if it exists), returning the id.
+async fn update_open_hours(
+    // existing open hours
+    open_hours_id: &Option<OpenHoursId>,
+    new_open_hours: &Option<payloads::OpenHours>,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<Option<OpenHoursId>, StoreError> {
+    // delete the existing open hours
+    sqlx::query("DELETE FROM open_hours WHERE id = $1;")
+        .bind(open_hours_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // add new open hours
+    match new_open_hours {
+        Some(new_open_hours) => {
+            Ok(Some(create_open_hours(new_open_hours, tx).await?))
+        }
+        None => Ok(None),
+    }
+}
+pub async fn delete_site(
+    site_id: &payloads::SiteId,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let existing_site =
+        sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+            .bind(site_id)
+            .fetch_one(pool)
+            .await?;
+
+    let mut tx = pool.begin().await?;
+
+    // remove any remaining open hours
+    update_open_hours(&existing_site.open_hours_id, &None, &mut tx).await?;
+
+    sqlx::query("DELETE FROM sites WHERE id = $1")
+        .bind(site_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    cleanup_unused_auction_params(pool).await;
+
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
@@ -843,6 +986,8 @@ pub enum StoreError {
     SpanTooLarge(Box<Span>),
     #[error("Unique constraint violation")]
     NotUnique(#[source] sqlx::Error),
+    #[error("Row not found")]
+    RowNotFound(#[source] sqlx::Error),
     #[error("Unexpected database error")]
     Database(#[source] sqlx::Error),
     #[error("Unexpected error")]
@@ -855,6 +1000,8 @@ impl From<Error> for StoreError {
             if db_err.code().as_deref() == Some("23505") {
                 return StoreError::NotUnique(e);
             }
+        } else if matches!(e, sqlx::Error::RowNotFound) {
+            return StoreError::RowNotFound(e);
         }
         StoreError::Database(e)
     }

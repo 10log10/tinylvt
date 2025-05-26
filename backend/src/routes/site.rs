@@ -35,3 +35,32 @@ pub async fn get_site(
     // return the community id so we can start using for other things
     Ok(HttpResponse::Ok().json(site))
 }
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/site")]
+pub async fn update_site(
+    user: Identity,
+    details: web::Json<payloads::requests::UpdateSite>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let community_id =
+        store::get_site_community_id(&details.site_id, &pool).await?;
+    let actor = get_validated_member(&user_id, &community_id, &pool).await?;
+    let site = store::update_site(&details, &actor, &pool).await?;
+    Ok(HttpResponse::Ok().json(site))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/delete_site")]
+pub async fn delete_site(
+    user: Identity,
+    site_id: web::Json<payloads::SiteId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let actor = get_validated_member(&user_id, &community_id, &pool).await?;
+    store::delete_site(&site_id, &actor, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}

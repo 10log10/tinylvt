@@ -1,6 +1,6 @@
 use backend::{Config, build, telemetry};
 use jiff::{Span, Timestamp};
-use payloads::{CommunityId, requests};
+use payloads::{CommunityId, requests, responses};
 use reqwest::StatusCode;
 use sqlx::{Error, PgPool, migrate::Migrator};
 use tracing_log::LogTracer;
@@ -144,56 +144,26 @@ impl TestApp {
     pub async fn create_test_site(
         &self,
         community_id: &CommunityId,
-    ) -> anyhow::Result<payloads::SiteId> {
-        let default_auction_params = payloads::AuctionParams {
-            round_duration: Span::new().minutes(1),
-            bid_increment: rust_decimal::dec!(1.0),
-            activity_rule_params: payloads::ActivityRuleParams {
-                eligibility_progression: vec![
-                    (0, 0.5),
-                    (10, 0.75),
-                    (20, 0.9),
-                    (30, 1.0),
-                ],
-            },
-        };
-        let site = payloads::Site {
-            community_id: *community_id,
-            name: "test site".into(),
-            description: Some("test description".into()),
-            default_auction_params,
-            possession_period: Span::new().hours(1),
-            auction_lead_time: Span::new().minutes(45),
-            proxy_bidding_lead_time: Span::new().days(1),
-            open_hours: None,
-            is_available: true,
-        };
+    ) -> anyhow::Result<payloads::responses::Site> {
+        let site = site_details_a(*community_id);
         let site_id = self.client.create_site(&site).await?;
-        let retrieved = self.client.get_site(&site_id).await?.site_details;
-        assert_eq!(site.community_id, retrieved.community_id);
-        assert_eq!(site.name, retrieved.name);
-        assert_eq!(site.description, retrieved.description);
-        assert_eq!(
-            site.default_auction_params
-                .round_duration
-                .compare(retrieved.default_auction_params.round_duration)?,
-            std::cmp::Ordering::Equal
-        );
-        assert_eq!(
-            site.default_auction_params.bid_increment,
-            retrieved.default_auction_params.bid_increment
-        );
-        assert_eq!(
-            site.auction_lead_time
-                .compare(retrieved.auction_lead_time)?,
-            std::cmp::Ordering::Equal
-        );
-        assert_eq!(
-            site.proxy_bidding_lead_time.fieldwise(),
-            retrieved.proxy_bidding_lead_time
-        );
-        assert_eq!(site.is_available, retrieved.is_available);
-        Ok(site_id)
+        let site_response = self.client.get_site(&site_id).await?;
+        let retrieved = &site_response.site_details;
+        assert_site_equal(&site, retrieved)?;
+        Ok(site_response)
+    }
+
+    pub async fn update_site_details(
+        &self,
+        prev: responses::Site,
+    ) -> anyhow::Result<()> {
+        let req = requests::UpdateSite {
+            site_id: prev.site_id,
+            site_details: site_details_b(prev.site_details.community_id),
+        };
+        let resp = self.client.update_site(&req).await?;
+        assert_site_equal(&req.site_details, &resp.site_details)?;
+        Ok(())
     }
 }
 
@@ -211,6 +181,104 @@ fn bob_credentials() -> requests::CreateAccount {
         password: "bobspw".into(),
         email: "bob@example.com".into(),
     }
+}
+
+fn site_details_a(community_id: CommunityId) -> payloads::Site {
+    let default_auction_params = payloads::AuctionParams {
+        round_duration: Span::new().minutes(1),
+        bid_increment: rust_decimal::dec!(1.0),
+        activity_rule_params: payloads::ActivityRuleParams {
+            eligibility_progression: vec![
+                (0, 0.5),
+                (10, 0.75),
+                (20, 0.9),
+                (30, 1.0),
+            ],
+        },
+    };
+    let open_hours = payloads::OpenHours {
+        timezone: "America/Los_Angeles".into(),
+        days_of_week: vec![payloads::OpenHoursWeekday {
+            day_of_week: 1,
+            open_time: "09:22:45".parse().unwrap(),
+            close_time: "17:30:00".parse().unwrap(),
+        }],
+    };
+    payloads::Site {
+        community_id,
+        name: "test site".into(),
+        description: Some("test description".into()),
+        default_auction_params,
+        possession_period: Span::new().hours(1),
+        auction_lead_time: Span::new().minutes(45),
+        proxy_bidding_lead_time: Span::new().days(1),
+        open_hours: Some(open_hours),
+        is_available: true,
+    }
+}
+
+pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
+    let default_auction_params = payloads::AuctionParams {
+        round_duration: Span::new().minutes(5),
+        bid_increment: rust_decimal::dec!(2.5),
+        activity_rule_params: payloads::ActivityRuleParams {
+            eligibility_progression: vec![
+                (0, 0.6),
+                (10, 0.9),
+                (20, 0.96),
+                (30, 1.0),
+            ],
+        },
+    };
+    let open_hours = payloads::OpenHours {
+        timezone: "America/Los_Angeles".into(),
+        days_of_week: vec![payloads::OpenHoursWeekday {
+            day_of_week: 2,
+            open_time: "10:00".parse().unwrap(),
+            close_time: "16:00".parse().unwrap(),
+        }],
+    };
+    payloads::Site {
+        community_id,
+        name: "test site b".into(),
+        description: Some("test description for b".into()),
+        default_auction_params,
+        possession_period: Span::new().hours(2),
+        auction_lead_time: Span::new().minutes(60),
+        proxy_bidding_lead_time: Span::new().days(2),
+        open_hours: Some(open_hours),
+        is_available: true,
+    }
+}
+pub fn assert_site_equal(
+    site: &payloads::Site,
+    retrieved: &payloads::Site,
+) -> anyhow::Result<()> {
+    assert_eq!(site.community_id, retrieved.community_id);
+    assert_eq!(site.name, retrieved.name);
+    assert_eq!(site.description, retrieved.description);
+    assert_eq!(
+        site.default_auction_params
+            .round_duration
+            .compare(retrieved.default_auction_params.round_duration)?,
+        std::cmp::Ordering::Equal
+    );
+    assert_eq!(
+        site.default_auction_params.bid_increment,
+        retrieved.default_auction_params.bid_increment
+    );
+    assert_eq!(
+        site.auction_lead_time
+            .compare(retrieved.auction_lead_time)?,
+        std::cmp::Ordering::Equal
+    );
+    assert_eq!(
+        site.proxy_bidding_lead_time.fieldwise(),
+        retrieved.proxy_bidding_lead_time
+    );
+    assert_eq!(site.is_available, retrieved.is_available);
+    assert_eq!(site.open_hours, retrieved.open_hours);
+    Ok(())
 }
 
 pub async fn spawn_app() -> TestApp {

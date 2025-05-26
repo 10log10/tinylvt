@@ -102,6 +102,9 @@ CREATE TABLE auction_params (
 
 -- Open hours for a site when possession takes place. Can be used for holidays
 -- by updating the open hours within a week of the closure.
+--
+-- Maps 1-1 with a site, so when the site's open hours are updated these hours
+-- get updated
 CREATE TABLE open_hours (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     timezone TEXT NOT NULL -- IANA time zone, e.g. 'America/Los_Angeles'
@@ -133,7 +136,7 @@ CREATE TABLE sites (
     -- and proxy bids can be prepared.
     proxy_bidding_lead_time INTERVAL NOT NULL,
     -- If not present, the site is assumed to be open all the time.
-    open_hours_id UUID REFERENCES open_hours (id),
+    open_hours_id UUID REFERENCES open_hours (id) ON DELETE SET NULL,
     -- Whether this site is available for auction.
     is_available BOOLEAN NOT NULL DEFAULT true,
     -- Image is optional if the location is otherwise well-described.

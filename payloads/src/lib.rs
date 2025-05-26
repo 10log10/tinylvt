@@ -101,6 +101,13 @@ pub mod requests {
         pub community_id: CommunityId,
         pub schedule: Vec<super::MembershipSchedule>,
     }
+
+    /// Details about a community member for a community one is a part of.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateSite {
+        pub site_id: super::SiteId,
+        pub site_details: super::Site,
+    }
 }
 
 pub mod responses {
@@ -185,7 +192,9 @@ pub struct TokenId(pub Uuid);
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct RoleId(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct SiteId(pub Uuid);
 
@@ -389,12 +398,28 @@ impl APIClient {
         let response = self.get("site", &site_id).await?;
         ok_body(response).await
     }
+
+    pub async fn update_site(
+        &self,
+        details: &requests::UpdateSite,
+    ) -> Result<responses::Site, ClientError> {
+        let response = self.post("site", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_site", &site_id).await?;
+        ok_empty(response).await
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// An unhandled API error to display, containing response text.
-    #[error("{0}")]
+    #[error("{1}")]
     APIError(StatusCode, String),
     #[error("Network error")]
     Network(#[from] reqwest::Error),

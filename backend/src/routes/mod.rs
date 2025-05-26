@@ -29,6 +29,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_membership_schedule)
         .service(site::create_site)
         .service(site::get_site)
+        .service(site::update_site)
+        .service(site::delete_site)
 }
 
 pub async fn health_check() -> impl Responder {
