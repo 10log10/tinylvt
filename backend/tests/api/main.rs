@@ -1,3 +1,4 @@
+mod auction;
 mod community;
 mod database;
 mod helpers;

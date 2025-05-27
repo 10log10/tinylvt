@@ -1,4 +1,5 @@
 use jiff::{Span, Timestamp, civil::Time};
+#[cfg(feature = "use-sqlx")]
 use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
 use rust_decimal::Decimal;
 #[cfg(feature = "use-sqlx")]
@@ -69,7 +70,7 @@ pub struct MembershipSchedule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(FromRow))]
 pub struct AuctionParams {
-    #[sqlx(try_from = "SqlxSpan")]
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxSpan"))]
     pub round_duration: Span,
     pub bid_increment: Decimal,
     pub activity_rule_params: ActivityRuleParams,
@@ -93,9 +94,9 @@ pub struct OpenHours {
 #[cfg_attr(feature = "use-sqlx", derive(FromRow))]
 pub struct OpenHoursWeekday {
     pub day_of_week: i16,
-    #[sqlx(try_from = "jiff_sqlx::Time")]
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Time"))]
     pub open_time: Time,
-    #[sqlx(try_from = "jiff_sqlx::Time")]
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Time"))]
     pub close_time: Time,
 }
 
@@ -181,6 +182,7 @@ pub mod requests {
 pub mod responses {
     use crate::{CommunityId, InviteId};
     use jiff::Timestamp;
+    #[cfg(feature = "use-sqlx")]
     use jiff_sqlx::Timestamp as SqlxTs;
     use serde::{Deserialize, Serialize};
 
@@ -202,7 +204,7 @@ pub mod responses {
     pub struct CommunityInvite {
         pub id: InviteId,
         pub community_name: String,
-        #[sqlx(try_from = "SqlxTs")]
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
         pub created_at: Timestamp,
     }
 

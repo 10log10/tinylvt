@@ -387,6 +387,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "argon2",
+ "backend",
  "derive_more 2.0.1",
  "jiff",
  "jiff-sqlx",

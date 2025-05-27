@@ -50,12 +50,21 @@ async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
     backend::store::update_is_active_from_schedule(&app.db_pool).await?;
     let members = app.client.get_members(&community_id).await?;
 
-    for member in members {
+    for member in &members {
         match member.username.as_str() {
             "alice" => assert!(member.is_active),
             "bob" => assert!(!member.is_active),
             _ => (),
         };
+    }
+
+    backend::time::advance_mock_time(jiff::Span::new().hours(2));
+    backend::store::update_is_active_from_schedule(&app.db_pool).await?;
+    let members = app.client.get_members(&community_id).await?;
+
+    // all members now inactive
+    for member in &members {
+        assert!(!member.is_active);
     }
 
     Ok(())

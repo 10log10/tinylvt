@@ -16,6 +16,8 @@ use payloads::{
     responses::{self, Community},
 };
 
+use crate::time;
+
 impl From<Space> for payloads::Space {
     fn from(space: Space) -> Self {
         Self {
@@ -107,9 +109,9 @@ pub struct CommunityInvite {
     pub created_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
-pub struct CommunityMembershipScheduleId(pub String);
+pub struct CommunityMembershipScheduleId(pub Uuid);
 
 #[derive(Debug, Clone, FromRow)]
 pub struct CommunityMembershipSchedule {
@@ -639,7 +641,7 @@ pub async fn update_is_active_from_schedule(
     .fetch_all(pool)
     .await?;
 
-    let now = Timestamp::now().to_sqlx();
+    let now = time::now().to_sqlx();
     // Might as well make sure we update everything or nothing to avoid
     // partially completed state.
     let mut tx = pool.begin().await?;
@@ -647,7 +649,7 @@ pub async fn update_is_active_from_schedule(
         // Set is_active if we can find a matching row in the schedule where the
         // user is meant to be a member.
         sqlx::query(
-            "UPDATE community_members
+            "UPDATE community_members m
             SET is_active = EXISTS (
                 SELECT 1
                 FROM community_membership_schedule a
@@ -655,18 +657,16 @@ pub async fn update_is_active_from_schedule(
                     a.email = $1
                     AND a.community_id = $2
                     AND a.start_at <= $3
-                    AND a.end_at > $4
+                    AND a.end_at > $3
             )
             WHERE
-                community_members.user_id = $5
-                AND community_members.community_id = $6",
+                m.user_id = $4
+                AND m.community_id = $2",
         )
         .bind(&community_member.email)
         .bind(community_member.community_id)
         .bind(now)
-        .bind(now)
         .bind(community_member.user_id)
-        .bind(community_member.community_id)
         .execute(&mut *tx)
         .await?;
     }

@@ -2,6 +2,7 @@ pub mod password;
 pub mod routes;
 pub mod store;
 pub mod telemetry;
+pub mod time;
 
 use actix_identity::IdentityMiddleware;
 use actix_session::{

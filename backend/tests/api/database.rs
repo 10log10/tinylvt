@@ -140,7 +140,7 @@ async fn populate_open_hours(conn: &PgPool) -> Result<OpenHours, Error> {
                 close_time
             ) VALUES ($1, $2, $3, $4) RETURNING *;",
         )
-        .bind(&open_hours.id)
+        .bind(open_hours.id)
         .bind(weekday.to_monday_one_offset() as i16)
         .bind(Time::from_str("09:00").unwrap().to_sqlx())
         .bind(Time::from_str("17:00").unwrap().to_sqlx())
