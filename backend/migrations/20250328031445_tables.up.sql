@@ -3,7 +3,7 @@
 -- 'coleader',  -- Same privileges as leader, but can have multiple
 -- 'moderator',  -- Lower-level privileges, but above member
 -- 'member'  -- Default membership level
-CREATE TYPE role AS ENUM ('member', 'moderator', 'coleader', 'leader');
+CREATE TYPE ROLE AS ENUM ('member', 'moderator', 'coleader', 'leader');
 
 CREATE TABLE communities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -44,7 +44,7 @@ CREATE TABLE community_members (
     -- Cascade: if a community is deleted, memberships are deleted too
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    role role NOT NULL,
+    role ROLE NOT NULL,
     -- An inactive member is ineligible to receive distributions.
     -- Can be set automatically by community_membership_schedule if user matches
     is_active BOOLEAN NOT NULL DEFAULT true,
@@ -130,6 +130,9 @@ CREATE TABLE sites (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     default_auction_params_id UUID NOT NULL REFERENCES auction_params (id),
+
+    -- Auction auto scheduling parameters --
+
     -- Duration of possession and period between auctions.
     possession_period INTERVAL NOT NULL,
     -- Amount of time before the change in possession that the auction begins.
@@ -139,8 +142,11 @@ CREATE TABLE sites (
     proxy_bidding_lead_time INTERVAL NOT NULL,
     -- If not present, the site is assumed to be open all the time.
     open_hours_id UUID REFERENCES open_hours (id) ON DELETE SET NULL,
-    -- Whether this site is available for auction.
-    is_available BOOLEAN NOT NULL DEFAULT true,
+
+    -- Whether this site is automatically scheduled for auction. Otherwise
+    -- auctions are manually triggered.
+    auto_schedule BOOLEAN NOT NULL DEFAULT true,
+
     -- Image is optional if the location is otherwise well-described.
     site_image_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,

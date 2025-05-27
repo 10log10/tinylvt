@@ -238,7 +238,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
         auction_lead_time: Span::new().minutes(45),
         proxy_bidding_lead_time: Span::new().days(1),
         open_hours: Some(open_hours),
-        is_available: true,
+        auto_schedule: true,
     }
 }
 
@@ -272,7 +272,7 @@ pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
         auction_lead_time: Span::new().minutes(60),
         proxy_bidding_lead_time: Span::new().days(2),
         open_hours: Some(open_hours),
-        is_available: true,
+        auto_schedule: true,
     }
 }
 pub fn assert_site_equal(
@@ -301,7 +301,7 @@ pub fn assert_site_equal(
         site.proxy_bidding_lead_time.fieldwise(),
         retrieved.proxy_bidding_lead_time
     );
-    assert_eq!(site.is_available, retrieved.is_available);
+    assert_eq!(site.auto_schedule, retrieved.auto_schedule);
     assert_eq!(site.open_hours, retrieved.open_hours);
     Ok(())
 }

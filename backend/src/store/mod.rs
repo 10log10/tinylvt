@@ -177,7 +177,7 @@ pub struct Site {
     #[sqlx(try_from = "SqlxSpan")]
     pub proxy_bidding_lead_time: Span,
     pub open_hours_id: Option<OpenHoursId>,
-    pub is_available: bool,
+    pub auto_schedule: bool,
     pub site_image_id: Option<SiteImageId>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
@@ -703,7 +703,7 @@ pub async fn create_site(
             auction_lead_time,
             proxy_bidding_lead_time,
             open_hours_id,
-            is_available
+            auto_schedule
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
     )
     .bind(actor.0.community_id)
@@ -714,7 +714,7 @@ pub async fn create_site(
     .bind(span_to_interval(&details.auction_lead_time)?)
     .bind(span_to_interval(&details.proxy_bidding_lead_time)?)
     .bind(open_hours_id)
-    .bind(details.is_available)
+    .bind(details.auto_schedule)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -842,7 +842,7 @@ pub async fn get_site(
         auction_lead_time: site.auction_lead_time,
         proxy_bidding_lead_time: site.proxy_bidding_lead_time,
         open_hours,
-        is_available: site.is_available,
+        auto_schedule: site.auto_schedule,
     };
     Ok(payloads::responses::Site {
         site_id: site.id,
@@ -890,7 +890,7 @@ pub async fn update_site(
             auction_lead_time = $5,
             proxy_bidding_lead_time = $6,
             open_hours_id = $7,
-            is_available = $8
+            auto_schedule = $8
         WHERE id = $9",
     )
     .bind(&details.name)
@@ -900,7 +900,7 @@ pub async fn update_site(
     .bind(span_to_interval(&details.auction_lead_time)?)
     .bind(span_to_interval(&details.proxy_bidding_lead_time)?)
     .bind(new_open_hours_id)
-    .bind(details.is_available)
+    .bind(details.auto_schedule)
     .bind(existing_site.id)
     .execute(&mut *tx)
     .await?;

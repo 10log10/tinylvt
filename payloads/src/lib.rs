@@ -110,7 +110,7 @@ pub struct Site {
     pub auction_lead_time: Span,
     pub proxy_bidding_lead_time: Span,
     pub open_hours: Option<OpenHours>,
-    pub is_available: bool,
+    pub auto_schedule: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
