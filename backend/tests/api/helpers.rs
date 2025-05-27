@@ -1,6 +1,6 @@
 use backend::{Config, build, telemetry};
 use jiff::{Span, Timestamp};
-use payloads::{CommunityId, requests, responses};
+use payloads::{CommunityId, SiteId, requests, responses};
 use reqwest::StatusCode;
 use sqlx::{Error, PgPool, migrate::Migrator};
 use tracing_log::LogTracer;
@@ -165,6 +165,31 @@ impl TestApp {
         assert_site_equal(&req.site_details, &resp.site_details)?;
         Ok(())
     }
+
+    pub async fn create_test_space(
+        &self,
+        site_id: &SiteId,
+    ) -> anyhow::Result<payloads::responses::Space> {
+        let space = space_details_a(*site_id);
+        let space_id = dbg!(self.client.create_space(&space).await)?;
+        let space_response = self.client.get_space(&space_id).await?;
+        let retrieved = &space_response.space_details;
+        assert_space_equal(&space, retrieved)?;
+        Ok(space_response)
+    }
+
+    pub async fn update_space_details(
+        &self,
+        prev: responses::Space,
+    ) -> anyhow::Result<()> {
+        let req = requests::UpdateSpace {
+            space_id: prev.space_id,
+            space_details: space_details_b(prev.space_details.site_id),
+        };
+        let resp = self.client.update_space(&req).await?;
+        assert_space_equal(&req.space_details, &resp.space_details)?;
+        Ok(())
+    }
 }
 
 fn alice_credentials() -> requests::CreateAccount {
@@ -278,6 +303,38 @@ pub fn assert_site_equal(
     );
     assert_eq!(site.is_available, retrieved.is_available);
     assert_eq!(site.open_hours, retrieved.open_hours);
+    Ok(())
+}
+
+fn space_details_a(site_id: SiteId) -> payloads::Space {
+    payloads::Space {
+        site_id,
+        name: "test space".into(),
+        description: Some("test space description".into()),
+        eligibility_points: 10.0,
+        is_available: true,
+    }
+}
+
+fn space_details_b(site_id: SiteId) -> payloads::Space {
+    payloads::Space {
+        site_id,
+        name: "test space b".into(),
+        description: Some("updated test space description".into()),
+        eligibility_points: 15.0,
+        is_available: false,
+    }
+}
+
+pub fn assert_space_equal(
+    space: &payloads::Space,
+    retrieved: &payloads::Space,
+) -> anyhow::Result<()> {
+    assert_eq!(space.site_id, retrieved.site_id);
+    assert_eq!(space.name, retrieved.name);
+    assert_eq!(space.description, retrieved.description);
+    assert_eq!(space.eligibility_points, retrieved.eligibility_points);
+    assert_eq!(space.is_available, retrieved.is_available);
     Ok(())
 }
 

@@ -67,7 +67,9 @@ async fn test_populate() -> Result<(), StoreError> {
     .bind("Test Community")
     .fetch_one(conn)
     .await?;
+    println!("1");
     let _users = populate_users(conn, &community.id).await?;
+    println!("2");
     // check that we get a unique constaint error if attempting to populate the
     // same usernames
     let result = populate_users(conn, &community.id).await;
@@ -86,7 +88,8 @@ async fn populate_users(
     conn: &PgPool,
     community_id: &CommunityId,
 ) -> Result<Vec<User>, StoreError> {
-    let roles = ["leader", "coleader", "member"];
+    use payloads::Role;
+    let roles = [Role::Leader, Role::Coleader, Role::Member];
 
     for (i, role) in roles.iter().enumerate() {
         let mut user = store::create_user(

@@ -1,3 +1,10 @@
+-- Roles:
+-- 'leader',  -- Only one leader
+-- 'coleader',  -- Same privileges as leader, but can have multiple
+-- 'moderator',  -- Lower-level privileges, but above member
+-- 'member'  -- Default membership level
+CREATE TYPE role AS ENUM ('member', 'moderator', 'coleader', 'leader');
+
 CREATE TABLE communities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -33,16 +40,11 @@ CREATE TABLE tokens (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
--- Roles:
--- 'leader',  -- Only one leader
--- 'coleader',  -- Same privileges as leader, but can have multiple
--- 'moderator',  -- Lower-level privileges, but above member
--- 'member'  -- Default membership level
 CREATE TABLE community_members (
     -- Cascade: if a community is deleted, memberships are deleted too
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
+    role role NOT NULL,
     -- An inactive member is ineligible to receive distributions.
     -- Can be set automatically by community_membership_schedule if user matches
     is_active BOOLEAN NOT NULL DEFAULT true,

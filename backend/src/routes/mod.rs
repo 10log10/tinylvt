@@ -31,6 +31,11 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::get_site)
         .service(site::update_site)
         .service(site::delete_site)
+        .service(site::create_space)
+        .service(site::get_space)
+        .service(site::update_space)
+        .service(site::delete_space)
+        .service(site::list_spaces)
 }
 
 pub async fn health_check() -> impl Responder {
@@ -67,6 +72,7 @@ impl From<StoreError> for APIError {
     fn from(e: StoreError) -> Self {
         match e {
             StoreError::Database(_) => APIError::UnexpectedError(e.into()),
+            StoreError::MemberNotFound => APIError::AuthError(e.into()),
             _ => APIError::BadRequest(e.into()),
         }
     }

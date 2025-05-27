@@ -4,7 +4,7 @@ use jiff::Span;
 use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::ToSqlx;
 use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
-use payloads::{SiteId, requests};
+use payloads::{PermissionLevel, Role, SiteId, SpaceId, requests};
 use rust_decimal::Decimal;
 use sqlx::types::Json;
 use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
@@ -12,9 +12,32 @@ use sqlx_postgres::types::PgInterval;
 use uuid::Uuid;
 
 use payloads::{
-    CommunityId, InviteId, RoleId, UserId,
+    CommunityId, InviteId, UserId,
     responses::{self, Community},
 };
+
+impl From<Space> for payloads::Space {
+    fn from(space: Space) -> Self {
+        Self {
+            site_id: space.site_id,
+            name: space.name,
+            description: space.description,
+            eligibility_points: space.eligibility_points,
+            is_available: space.is_available,
+        }
+    }
+}
+
+impl From<Space> for payloads::responses::Space {
+    fn from(space: Space) -> Self {
+        Self {
+            space_id: space.id,
+            created_at: space.created_at,
+            updated_at: space.updated_at,
+            space_details: space.into(),
+        }
+    }
+}
 
 /// A complete user row that stays in the backend.
 #[derive(Debug, Clone, FromRow)]
@@ -53,7 +76,7 @@ pub struct Token {
 pub struct CommunityMember {
     pub community_id: CommunityId,
     pub user_id: UserId,
-    pub role: RoleId,
+    pub role: Role,
     pub is_active: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
@@ -161,10 +184,6 @@ pub struct Site {
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct SpaceId(pub Uuid);
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Space {
@@ -324,7 +343,7 @@ pub async fn create_community(
     )
     .bind(community.id)
     .bind(user_id)
-    .bind(RoleId::leader())
+    .bind(Role::Leader)
     .execute(&mut *tx)
     .await?;
 
@@ -466,7 +485,7 @@ pub async fn accept_invite(
     )
     .bind(invite.community_id)
     .bind(user_id)
-    .bind(RoleId::member())
+    .bind(Role::Member)
     .execute(&mut *tx)
     .await?;
 
@@ -934,6 +953,7 @@ async fn update_open_hours(
         None => Ok(None),
     }
 }
+
 pub async fn delete_site(
     site_id: &payloads::SiteId,
     actor: &ValidatedMember,
@@ -966,6 +986,157 @@ pub async fn delete_site(
     Ok(())
 }
 
+/// Get a space and validate that the user has the required permission level in the site's community.
+/// Returns both the space and the validated member if successful.
+async fn get_validated_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    required_permission: PermissionLevel,
+    pool: &PgPool,
+) -> Result<(Space, ValidatedMember), StoreError> {
+    let space =
+        sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = $1")
+            .bind(space_id)
+            .fetch_one(pool)
+            .await?;
+
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(space.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    let actor = get_validated_member(user_id, &site.community_id, pool).await?;
+
+    if !required_permission.validate(actor.0.role) {
+        return Err(StoreError::InsufficientPermissions {
+            required: required_permission,
+        });
+    }
+
+    Ok((space, actor))
+}
+
+pub async fn create_space(
+    details: &payloads::Space,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Space, StoreError> {
+    // Get the site and validate user permissions
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(details.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    let actor = get_validated_member(user_id, &site.community_id, pool).await?;
+
+    if !PermissionLevel::Coleader.validate(actor.0.role) {
+        return Err(StoreError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        });
+    }
+
+    let space = sqlx::query_as::<_, Space>(
+        "INSERT INTO spaces (
+            site_id,
+            name,
+            description,
+            eligibility_points,
+            is_available
+        ) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+    )
+    .bind(details.site_id)
+    .bind(&details.name)
+    .bind(&details.description)
+    .bind(details.eligibility_points)
+    .bind(details.is_available)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(space)
+}
+
+pub async fn get_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::Space, StoreError> {
+    let (space, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    Ok(space.into())
+}
+
+pub async fn update_space(
+    space_id: &SpaceId,
+    details: &payloads::Space,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::Space, StoreError> {
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
+            .await?;
+
+    let updated_space = sqlx::query_as::<_, Space>(
+        "UPDATE spaces SET
+            name = $1,
+            description = $2,
+            eligibility_points = $3,
+            is_available = $4
+        WHERE id = $5
+        RETURNING *",
+    )
+    .bind(&details.name)
+    .bind(&details.description)
+    .bind(details.eligibility_points)
+    .bind(details.is_available)
+    .bind(space_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(updated_space.into())
+}
+
+pub async fn delete_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
+            .await?;
+
+    sqlx::query("DELETE FROM spaces WHERE id = $1")
+        .bind(space_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn list_spaces(
+    site_id: &SiteId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::Space>, StoreError> {
+    // Get the site and validate user permissions
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+
+    let _ = get_validated_member(user_id, &site.community_id, pool).await?;
+
+    let spaces = sqlx::query_as::<_, Space>(
+        "SELECT * FROM spaces WHERE site_id = $1 ORDER BY name",
+    )
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(spaces.into_iter().map(Into::into).collect())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
@@ -988,15 +1159,17 @@ pub enum StoreError {
     NotUnique(#[source] sqlx::Error),
     #[error("Row not found")]
     RowNotFound(#[source] sqlx::Error),
-    #[error("Unexpected database error")]
+    #[error("Database error")]
     Database(#[source] sqlx::Error),
     #[error("Unexpected error")]
     UnexpectedError(#[from] anyhow::Error),
+    #[error("Insufficient permissions. Required: {required:?}")]
+    InsufficientPermissions { required: PermissionLevel },
 }
 
-impl From<Error> for StoreError {
-    fn from(e: Error) -> Self {
-        if let Error::Database(db_err) = &e {
+impl From<sqlx::Error> for StoreError {
+    fn from(e: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(db_err) = &e {
             if db_err.code().as_deref() == Some("23505") {
                 return StoreError::NotUnique(e);
             }

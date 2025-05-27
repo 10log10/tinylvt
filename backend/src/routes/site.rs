@@ -64,3 +64,69 @@ pub async fn delete_site(
     store::delete_site(&site_id, &actor, &pool).await?;
     Ok(HttpResponse::Ok().finish())
 }
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/create_space")]
+pub async fn create_space(
+    user: Identity,
+    details: web::Json<payloads::Space>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let space = store::create_space(&details, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(space.id))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/space")]
+pub async fn get_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let space = store::get_space(&space_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(space))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/space")]
+pub async fn update_space(
+    user: Identity,
+    details: web::Json<payloads::requests::UpdateSpace>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let space = store::update_space(
+        &details.space_id,
+        &details.space_details,
+        &user_id,
+        &pool,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(space))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/delete_space")]
+pub async fn delete_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::delete_space(&space_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/spaces")]
+pub async fn list_spaces(
+    user: Identity,
+    site_id: web::Json<payloads::SiteId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let spaces = store::list_spaces(&site_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(spaces))
+}

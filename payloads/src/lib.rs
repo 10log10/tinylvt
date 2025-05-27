@@ -4,6 +4,58 @@ use rust_decimal::Decimal;
 #[cfg(feature = "use-sqlx")]
 use sqlx::{FromRow, Type};
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type))]
+#[cfg_attr(
+    feature = "use-sqlx",
+    sqlx(type_name = "role", rename_all = "lowercase")
+)]
+pub enum Role {
+    Member,
+    Moderator,
+    Coleader,
+    Leader,
+}
+
+impl Role {
+    pub fn is_ge_moderator(&self) -> bool {
+        matches!(self, Self::Moderator | Self::Coleader | Self::Leader)
+    }
+
+    pub fn is_ge_coleader(&self) -> bool {
+        matches!(self, Self::Coleader | Self::Leader)
+    }
+
+    pub fn is_leader(&self) -> bool {
+        matches!(self, Self::Leader)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionLevel {
+    /// Any member of the community
+    Member,
+    /// Moderator or higher (moderator, coleader, leader)
+    Moderator,
+    /// Coleader or higher (coleader, leader)
+    Coleader,
+    /// Only the leader
+    Leader,
+}
+
+impl PermissionLevel {
+    pub fn validate(&self, role: Role) -> bool {
+        match self {
+            Self::Member => true,
+            Self::Moderator => role.is_ge_moderator(),
+            Self::Coleader => role.is_ge_coleader(),
+            Self::Leader => role.is_leader(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(FromRow))]
 pub struct MembershipSchedule {
@@ -61,6 +113,15 @@ pub struct Site {
     pub is_available: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Space {
+    pub site_id: SiteId,
+    pub name: String,
+    pub description: Option<String>,
+    pub eligibility_points: f64,
+    pub is_available: bool,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use serde::{Deserialize, Serialize};
@@ -108,10 +169,17 @@ pub mod requests {
         pub site_id: super::SiteId,
         pub site_details: super::Site,
     }
+
+    /// Details about a community member for a community one is a part of.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateSpace {
+        pub space_id: super::SpaceId,
+        pub space_details: super::Space,
+    }
 }
 
 pub mod responses {
-    use crate::{CommunityId, InviteId, RoleId};
+    use crate::{CommunityId, InviteId};
     use jiff::Timestamp;
     use jiff_sqlx::Timestamp as SqlxTs;
     use serde::{Deserialize, Serialize};
@@ -144,15 +212,23 @@ pub mod responses {
     pub struct CommunityMember {
         pub username: String,
         pub display_name: Option<String>,
-        pub role: RoleId,
+        pub role: super::Role,
         pub is_active: bool,
     }
 
     /// Details about a community member for a community one is a part of.
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Site {
         pub site_id: super::SiteId,
         pub site_details: super::Site,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Space {
+        pub space_id: super::SpaceId,
+        pub space_details: super::Space,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
     }
@@ -188,51 +264,17 @@ pub struct InviteId(pub Uuid);
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct TokenId(pub Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
-#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
-pub struct RoleId(pub String);
-
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct SiteId(pub Uuid);
 
-impl RoleId {
-    pub fn member() -> Self {
-        Self("member".into())
-    }
-    pub fn moderator() -> Self {
-        Self("moderator".into())
-    }
-    pub fn coleader() -> Self {
-        Self("coleader".into())
-    }
-    pub fn leader() -> Self {
-        Self("leader".into())
-    }
-
-    pub fn is_mmeber(&self) -> bool {
-        self.0 == "member"
-    }
-    pub fn is_moderator(&self) -> bool {
-        self.0 == "moderator"
-    }
-    pub fn is_coleader(&self) -> bool {
-        self.0 == "coleader"
-    }
-    pub fn is_leader(&self) -> bool {
-        self.0 == "leader"
-    }
-
-    /// If the role is moderator or higher rank
-    pub fn is_ge_moderator(&self) -> bool {
-        self.is_moderator() || self.is_ge_coleader()
-    }
-    pub fn is_ge_coleader(&self) -> bool {
-        self.is_coleader() || self.is_leader()
-    }
-}
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct SpaceId(pub Uuid);
 
 type ReqwestResult = Result<reqwest::Response, reqwest::Error>;
 
@@ -413,6 +455,46 @@ impl APIClient {
     ) -> Result<(), ClientError> {
         let response = self.post("delete_site", &site_id).await?;
         ok_empty(response).await
+    }
+
+    pub async fn create_space(
+        &self,
+        space: &Space,
+    ) -> Result<SpaceId, ClientError> {
+        let response = self.post("create_space", &space).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<responses::Space, ClientError> {
+        let response = self.get("space", &space_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn update_space(
+        &self,
+        details: &requests::UpdateSpace,
+    ) -> Result<responses::Space, ClientError> {
+        let response = self.post("space", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_space", &space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn list_spaces(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<Vec<responses::Space>, ClientError> {
+        let response = self.get("spaces", &site_id).await?;
+        ok_body(response).await
     }
 }
 
