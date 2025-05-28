@@ -16,7 +16,6 @@ pub struct TestApp {
     pub port: u16,
     pub db_pool: PgPool,
     pub client: payloads::APIClient,
-    _database_drop_guard: DropDatabaseGuard,
 }
 
 /// Functions to populate test data
@@ -360,8 +359,8 @@ pub async fn spawn_app() -> TestApp {
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
 
-    let (conn, guard) = setup_database().await.unwrap();
-    let db_url = format!("{DATABASE_URL}/{}", guard.1);
+    let (conn, new_db_name) = setup_database().await.unwrap();
+    let db_url = format!("{DATABASE_URL}/{}", new_db_name);
     let mut config = Config {
         database_url: db_url,
         ip: "127.0.0.1".into(),
@@ -384,34 +383,12 @@ pub async fn spawn_app() -> TestApp {
             address: format!("http://127.0.0.1:{}", config.port),
             inner_client: client,
         },
-        _database_drop_guard: guard,
     }
 }
 
-/// Drop guard for releasing a database that is used for a single test.
-///
-/// Contains a connection to the default database and the name of the
-/// test-specific database to drop.
-#[derive(Clone)]
-pub struct DropDatabaseGuard(PgPool, String);
-
-// TODO: currently this can emit a warning since the tokio runtime is already
-// being torn down by the time sqlx is executing the command. Need some sort of
-// test wrapper with catch_unwind.
-impl Drop for DropDatabaseGuard {
-    fn drop(&mut self) {
-        let conn = self.0.clone();
-        let name = self.1.clone();
-        tokio::task::spawn(async move {
-            let _ = sqlx::query(&format!(r#"DROP DATABASE "{}";"#, name))
-                .execute(&conn)
-                .await;
-        });
-    }
-}
-
-/// Create a new database specific for the test and migrate it.
-async fn setup_database() -> Result<(PgPool, DropDatabaseGuard), Error> {
+/// Create a new database specific for the test and migrate it, returning a
+/// connection and the name of the new database.
+async fn setup_database() -> Result<(PgPool, String), Error> {
     let default_conn =
         PgPool::connect(&format!("{DATABASE_URL}/{DEFAULT_DB}")).await?;
     let new_db = Uuid::new_v4().to_string();
@@ -419,10 +396,9 @@ async fn setup_database() -> Result<(PgPool, DropDatabaseGuard), Error> {
         .execute(&default_conn)
         .await?;
     // If anything fails, we clean up the database with the guard
-    let guard = DropDatabaseGuard(default_conn, new_db.clone());
     let conn = PgPool::connect(&format!("{DATABASE_URL}/{new_db}")).await?;
     MIGRATOR.run(&conn).await?;
-    Ok((conn, guard))
+    Ok((conn, new_db))
 }
 
 /// Assert that the result of an API action results in a specific status code.
@@ -457,5 +433,30 @@ pub fn assert_auction_equal(
     assert_eq!(auction.possession_start_at, retrieved.possession_start_at);
     assert_eq!(auction.possession_end_at, retrieved.possession_end_at);
     assert_eq!(auction.start_at, retrieved.start_at);
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
+#[sqlx(transparent)]
+pub struct DBId(pub String);
+
+/// See all databases that were created during testing.
+///
+/// ```
+/// cargo test auction::check_all_databases -- --nocapture
+/// ```
+#[tokio::test]
+async fn check_all_databases() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    let dbs = sqlx::query_as::<_, DBId>(
+        "SELECT datname FROM pg_database
+        WHERE datistemplate = false;",
+    )
+    .fetch_all(&app.db_pool)
+    .await?;
+
+    dbg!(dbs);
+
     Ok(())
 }
