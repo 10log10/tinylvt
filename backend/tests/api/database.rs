@@ -125,9 +125,8 @@ async fn populate_users(
 
 async fn populate_open_hours(conn: &PgPool) -> Result<OpenHours, Error> {
     let open_hours = sqlx::query_as::<_, OpenHours>(
-        "INSERT INTO open_hours (timezone) VALUES ($1) RETURNING *;",
+        "INSERT INTO open_hours DEFAULT VALUES RETURNING *;",
     )
-    .bind("America/Los_Angeles")
     .fetch_one(conn)
     .await?;
 
@@ -188,8 +187,9 @@ async fn populate_site(
             possession_period,
             auction_lead_time,
             proxy_bidding_lead_time,
-            open_hours_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;",
+            open_hours_id,
+            timezone
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;",
     )
     .bind(community_id)
     .bind("Test Site")
@@ -207,6 +207,7 @@ async fn populate_site(
         ..Default::default()
     })
     .bind(open_hours_id)
+    .bind("America/Los_Angeles")
     .fetch_one(conn)
     .await
 }

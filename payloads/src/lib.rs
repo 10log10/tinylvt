@@ -86,7 +86,6 @@ pub struct ActivityRuleParams {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenHours {
-    pub timezone: String,
     pub days_of_week: Vec<OpenHoursWeekday>,
 }
 
@@ -112,6 +111,7 @@ pub struct Site {
     pub proxy_bidding_lead_time: Span,
     pub open_hours: Option<OpenHours>,
     pub auto_schedule: bool,
+    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

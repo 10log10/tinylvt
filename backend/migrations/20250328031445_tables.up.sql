@@ -108,8 +108,7 @@ CREATE TABLE auction_params (
 -- Maps 1-1 with a site, so when the site's open hours are updated these hours
 -- get updated
 CREATE TABLE open_hours (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    timezone TEXT NOT NULL -- IANA time zone, e.g. 'America/Los_Angeles'
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid()
 );
 
 -- If a day of the week is absent, the site is assumed to be closed that day.
@@ -146,6 +145,8 @@ CREATE TABLE sites (
     -- Whether this site is automatically scheduled for auction. Otherwise
     -- auctions are manually triggered.
     auto_schedule BOOLEAN NOT NULL DEFAULT true,
+
+    timezone TEXT NOT NULL, -- IANA time zone, e.g. 'America/Los_Angeles'
 
     -- Image is optional if the location is otherwise well-described.
     site_image_id UUID,

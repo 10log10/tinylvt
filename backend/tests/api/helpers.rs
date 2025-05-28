@@ -239,7 +239,6 @@ fn auction_params_a() -> payloads::AuctionParams {
 
 fn site_details_a(community_id: CommunityId) -> payloads::Site {
     let open_hours = payloads::OpenHours {
-        timezone: "America/Los_Angeles".into(),
         days_of_week: vec![payloads::OpenHoursWeekday {
             day_of_week: 1,
             open_time: "09:22:45".parse().unwrap(),
@@ -256,6 +255,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
         proxy_bidding_lead_time: Span::new().days(1),
         open_hours: Some(open_hours),
         auto_schedule: true,
+        timezone: "America/Los_Angeles".into(),
     }
 }
 
@@ -273,7 +273,6 @@ pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
         },
     };
     let open_hours = payloads::OpenHours {
-        timezone: "America/Los_Angeles".into(),
         days_of_week: vec![payloads::OpenHoursWeekday {
             day_of_week: 2,
             open_time: "10:00".parse().unwrap(),
@@ -290,6 +289,7 @@ pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
         proxy_bidding_lead_time: Span::new().days(2),
         open_hours: Some(open_hours),
         auto_schedule: true,
+        timezone: "America/Los_Angeles".into(),
     }
 }
 pub fn assert_site_equal(
