@@ -123,6 +123,16 @@ pub struct Space {
     pub is_available: bool,
 }
 
+/// An auction for a site's possession period
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Auction {
+    pub site_id: SiteId,
+    pub possession_start_at: Timestamp,
+    pub possession_end_at: Timestamp,
+    pub start_at: Timestamp,
+    pub auction_params: AuctionParams,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use serde::{Deserialize, Serialize};
@@ -234,6 +244,15 @@ pub mod responses {
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Auction {
+        pub auction_id: super::AuctionId,
+        pub auction_details: super::Auction,
+        pub end_at: Option<Timestamp>,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
 }
 
 use derive_more::Display;
@@ -277,6 +296,12 @@ pub struct SiteId(pub Uuid);
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct SpaceId(pub Uuid);
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct AuctionId(pub Uuid);
 
 type ReqwestResult = Result<reqwest::Response, reqwest::Error>;
 
@@ -496,6 +521,38 @@ impl APIClient {
         site_id: &SiteId,
     ) -> Result<Vec<responses::Space>, ClientError> {
         let response = self.get("spaces", &site_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_auction(
+        &self,
+        auction: &Auction,
+    ) -> Result<AuctionId, ClientError> {
+        let response = self.post("create_auction", &auction).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_auction(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<responses::Auction, ClientError> {
+        let response = self.get("auction", &auction_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_auction(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_auction", &auction_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn list_auctions(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<Vec<responses::Auction>, ClientError> {
+        let response = self.get("auctions", &site_id).await?;
         ok_body(response).await
     }
 }

@@ -4,7 +4,7 @@ use jiff::Span;
 use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::ToSqlx;
 use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
-use payloads::{PermissionLevel, Role, SiteId, SpaceId, requests};
+use payloads::{AuctionId, PermissionLevel, Role, SiteId, SpaceId, requests};
 use rust_decimal::Decimal;
 use sqlx::types::Json;
 use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
@@ -145,6 +145,16 @@ pub struct AuctionParams {
     pub updated_at: Timestamp,
 }
 
+impl From<AuctionParams> for payloads::AuctionParams {
+    fn from(params: AuctionParams) -> Self {
+        Self {
+            round_duration: params.round_duration,
+            bid_increment: params.bid_increment,
+            activity_rule_params: params.activity_rule_params.0,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
 pub struct OpenHoursId(pub Uuid);
@@ -218,23 +228,45 @@ pub struct SiteImage {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct AuctionId(pub Uuid);
-
 #[derive(Debug, Clone, FromRow)]
 pub struct Auction {
     pub id: AuctionId,
     pub site_id: SiteId,
     #[sqlx(try_from = "SqlxTs")]
-    pub posession_start_at: Timestamp,
+    pub possession_start_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
-    pub posession_end_at: Timestamp,
+    pub possession_end_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub start_at: Timestamp,
     #[sqlx(try_from = "OptionalTimestamp")]
     pub end_at: Option<Timestamp>,
     pub auction_params_id: AuctionParamsId,
+    #[sqlx(try_from = "SqlxTs")]
+    pub created_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    pub updated_at: Timestamp,
+}
+
+impl Auction {
+    // Helper to convert to response type with params
+    pub fn with_params(
+        self,
+        params: AuctionParams,
+    ) -> payloads::responses::Auction {
+        payloads::responses::Auction {
+            auction_id: self.id,
+            auction_details: payloads::Auction {
+                site_id: self.site_id,
+                possession_start_at: self.possession_start_at,
+                possession_end_at: self.possession_end_at,
+                start_at: self.start_at,
+                auction_params: params.into(),
+            },
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            end_at: self.end_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
@@ -682,7 +714,9 @@ pub async fn create_site(
     pool: &PgPool,
 ) -> Result<Site, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(StoreError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        });
     }
     let mut tx = pool.begin().await?;
 
@@ -828,16 +862,11 @@ pub async fn get_site(
     .bind(site.default_auction_params_id)
     .fetch_one(pool)
     .await?;
-    let default_auction_params = payloads::AuctionParams {
-        round_duration: default_auction_params.round_duration,
-        bid_increment: default_auction_params.bid_increment,
-        activity_rule_params: default_auction_params.activity_rule_params.0,
-    };
     let site_details = payloads::Site {
         community_id: site.community_id,
         name: site.name,
         description: site.description,
-        default_auction_params,
+        default_auction_params: default_auction_params.into(),
         possession_period: site.possession_period,
         auction_lead_time: site.auction_lead_time,
         proxy_bidding_lead_time: site.proxy_bidding_lead_time,
@@ -1137,6 +1166,160 @@ pub async fn list_spaces(
     Ok(spaces.into_iter().map(Into::into).collect())
 }
 
+/// Get an auction and validate that the user has the required permission level in the site's community.
+/// Returns both the auction and the validated member if successful.
+async fn get_validated_auction(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    required_permission: PermissionLevel,
+    pool: &PgPool,
+) -> Result<(Auction, ValidatedMember), StoreError> {
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => StoreError::AuctionNotFound,
+                e => StoreError::Database(e),
+            })?;
+
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let actor = get_validated_member(user_id, &community_id, pool).await?;
+
+    if !required_permission.validate(actor.0.role) {
+        return Err(StoreError::InsufficientPermissions {
+            required: required_permission,
+        });
+    }
+
+    Ok((auction, actor))
+}
+
+pub async fn create_auction(
+    details: &payloads::Auction,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::AuctionId, StoreError> {
+    // Get the site and validate user permissions
+    let community_id = get_site_community_id(&details.site_id, pool).await?;
+    let actor = get_validated_member(user_id, &community_id, pool).await?;
+
+    if !PermissionLevel::Coleader.validate(actor.0.role) {
+        return Err(StoreError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        });
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Create auction params first
+    let auction_params_id =
+        create_auction_params(&details.auction_params, &mut tx).await?;
+
+    let auction_id = sqlx::query_as::<_, Auction>(
+        "INSERT INTO auctions (
+            site_id,
+            possession_start_at,
+            possession_end_at,
+            start_at,
+            auction_params_id
+        ) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+    )
+    .bind(details.site_id)
+    .bind(details.possession_start_at.to_sqlx())
+    .bind(details.possession_end_at.to_sqlx())
+    .bind(details.start_at.to_sqlx())
+    .bind(auction_params_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .id;
+
+    tx.commit().await?;
+
+    Ok(auction_id)
+}
+
+pub async fn read_auction(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::Auction, StoreError> {
+    let (auction, _) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Member,
+        pool,
+    )
+    .await?;
+
+    let auction_params = sqlx::query_as::<_, AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(&auction.auction_params_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(auction.with_params(auction_params))
+}
+
+pub async fn delete_auction(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    let (_, _) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Coleader,
+        pool,
+    )
+    .await?;
+
+    sqlx::query("DELETE FROM auctions WHERE id = $1")
+        .bind(auction_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn list_auctions(
+    site_id: &SiteId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::Auction>, StoreError> {
+    // Get the site and validate user permissions
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+
+    let _ = get_validated_member(user_id, &site.community_id, pool).await?;
+
+    let auctions = sqlx::query_as::<_, Auction>(
+        "SELECT * FROM auctions WHERE site_id = $1 ORDER BY start_at DESC",
+    )
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Convert each auction with its params
+    let mut responses = Vec::new();
+    for auction in auctions {
+        let auction_params = sqlx::query_as::<_, AuctionParams>(
+            "SELECT * FROM auction_params WHERE id = $1",
+        )
+        .bind(&auction.auction_params_id)
+        .fetch_one(pool)
+        .await?;
+
+        responses.push(auction.with_params(auction_params));
+    }
+
+    Ok(responses)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
@@ -1165,6 +1348,8 @@ pub enum StoreError {
     UnexpectedError(#[from] anyhow::Error),
     #[error("Insufficient permissions. Required: {required:?}")]
     InsufficientPermissions { required: PermissionLevel },
+    #[error("Auction not found")]
+    AuctionNotFound,
 }
 
 impl From<sqlx::Error> for StoreError {

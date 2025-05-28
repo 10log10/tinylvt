@@ -200,7 +200,9 @@ CREATE TABLE auctions (
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ, -- Filled in when the auction completes.
     -- The auction params used in this auction.
-    auction_params_id UUID NOT NULL REFERENCES auction_params (id)
+    auction_params_id UUID NOT NULL REFERENCES auction_params (id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
 CREATE TABLE auction_rounds (
@@ -342,6 +344,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER auction_params_set_updated_at
 BEFORE UPDATE ON auction_params
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER auctions_set_updated_at
+BEFORE UPDATE ON auctions
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

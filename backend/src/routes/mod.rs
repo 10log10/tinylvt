@@ -1,6 +1,7 @@
 pub mod community;
 pub mod login;
 pub mod site;
+pub mod auction;
 
 use actix_identity::Identity;
 use actix_web::{
@@ -36,6 +37,10 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::update_space)
         .service(site::delete_space)
         .service(site::list_spaces)
+        .service(auction::create_auction)
+        .service(auction::get_auction)
+        .service(auction::delete_auction)
+        .service(auction::list_auctions)
 }
 
 pub async fn health_check() -> impl Responder {

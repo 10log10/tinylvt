@@ -105,6 +105,8 @@ impl TestApp {
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
+        self.client.logout().await?;
+        self.client.login(&alice_credentials()).await?;
         Ok(community_id)
     }
 
@@ -190,6 +192,18 @@ impl TestApp {
         assert_space_equal(&req.space_details, &resp.space_details)?;
         Ok(())
     }
+
+    pub async fn create_test_auction(
+        &self,
+        site_id: &SiteId,
+    ) -> anyhow::Result<payloads::responses::Auction> {
+        let auction = auction_details_a(*site_id);
+        let auction_id = self.client.create_auction(&auction).await?;
+        let auction_response = self.client.get_auction(&auction_id).await?;
+        let retrieved = &auction_response.auction_details;
+        assert_auction_equal(&auction, retrieved)?;
+        Ok(auction_response)
+    }
 }
 
 fn alice_credentials() -> requests::CreateAccount {
@@ -208,8 +222,8 @@ fn bob_credentials() -> requests::CreateAccount {
     }
 }
 
-fn site_details_a(community_id: CommunityId) -> payloads::Site {
-    let default_auction_params = payloads::AuctionParams {
+fn auction_params_a() -> payloads::AuctionParams {
+    payloads::AuctionParams {
         round_duration: Span::new().minutes(1),
         bid_increment: rust_decimal::dec!(1.0),
         activity_rule_params: payloads::ActivityRuleParams {
@@ -220,7 +234,10 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
                 (30, 1.0),
             ],
         },
-    };
+    }
+}
+
+fn site_details_a(community_id: CommunityId) -> payloads::Site {
     let open_hours = payloads::OpenHours {
         timezone: "America/Los_Angeles".into(),
         days_of_week: vec![payloads::OpenHoursWeekday {
@@ -233,7 +250,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
         community_id,
         name: "test site".into(),
         description: Some("test description".into()),
-        default_auction_params,
+        default_auction_params: auction_params_a(),
         possession_period: Span::new().hours(1),
         auction_lead_time: Span::new().minutes(45),
         proxy_bidding_lead_time: Span::new().days(1),
@@ -419,4 +436,26 @@ pub fn assert_status_code<T>(
         }
         _ => panic!("Expected APIError"),
     };
+}
+
+fn auction_details_a(site_id: SiteId) -> payloads::Auction {
+    use jiff::Span;
+    payloads::Auction {
+        site_id,
+        possession_start_at: jiff::Timestamp::now() + Span::new().hours(1),
+        possession_end_at: jiff::Timestamp::now() + Span::new().hours(2),
+        start_at: jiff::Timestamp::now(),
+        auction_params: auction_params_a(),
+    }
+}
+
+pub fn assert_auction_equal(
+    auction: &payloads::Auction,
+    retrieved: &payloads::Auction,
+) -> anyhow::Result<()> {
+    assert_eq!(auction.site_id, retrieved.site_id);
+    assert_eq!(auction.possession_start_at, retrieved.possession_start_at);
+    assert_eq!(auction.possession_end_at, retrieved.possession_end_at);
+    assert_eq!(auction.start_at, retrieved.start_at);
+    Ok(())
 }
