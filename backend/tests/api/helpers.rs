@@ -415,7 +415,7 @@ pub fn assert_status_code<T>(
     };
 }
 
-fn auction_details_a(site_id: SiteId) -> payloads::Auction {
+pub fn auction_details_a(site_id: SiteId) -> payloads::Auction {
     use jiff::Span;
     payloads::Auction {
         site_id,

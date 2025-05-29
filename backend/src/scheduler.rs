@@ -85,6 +85,15 @@ pub async fn start_auctions(pool: &PgPool) -> anyhow::Result<()> {
             }
         };
 
+        // get the first eligibility value in the progression, regardless of
+        // round num (assuming that if a progression exists, it starts at 0)
+        let eligibility_threshold = auction_params
+            .activity_rule_params
+            .eligibility_progression
+            .first()
+            .map(|(_round_num, eligibility)| *eligibility)
+            .unwrap_or(0.0);
+
         if let Err(e) = sqlx::query(
             "INSERT INTO auction_rounds (
                 auction_id,
@@ -98,6 +107,7 @@ pub async fn start_auctions(pool: &PgPool) -> anyhow::Result<()> {
         .bind(0)
         .bind(auction.start_at.to_sqlx())
         .bind(zoned_end_time.timestamp().to_sqlx())
+        .bind(eligibility_threshold)
         .execute(pool)
         .await
         .context("inserting round 0 into database")
