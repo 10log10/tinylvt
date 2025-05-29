@@ -206,6 +206,8 @@ CREATE TABLE auctions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
+-- Not directly editable by users (only read/list), since the system manages
+-- the auction rounds itself.
 CREATE TABLE auction_rounds (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,

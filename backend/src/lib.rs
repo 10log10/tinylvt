@@ -1,5 +1,6 @@
 pub mod password;
 pub mod routes;
+pub mod scheduler;
 pub mod store;
 pub mod telemetry;
 pub mod time;

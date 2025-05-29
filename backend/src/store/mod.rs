@@ -9,6 +9,7 @@ use rust_decimal::Decimal;
 use sqlx::types::Json;
 use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
 use sqlx_postgres::types::PgInterval;
+use tracing::Level;
 use uuid::Uuid;
 
 use payloads::{
@@ -655,6 +656,7 @@ struct MemberInSchedule {
     email: String,
 }
 
+#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
 /// Update members' is_active status in all communities based on the schedule,
 /// if they are present in the schedule.
 pub async fn update_is_active_from_schedule(
