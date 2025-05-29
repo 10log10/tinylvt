@@ -133,6 +133,21 @@ pub struct Auction {
     pub auction_params: AuctionParams,
 }
 
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct AuctionRoundId(pub Uuid);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuctionRound {
+    pub auction_id: AuctionId,
+    pub round_num: i32,
+    pub start_at: Timestamp,
+    pub end_at: Timestamp,
+    pub eligibility_threshold: f64,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use serde::{Deserialize, Serialize};
@@ -250,6 +265,14 @@ pub mod responses {
         pub auction_id: super::AuctionId,
         pub auction_details: super::Auction,
         pub end_at: Option<Timestamp>,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct AuctionRound {
+        pub round_id: super::AuctionRoundId,
+        pub round_details: super::AuctionRound,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
     }
@@ -553,6 +576,22 @@ impl APIClient {
         site_id: &SiteId,
     ) -> Result<Vec<responses::Auction>, ClientError> {
         let response = self.get("auctions", &site_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_auction_round(
+        &self,
+        round_id: &AuctionRoundId,
+    ) -> Result<responses::AuctionRound, ClientError> {
+        let response = self.get("auction_round", &round_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn list_auction_rounds(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::AuctionRound>, ClientError> {
+        let response = self.get("auction_rounds", &auction_id).await?;
         ok_body(response).await
     }
 }

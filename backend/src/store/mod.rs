@@ -4,7 +4,6 @@ use jiff::Span;
 use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::ToSqlx;
 use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
-use payloads::{AuctionId, PermissionLevel, Role, SiteId, SpaceId, requests};
 use rust_decimal::Decimal;
 use sqlx::types::Json;
 use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
@@ -13,7 +12,8 @@ use tracing::Level;
 use uuid::Uuid;
 
 use payloads::{
-    CommunityId, InviteId, UserId,
+    AuctionId, AuctionRoundId, CommunityId, InviteId, PermissionLevel, Role,
+    SiteId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
@@ -270,10 +270,6 @@ impl Auction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct AuctionRoundId(pub Uuid);
-
 #[derive(Debug, Clone, FromRow)]
 pub struct AuctionRound {
     pub id: AuctionRoundId,
@@ -284,6 +280,27 @@ pub struct AuctionRound {
     #[sqlx(try_from = "SqlxTs")]
     pub end_at: Timestamp,
     pub eligibility_threshold: f64, // fractional eligibility; 0-1
+    #[sqlx(try_from = "SqlxTs")]
+    pub created_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    pub updated_at: Timestamp,
+}
+
+impl AuctionRound {
+    pub fn into_response(self) -> payloads::responses::AuctionRound {
+        payloads::responses::AuctionRound {
+            round_id: self.id,
+            round_details: payloads::AuctionRound {
+                auction_id: self.auction_id,
+                round_num: self.round_num,
+                start_at: self.start_at,
+                end_at: self.end_at,
+                eligibility_threshold: self.eligibility_threshold,
+            },
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1314,6 +1331,56 @@ pub async fn list_auctions(
     }
 
     Ok(responses)
+}
+
+pub async fn get_auction_round(
+    round_id: &payloads::AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::AuctionRound, StoreError> {
+    let round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await?;
+
+    // Validate user has access to this auction's community
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(round.auction_id)
+            .fetch_one(pool)
+            .await?;
+
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
+
+    Ok(round.into_response())
+}
+
+pub async fn list_auction_rounds(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::AuctionRound>, StoreError> {
+    // First validate user has access to this auction's community
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_id)
+            .fetch_one(pool)
+            .await?;
+
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
+
+    let rounds = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE auction_id = $1 ORDER BY round_num",
+    )
+    .bind(auction_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rounds.into_iter().map(|r| r.into_response()).collect())
 }
 
 #[derive(Debug, thiserror::Error)]

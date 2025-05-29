@@ -1,5 +1,6 @@
+use backend::time::now;
 use backend::{Config, build, telemetry};
-use jiff::{Span, Timestamp};
+use jiff::Span;
 use payloads::{CommunityId, SiteId, requests, responses};
 use reqwest::StatusCode;
 use sqlx::{Error, PgPool, migrate::Migrator};
@@ -117,14 +118,14 @@ impl TestApp {
         let schedule = vec![
             payloads::MembershipSchedule {
                 // alice is active
-                start_at: Timestamp::now() - Span::new().hours(1),
-                end_at: Timestamp::now() + Span::new().hours(1),
+                start_at: now() - Span::new().hours(1),
+                end_at: now() + Span::new().hours(1),
                 email: alice_credentials().email,
             },
             payloads::MembershipSchedule {
                 // bob is not active
-                start_at: Timestamp::now() - Span::new().hours(2),
-                end_at: Timestamp::now() - Span::new().hours(1),
+                start_at: now() - Span::new().hours(2),
+                end_at: now() - Span::new().hours(1),
                 email: bob_credentials().email,
             },
         ];
@@ -418,9 +419,9 @@ fn auction_details_a(site_id: SiteId) -> payloads::Auction {
     use jiff::Span;
     payloads::Auction {
         site_id,
-        possession_start_at: jiff::Timestamp::now() + Span::new().hours(1),
-        possession_end_at: jiff::Timestamp::now() + Span::new().hours(2),
-        start_at: jiff::Timestamp::now(),
+        possession_start_at: now() + Span::new().hours(1),
+        possession_end_at: now() + Span::new().hours(2),
+        start_at: now(),
         auction_params: auction_params_a(),
     }
 }

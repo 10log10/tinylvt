@@ -217,6 +217,8 @@ CREATE TABLE auction_rounds (
     end_at TIMESTAMPTZ NOT NULL,
     -- Fraction of the bidder's eligibility that must be met, e.g. 80%
     eligibility_threshold DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     UNIQUE (auction_id, round_num),
     -- Elibility requirements can be 0% or 100% of current user eligibility.
     -- 0% means no eligibility is required, whereas 100% prevents any demand
@@ -352,6 +354,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER auctions_set_updated_at
 BEFORE UPDATE ON auctions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER auction_rounds_set_updated_at
+BEFORE UPDATE ON auction_rounds
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

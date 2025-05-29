@@ -54,3 +54,28 @@ pub async fn list_auctions(
     let auctions = store::list_auctions(&site_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(auctions))
 }
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/auction_round")]
+pub async fn get_auction_round(
+    user: Identity,
+    round_id: web::Json<payloads::AuctionRoundId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let round = store::get_auction_round(&round_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(round))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/auction_rounds")]
+pub async fn list_auction_rounds(
+    user: Identity,
+    auction_id: web::Json<AuctionId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let rounds =
+        store::list_auction_rounds(&auction_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(rounds))
+}
