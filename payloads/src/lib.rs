@@ -81,7 +81,7 @@ pub struct AuctionParams {
 pub struct ActivityRuleParams {
     /// Maps the round number to a 0-1 value indicating fraction of eligibility
     /// required.
-    pub eligibility_progression: Vec<(i64, f64)>,
+    pub eligibility_progression: Vec<(i32, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

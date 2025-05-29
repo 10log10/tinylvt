@@ -227,6 +227,9 @@ CREATE TABLE auction_rounds (
 );
 
 -- The current winner (until the next round) of a space.
+--
+-- Populated when a round concludes. `value` always exists, but winning_user
+-- only exists if someone has big for the space.
 CREATE TABLE space_rounds (
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,

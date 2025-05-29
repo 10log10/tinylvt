@@ -82,8 +82,8 @@ async fn test_auction_round_creation() -> anyhow::Result<()> {
 
     // Create an auction that starts now
     let start_time = time::now();
-    // start time is now
     let auction = app.create_test_auction(&site.site_id).await?;
+    // Turn back the clock by 5 minutes
     time::set_mock_time(start_time - Span::new().minutes(5));
 
     // No rounds should exist yet
@@ -195,6 +195,52 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
         round0.round_details.end_at.in_tz("America/Los_Angeles")?,
         expected_round_end_time
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create an auction that starts now
+    let start_time = time::now();
+    let auction = app.create_test_auction(&site.site_id).await?;
+    scheduler::schedule_tick(&app.db_pool).await?;
+
+    // Round 0 should now exist
+    let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    let round = &rounds[0];
+    assert_eq!(round.round_details.round_num, 0);
+    assert_eq!(round.round_details.auction_id, auction.auction_id);
+    assert_eq!(round.round_details.start_at, start_time);
+    assert_eq!(
+        round.round_details.end_at,
+        start_time + Span::new().minutes(1)
+    );
+    assert_eq!(round.round_details.eligibility_threshold, 0.5);
+
+    // test that the subsequent round gets created
+    time::set_mock_time(round.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool).await?;
+
+    let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
+    assert_eq!(rounds.len(), 2);
+    let round = &rounds[1];
+    assert_eq!(round.round_details.round_num, 1);
+    assert_eq!(round.round_details.auction_id, auction.auction_id);
+    assert_eq!(
+        round.round_details.start_at,
+        start_time + Span::new().minutes(1)
+    );
+    assert_eq!(
+        round.round_details.end_at,
+        start_time + Span::new().minutes(2)
+    );
+    assert_eq!(round.round_details.eligibility_threshold, 0.5);
 
     Ok(())
 }
