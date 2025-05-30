@@ -303,12 +303,7 @@ impl AuctionRound {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
-pub struct SpaceRound {
-    pub space_id: SpaceId,
-    pub round_id: AuctionRoundId,
-    pub winning_user_id: Option<UserId>,
-}
+pub use payloads::SpaceRound;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Bid {
@@ -1383,6 +1378,50 @@ pub async fn list_auction_rounds(
     Ok(rounds.into_iter().map(|r| r.into_response()).collect())
 }
 
+pub async fn get_space_round(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<SpaceRound, StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) = get_validated_space(space_id, user_id, PermissionLevel::Member, pool).await?;
+
+    let space_round = sqlx::query_as::<_, SpaceRound>(
+        "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 AND round_id = $2",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::SpaceRoundNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    Ok(space_round)
+}
+
+pub async fn list_space_rounds(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<SpaceRound>, StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) = get_validated_space(space_id, user_id, PermissionLevel::Member, pool).await?;
+
+    let space_rounds = sqlx::query_as::<_, SpaceRound>(
+        "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 ORDER BY (
+            SELECT round_num FROM auction_rounds WHERE id = round_id
+        )",
+    )
+    .bind(space_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(space_rounds)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
@@ -1413,6 +1452,8 @@ pub enum StoreError {
     InsufficientPermissions { required: PermissionLevel },
     #[error("Auction not found")]
     AuctionNotFound,
+    #[error("Space round not found")]
+    SpaceRoundNotFound,
 }
 
 impl From<sqlx::Error> for StoreError {

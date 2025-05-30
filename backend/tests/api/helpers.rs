@@ -173,7 +173,7 @@ impl TestApp {
         site_id: &SiteId,
     ) -> anyhow::Result<payloads::responses::Space> {
         let space = space_details_a(*site_id);
-        let space_id = dbg!(self.client.create_space(&space).await)?;
+        let space_id = self.client.create_space(&space).await?;
         let space_response = self.client.get_space(&space_id).await?;
         let retrieved = &space_response.space_details;
         assert_space_equal(&space, retrieved)?;

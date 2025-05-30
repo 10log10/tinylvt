@@ -199,6 +199,50 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_space_round_creation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create a space in the site
+    let space = app.create_test_space(&site.site_id).await?;
+
+    // Create an auction that starts now
+    let start_time = time::now();
+    let mut auction_details = helpers::auction_details_a(site.site_id);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    let round = &rounds[0];
+
+    let space_rounds = app.client.list_space_rounds(&space.space_id).await?;
+    assert_eq!(space_rounds.len(), 0);
+
+    // Advance time past the round end
+    time::set_mock_time(round.round_details.end_at + Span::new().seconds(1));
+
+    // Update space rounds - this should create entries with zero values since there are no bids
+    scheduler::schedule_tick(&app.db_pool).await?;
+
+    // Check space round was created
+    let space_rounds = app.client.list_space_rounds(&space.space_id).await?;
+    assert_eq!(space_rounds.len(), 1);
+    let space_round = &space_rounds[0];
+
+    // Verify space round properties
+    assert_eq!(space_round.space_id, space.space_id);
+    assert_eq!(space_round.round_id, round.round_id);
+    assert_eq!(space_round.winning_user_id, None);
+    assert_eq!(space_round.value, rust_decimal::Decimal::ZERO);
+
+    Ok(())
+}
+
 /*
 #[tokio::test]
 async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {

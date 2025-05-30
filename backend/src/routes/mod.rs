@@ -43,6 +43,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::list_auctions)
         .service(auction::get_auction_round)
         .service(auction::list_auction_rounds)
+        .service(auction::get_space_round)
+        .service(auction::list_space_rounds)
 }
 
 pub async fn health_check() -> impl Responder {
