@@ -23,18 +23,19 @@ use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
 use sqlx::PgPool;
-use tracing::Level;
 
-use crate::{store, time};
+use crate::{store, telemetry::log_error, time};
 
 /// Update state once right now.
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool), err(level = "error"))]
 pub async fn schedule_tick(pool: &PgPool) -> anyhow::Result<()> {
     // tracing::instrument will log the errors if they occur
-    let _ = store::update_is_active_from_schedule(pool).await;
-    let _ = update_space_rounds(pool).await;
+    let _ = store::update_is_active_from_schedule(pool)
+        .await
+        .map_err(log_error);
+    let _ = update_space_rounds(pool).await.map_err(log_error);
     // TODO: update user eligibilities after a round
-    let _ = add_subsequent_rounds(pool).await;
+    let _ = add_subsequent_rounds(pool).await.map_err(log_error);
     Ok(())
 }
 
@@ -56,7 +57,7 @@ pub async fn schedule_tick(pool: &PgPool) -> anyhow::Result<()> {
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool))]
 pub async fn update_space_rounds(pool: &PgPool) -> anyhow::Result<()> {
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
@@ -76,18 +77,165 @@ pub async fn update_space_rounds(pool: &PgPool) -> anyhow::Result<()> {
     .await?;
 
     for auction in &auctions {
-        let _ = update_space_rounds_for_auction(auction, pool).await;
+        let _ = update_space_rounds_for_auction(auction, pool)
+            .await
+            .map_err(log_error);
     }
 
     Ok(())
 }
 
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool))]
 pub async fn update_space_rounds_for_auction(
     auction: &store::Auction,
     pool: &PgPool,
 ) -> anyhow::Result<()> {
-    // TODO: implement
+    // Get the auction params to know the bid increment
+    let auction_params = sqlx::query_as::<_, store::AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(&auction.auction_params_id)
+    .fetch_one(pool)
+    .await
+    .context("failed to get auction params")?;
+
+    // Get all spaces for this auction's site
+    let spaces = sqlx::query_as::<_, store::Space>(
+        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
+    )
+    .bind(&auction.site_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to get available spaces for site")?;
+
+    // Get the most recently concluded round
+    let concluded_round = sqlx::query_as::<_, store::AuctionRound>(
+        "SELECT * FROM auction_rounds 
+        WHERE auction_id = $1 
+        AND end_at <= $2
+        ORDER BY round_num DESC
+        LIMIT 1",
+    )
+    .bind(auction.id)
+    .bind(time::now().to_sqlx())
+    .fetch_optional(pool)
+    .await
+    .context("failed to query for concluded round")?;
+
+    // If there's no concluded round yet, nothing to update
+    let Some(concluded_round) = concluded_round else {
+        return Ok(());
+    };
+
+    let mut tx = pool.begin().await.context("failed to begin transaction")?;
+    let mut any_bids = false;
+
+    for space in &spaces {
+        // Check how many bids exist for this space in the concluded round
+        let bid_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM bids 
+            WHERE space_id = $1 AND round_id = $2",
+        )
+        .bind(space.id)
+        .bind(concluded_round.id)
+        .fetch_one(&mut *tx)
+        .await
+        .with_context(|| {
+            format!("failed to get bid count for space {}", space.id)
+        })?;
+
+        // Track if there are any bids
+        any_bids = any_bids || bid_count > 0;
+
+        // Get previous value if it exists
+        let prev_value = sqlx::query_scalar::<_, rust_decimal::Decimal>(
+            "SELECT value FROM space_rounds 
+            WHERE space_id = $1 
+            AND round_id IN (
+                SELECT id FROM auction_rounds 
+                WHERE auction_id = $2 
+                AND round_num < $3
+            )
+            ORDER BY (
+                SELECT round_num FROM auction_rounds 
+                WHERE id = round_id
+            ) DESC
+            LIMIT 1",
+        )
+        .bind(space.id)
+        .bind(auction.id)
+        .bind(concluded_round.round_num)
+        .fetch_optional(&mut *tx)
+        .await
+        .with_context(|| {
+            format!("failed to get previous value for space {}", space.id)
+        })?;
+
+        let (new_value, winning_user_id) = if bid_count > 0 {
+            // With any bids, increase the value if there was a previous value
+            let winner = sqlx::query_scalar::<_, payloads::UserId>(
+                "SELECT user_id FROM bids 
+                WHERE space_id = $1 AND round_id = $2 
+                ORDER BY random() 
+                LIMIT 1",
+            )
+            .bind(space.id)
+            .bind(concluded_round.id)
+            .fetch_one(&mut *tx)
+            .await
+            .with_context(|| {
+                format!("failed to select winning bid for space {}", space.id)
+            })?;
+
+            let new_value = match prev_value {
+                Some(prev) => prev + auction_params.bid_increment,
+                None => rust_decimal::Decimal::ZERO, // Start at zero in first round
+            };
+
+            (new_value, Some(winner))
+        } else {
+            // No bids, value stays at zero
+            (rust_decimal::Decimal::ZERO, None)
+        };
+
+        // Create space round entry
+        sqlx::query(
+            "INSERT INTO space_rounds (
+                space_id, 
+                round_id,
+                winning_user_id,
+                value
+            ) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(space.id)
+        .bind(concluded_round.id)
+        .bind(winning_user_id)
+        .bind(new_value)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| {
+            format!("failed to create space round entry for space {}", space.id)
+        })?;
+    }
+
+    // Conclude the auction if there are no more bids
+    if !any_bids {
+        sqlx::query(
+            "UPDATE auctions 
+            SET end_at = $1 
+            WHERE id = $2",
+        )
+        .bind(time::now().to_sqlx())
+        .bind(auction.id)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| {
+            format!("failed to conclude auction {}", auction.id)
+        })?;
+    }
+
+    tx.commit().await.context("failed to commit transaction")?;
+
     Ok(())
 }
 
@@ -96,7 +244,7 @@ pub async fn update_space_rounds_for_auction(
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool))]
 pub async fn add_subsequent_rounds(pool: &PgPool) -> anyhow::Result<()> {
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
@@ -116,13 +264,15 @@ pub async fn add_subsequent_rounds(pool: &PgPool) -> anyhow::Result<()> {
     .await?;
 
     for auction in &auctions {
-        let _ = add_subsequent_rounds_for_auction(auction, pool).await;
+        let _ = add_subsequent_rounds_for_auction(auction, pool)
+            .await
+            .map_err(log_error);
     }
 
     Ok(())
 }
 
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool))]
 pub async fn add_subsequent_rounds_for_auction(
     auction: &store::Auction,
     pool: &PgPool,
@@ -146,7 +296,7 @@ pub async fn add_subsequent_rounds_for_auction(
     let last_auction_round = sqlx::query_as::<_, store::AuctionRound>(
         "SELECT * FROM auction_rounds
             WHERE auction_id = $1
-            ORDER BY round_num ASC LIMIT 1",
+            ORDER BY round_num DESC LIMIT 1",
     )
     .bind(auction.id)
     .fetch_optional(pool)

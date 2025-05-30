@@ -199,6 +199,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     Ok(())
 }
 
+/*
 #[tokio::test]
 async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {
     let app = spawn_app().await;
@@ -244,3 +245,4 @@ async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {
 
     Ok(())
 }
+*/

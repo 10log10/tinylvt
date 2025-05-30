@@ -4,6 +4,13 @@ use tracing::subscriber::set_global_default;
 use tracing_log::LogTracer;
 use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt};
 
+/// Log an error if it exists using the alternate selector, which emits the
+/// error chain.
+pub fn log_error(e: impl Into<anyhow::Error>) {
+    let e: anyhow::Error = e.into();
+    tracing::error!("{e:#}");
+}
+
 pub fn get_subscriber(env_filter: String) -> impl Subscriber + Sync + Send {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(env_filter));
