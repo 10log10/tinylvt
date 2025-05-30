@@ -1,4 +1,4 @@
-use backend::time::now;
+use backend::time::TimeSource;
 use backend::{Config, build, telemetry};
 use jiff::Span;
 use payloads::{CommunityId, SiteId, requests, responses};
@@ -17,6 +17,7 @@ pub struct TestApp {
     pub port: u16,
     pub db_pool: PgPool,
     pub client: payloads::APIClient,
+    pub time_source: TimeSource,
 }
 
 /// Functions to populate test data
@@ -118,14 +119,14 @@ impl TestApp {
         let schedule = vec![
             payloads::MembershipSchedule {
                 // alice is active
-                start_at: now() - Span::new().hours(1),
-                end_at: now() + Span::new().hours(1),
+                start_at: self.time_source.now() - Span::new().hours(1),
+                end_at: self.time_source.now() + Span::new().hours(1),
                 email: alice_credentials().email,
             },
             payloads::MembershipSchedule {
                 // bob is not active
-                start_at: now() - Span::new().hours(2),
-                end_at: now() - Span::new().hours(1),
+                start_at: self.time_source.now() - Span::new().hours(2),
+                end_at: self.time_source.now() - Span::new().hours(1),
                 email: bob_credentials().email,
             },
         ];
@@ -197,7 +198,7 @@ impl TestApp {
         &self,
         site_id: &SiteId,
     ) -> anyhow::Result<payloads::responses::Auction> {
-        let auction = auction_details_a(*site_id);
+        let auction = auction_details_a(*site_id, &self.time_source);
         let auction_id = self.client.create_auction(&auction).await?;
         let auction_response = self.client.get_auction(&auction_id).await?;
         let retrieved = &auction_response.auction_details;
@@ -359,8 +360,9 @@ pub async fn spawn_app() -> TestApp {
     let subscriber = telemetry::get_subscriber("warn".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
+    let time_source = TimeSource::new("2025-01-01T00:00:00Z".parse().unwrap());
 
-    let (conn, new_db_name) = setup_database().await.unwrap();
+    let (db_pool, new_db_name) = setup_database().await.unwrap();
     let db_url = format!("{DATABASE_URL}/{}", new_db_name);
     let mut config = Config {
         database_url: db_url,
@@ -374,16 +376,17 @@ pub async fn spawn_app() -> TestApp {
         .build()
         .unwrap();
 
-    let server = build(&mut config).await.unwrap();
+    let server = build(&mut config, time_source.clone()).await.unwrap();
     tokio::spawn(server);
 
     TestApp {
         port: config.port,
-        db_pool: conn,
+        db_pool,
         client: payloads::APIClient {
             address: format!("http://127.0.0.1:{}", config.port),
             inner_client: client,
         },
+        time_source,
     }
 }
 
@@ -415,13 +418,16 @@ pub fn assert_status_code<T>(
     };
 }
 
-pub fn auction_details_a(site_id: SiteId) -> payloads::Auction {
+pub fn auction_details_a(
+    site_id: SiteId,
+    time_source: &TimeSource,
+) -> payloads::Auction {
     use jiff::Span;
     payloads::Auction {
         site_id,
-        possession_start_at: now() + Span::new().hours(1),
-        possession_end_at: now() + Span::new().hours(2),
-        start_at: now(),
+        possession_start_at: time_source.now() + Span::new().hours(1),
+        possession_end_at: time_source.now() + Span::new().hours(2),
+        start_at: time_source.now(),
         auction_params: auction_params_a(),
     }
 }

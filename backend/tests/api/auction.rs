@@ -1,18 +1,21 @@
 use crate::helpers::{self, spawn_app};
-use backend::{scheduler, time};
+use backend::scheduler;
+use backend::time::TimeSource;
+use jiff::Timestamp;
 use jiff::{Span, Zoned};
 use payloads::requests;
 
 #[tokio::test]
-async fn test_time_mock() -> anyhow::Result<()> {
-    let initial_time = time::now();
+async fn test_mock_time() -> anyhow::Result<()> {
+    let initial_time = Timestamp::now();
+    let time_source = TimeSource::new(initial_time);
 
-    time::advance_mock_time(Span::new().hours(1));
-    assert_eq!(time::now(), initial_time + Span::new().hours(1));
+    time_source.advance(Span::new().hours(1));
+    assert_eq!(time_source.now(), initial_time + Span::new().hours(1));
 
-    let new_time = initial_time + Span::new().hours(7);
-    time::set_mock_time(new_time);
-    assert_eq!(time::now(), new_time);
+    let new_time = initial_time + Span::new().hours(2);
+    time_source.set(new_time);
+    assert_eq!(time_source.now(), new_time);
 
     Ok(())
 }
@@ -81,18 +84,18 @@ async fn test_auction_round_creation() -> anyhow::Result<()> {
     let site = app.create_test_site(&community_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
+    let start_time = app.time_source.now();
     let auction = app.create_test_auction(&site.site_id).await?;
     // Turn back the clock by 5 minutes
-    time::set_mock_time(start_time - Span::new().minutes(5));
+    app.time_source.set(start_time - Span::new().minutes(5));
 
     // No rounds should exist yet
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
     assert!(rounds.is_empty());
 
     // Advance time to auction start
-    time::set_mock_time(start_time);
-    scheduler::schedule_tick(&app.db_pool).await?;
+    app.time_source.set(start_time);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Round 0 should now exist
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
@@ -121,13 +124,14 @@ async fn test_immediate_auction_round_creation() -> anyhow::Result<()> {
     let site = app.create_test_site(&community_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
-    let mut auction_details = crate::helpers::auction_details_a(site.site_id);
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Round 0 should be created immediately
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -160,13 +164,14 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
 
     // Create an auction starting March 8, 2024 at noon PST
     // This will span the DST transition on March 10 at 2am
-    let mut auction_details = helpers::auction_details_a(site.site_id);
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
 
     // Set start time just before DST transition (March 10, 2024 1:59 AM PST)
     let start_time: Zoned =
         "2024-03-10T01:59:00-08:00[America/Los_Angeles]".parse()?;
     let start_time = start_time.timestamp();
-    time::set_mock_time(start_time);
+    app.time_source.set(start_time);
     auction_details.start_at = start_time;
 
     // Set round duration to one day
@@ -176,7 +181,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Start the auction to create initial round
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Verify initial round
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -209,13 +214,14 @@ async fn test_space_round_creation() -> anyhow::Result<()> {
     let space = app.create_test_space(&site.site_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
-    let mut auction_details = helpers::auction_details_a(site.site_id);
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -224,10 +230,11 @@ async fn test_space_round_creation() -> anyhow::Result<()> {
     assert_eq!(space_rounds.len(), 0);
 
     // Advance time past the round end
-    time::set_mock_time(round.round_details.end_at + Span::new().seconds(1));
+    app.time_source
+        .set(round.round_details.end_at + Span::new().seconds(1));
 
     // Update space rounds - this should create entries with zero values since there are no bids
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Check space round was created
     let space_rounds = app.client.list_space_rounds(&space.space_id).await?;
@@ -251,13 +258,14 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     let space = app.create_test_space(&site.site_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
-    let mut auction_details = helpers::auction_details_a(site.site_id);
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -314,13 +322,14 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
     let space = app.create_test_space(&site.site_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
-    let mut auction_details = helpers::auction_details_a(site.site_id);
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -331,13 +340,8 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
         .await?;
 
     // Advance time past round end
-    time::set_mock_time(dbg!(
-        round.round_details.end_at + Span::new().seconds(1)
-    ));
-
-    dbg!(time::now());
-
-    dbg!(jiff::Timestamp::now());
+    app.time_source
+        .set(round.round_details.end_at + Span::new().seconds(1));
 
     // Attempt to create/delete bids should fail
     assert!(

@@ -1,11 +1,10 @@
 use actix_identity::Identity;
 use actix_web::{HttpResponse, get, post, web};
-use payloads::{AuctionId, SiteId, SpaceId, AuctionRoundId};
+use payloads::{AuctionId, AuctionRoundId, SpaceId};
 use sqlx::PgPool;
 
-use crate::store;
-
-use super::{APIError, get_user_id};
+use crate::routes::{APIError, get_user_id};
+use crate::{store, time::TimeSource};
 
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/create_auction")]
@@ -23,7 +22,7 @@ pub async fn create_auction(
 #[get("/auction")]
 pub async fn get_auction(
     user: Identity,
-    auction_id: web::Json<AuctionId>,
+    auction_id: web::Json<payloads::AuctionId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
@@ -35,7 +34,7 @@ pub async fn get_auction(
 #[post("/delete_auction")]
 pub async fn delete_auction(
     user: Identity,
-    auction_id: web::Json<AuctionId>,
+    auction_id: web::Json<payloads::AuctionId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
@@ -47,7 +46,7 @@ pub async fn delete_auction(
 #[get("/auctions")]
 pub async fn list_auctions(
     user: Identity,
-    site_id: web::Json<SiteId>,
+    site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
@@ -89,7 +88,8 @@ pub async fn get_space_round(
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let (space_id, round_id) = params.into_inner();
-    let round = store::get_space_round(&space_id, &round_id, &user_id, &pool).await?;
+    let round =
+        store::get_space_round(&space_id, &round_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(round))
 }
 
@@ -105,16 +105,18 @@ pub async fn list_space_rounds(
     Ok(HttpResponse::Ok().json(rounds))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_bid")]
 pub async fn create_bid(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let (space_id, round_id) = params.into_inner();
-    store::create_bid(&space_id, &round_id, &user_id, &pool).await?;
+    store::create_bid(&space_id, &round_id, &user_id, &pool, &time_source)
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
@@ -144,15 +146,17 @@ pub async fn list_bids(
     Ok(HttpResponse::Ok().json(bids))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/delete_bid")]
 pub async fn delete_bid(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let (space_id, round_id) = params.into_inner();
-    store::delete_bid(&space_id, &round_id, &user_id, &pool).await?;
+    store::delete_bid(&space_id, &round_id, &user_id, &pool, &time_source)
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }

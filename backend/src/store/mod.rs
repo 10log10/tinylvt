@@ -17,7 +17,7 @@ use payloads::{
     responses::{self, Community},
 };
 
-use crate::time;
+use crate::time::TimeSource;
 
 impl From<Space> for payloads::Space {
     fn from(space: Space) -> Self {
@@ -657,11 +657,12 @@ struct MemberInSchedule {
     email: String,
 }
 
-#[tracing::instrument(skip(pool), err(level = Level::ERROR))]
+#[tracing::instrument(skip(pool, time_source), err(level = Level::ERROR))]
 /// Update members' is_active status in all communities based on the schedule,
 /// if they are present in the schedule.
 pub async fn update_is_active_from_schedule(
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Get all (community, user) pairs in the schedule table. Only these
     // community members are to have their is_active status updated.
@@ -676,7 +677,7 @@ pub async fn update_is_active_from_schedule(
     .fetch_all(pool)
     .await?;
 
-    let now = time::now().to_sqlx();
+    let now = time_source.now().to_sqlx();
     // Might as well make sure we update everything or nothing to avoid
     // partially completed state.
     let mut tx = pool.begin().await?;
@@ -1420,6 +1421,7 @@ pub async fn create_bid(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Get the space to validate user permissions
     let (_, _) =
@@ -1438,7 +1440,7 @@ pub async fn create_bid(
         e => StoreError::Database(e),
     })?;
 
-    let now = time::now();
+    let now = time_source.now();
     if now < round.start_at {
         return Err(StoreError::RoundNotStarted);
     }
@@ -1514,6 +1516,7 @@ pub async fn delete_bid(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Get the space to validate user permissions
     let (_, _) =
@@ -1532,12 +1535,11 @@ pub async fn delete_bid(
         e => StoreError::Database(e),
     })?;
 
-    let now = dbg!(time::now());
-    dbg!(jiff::Timestamp::now());
-    if now < dbg!(round.start_at) {
+    let now = time_source.now();
+    if now < round.start_at {
         return Err(StoreError::RoundNotStarted);
     }
-    if now >= dbg!(round.end_at) {
+    if now >= round.end_at {
         return Err(StoreError::RoundEnded);
     }
 

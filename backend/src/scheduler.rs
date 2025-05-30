@@ -23,20 +23,53 @@ use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
 use sqlx::PgPool;
+use std::time::Duration;
+use tokio::time;
 
-use crate::{store, telemetry::log_error, time};
+use crate::{store, telemetry::log_error, time::TimeSource};
+
+pub struct Scheduler {
+    pool: PgPool,
+    time_source: TimeSource,
+    tick_interval: Duration,
+}
+
+impl Scheduler {
+    pub fn new(
+        pool: PgPool,
+        time_source: TimeSource,
+        tick_interval: Duration,
+    ) -> Self {
+        Self {
+            pool,
+            time_source,
+            tick_interval,
+        }
+    }
+
+    pub async fn run(&self) {
+        let mut interval = time::interval(self.tick_interval);
+        loop {
+            interval.tick().await;
+            schedule_tick(&self.pool, &self.time_source).await;
+        }
+    }
+}
 
 /// Update state once right now.
-#[tracing::instrument(skip(pool), err(level = "error"))]
-pub async fn schedule_tick(pool: &PgPool) -> anyhow::Result<()> {
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
     // tracing::instrument will log the errors if they occur
-    let _ = store::update_is_active_from_schedule(pool)
+    let _ = store::update_is_active_from_schedule(pool, time_source)
         .await
         .map_err(log_error);
-    let _ = update_space_rounds(pool).await.map_err(log_error);
+    let _ = update_space_rounds(pool, time_source)
+        .await
+        .map_err(log_error);
     // TODO: update user eligibilities after a round
-    let _ = add_subsequent_rounds(pool).await.map_err(log_error);
-    Ok(())
+    let _ = add_subsequent_rounds(pool, time_source)
+        .await
+        .map_err(log_error);
 }
 
 /// For rounds that have concluded (now > end_time), create an entry for each
@@ -57,8 +90,11 @@ pub async fn schedule_tick(pool: &PgPool) -> anyhow::Result<()> {
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool))]
-pub async fn update_space_rounds(pool: &PgPool) -> anyhow::Result<()> {
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn update_space_rounds(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
     // the future).
@@ -72,12 +108,12 @@ pub async fn update_space_rounds(pool: &PgPool) -> anyhow::Result<()> {
                 AND $1 < end_at
             )",
     )
-    .bind(time::now().to_sqlx())
+    .bind(time_source.now().to_sqlx())
     .fetch_all(pool)
     .await?;
 
     for auction in &auctions {
-        let _ = update_space_rounds_for_auction(auction, pool)
+        let _ = update_space_rounds_for_auction(auction, pool, time_source)
             .await
             .map_err(log_error);
     }
@@ -85,10 +121,11 @@ pub async fn update_space_rounds(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip(pool))]
+#[tracing::instrument(skip(pool, time_source))]
 pub async fn update_space_rounds_for_auction(
     auction: &store::Auction,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> anyhow::Result<()> {
     // Get the auction params to know the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
@@ -103,7 +140,7 @@ pub async fn update_space_rounds_for_auction(
     let spaces = sqlx::query_as::<_, store::Space>(
         "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
     )
-    .bind(&auction.site_id)
+    .bind(auction.site_id)
     .fetch_all(pool)
     .await
     .context("failed to get available spaces for site")?;
@@ -117,7 +154,7 @@ pub async fn update_space_rounds_for_auction(
         LIMIT 1",
     )
     .bind(auction.id)
-    .bind(time::now().to_sqlx())
+    .bind(time_source.now().to_sqlx())
     .fetch_optional(pool)
     .await
     .context("failed to query for concluded round")?;
@@ -225,7 +262,7 @@ pub async fn update_space_rounds_for_auction(
             SET end_at = $1 
             WHERE id = $2",
         )
-        .bind(time::now().to_sqlx())
+        .bind(time_source.now().to_sqlx())
         .bind(auction.id)
         .execute(&mut *tx)
         .await
@@ -244,8 +281,11 @@ pub async fn update_space_rounds_for_auction(
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool))]
-pub async fn add_subsequent_rounds(pool: &PgPool) -> anyhow::Result<()> {
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn add_subsequent_rounds(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
     // the future).
@@ -259,7 +299,7 @@ pub async fn add_subsequent_rounds(pool: &PgPool) -> anyhow::Result<()> {
                 AND $1 < end_at
             )",
     )
-    .bind(time::now().to_sqlx())
+    .bind(time_source.now().to_sqlx())
     .fetch_all(pool)
     .await?;
 

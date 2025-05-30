@@ -15,13 +15,19 @@ use actix_web::{App, HttpServer, web};
 use sqlx::PgPool;
 use std::net::TcpListener;
 
+use crate::time::TimeSource;
+
 /// Build the server, but not await it.
 ///
 /// Returns the port that the server has bound to by modifying the config.
-pub async fn build(config: &mut Config) -> std::io::Result<Server> {
+pub async fn build(
+    config: &mut Config,
+    time_source: TimeSource,
+) -> std::io::Result<Server> {
     let secret_key = Key::generate(); // key for signing session cookies
     let db_pool =
         web::Data::new(PgPool::connect(&config.database_url).await.unwrap());
+    let time_source = web::Data::new(time_source);
 
     // OS assigns the port if binding to 0
     let listener = TcpListener::bind(format!("{}:{}", config.ip, config.port))?;
@@ -50,6 +56,7 @@ pub async fn build(config: &mut Config) -> std::io::Result<Server> {
             // .index_file("index.html"),
             // )
             .app_data(db_pool.clone())
+            .app_data(time_source.clone())
     })
     .listen(listener)?
     .run();
