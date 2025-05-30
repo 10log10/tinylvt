@@ -243,6 +243,119 @@ async fn test_space_round_creation() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_bid_crud() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    // Create an auction that starts now
+    let start_time = time::now();
+    let mut auction_details = helpers::auction_details_a(site.site_id);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    let round = &rounds[0];
+
+    // Initially no bids should exist
+    let bids = app
+        .client
+        .list_bids(&space.space_id, &round.round_id)
+        .await?;
+    assert!(bids.is_empty());
+
+    // Create a bid
+    app.client
+        .create_bid(&space.space_id, &round.round_id)
+        .await?;
+
+    // Verify bid exists via get
+    let bid = app.client.get_bid(&space.space_id, &round.round_id).await?;
+    assert_eq!(bid.space_id, space.space_id);
+    assert_eq!(bid.round_id, round.round_id);
+
+    // Verify bid appears in list
+    let bids = app
+        .client
+        .list_bids(&space.space_id, &round.round_id)
+        .await?;
+    assert_eq!(bids.len(), 1);
+
+    assert_eq!(bids[0].space_id, space.space_id);
+    assert_eq!(bids[0].round_id, round.round_id);
+
+    // Delete the bid
+    app.client
+        .delete_bid(&space.space_id, &round.round_id)
+        .await?;
+
+    // Verify bid no longer exists
+    let bids = app
+        .client
+        .list_bids(&space.space_id, &round.round_id)
+        .await?;
+    assert!(bids.is_empty());
+
+    Ok(())
+}
+
+// #[tokio::test]
+// #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "current_thread")]
+async fn test_bid_after_round_end() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    // Create an auction that starts now
+    let start_time = time::now();
+    let mut auction_details = helpers::auction_details_a(site.site_id);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    let round = &rounds[0];
+
+    // Create a bid
+    app.client
+        .create_bid(&space.space_id, &round.round_id)
+        .await?;
+
+    // Advance time past round end
+    time::set_mock_time(dbg!(
+        round.round_details.end_at + Span::new().seconds(1)
+    ));
+
+    dbg!(time::now());
+
+    dbg!(jiff::Timestamp::now());
+
+    // Attempt to create/delete bids should fail
+    assert!(
+        app.client
+            .create_bid(&space.space_id, &round.round_id)
+            .await
+            .is_err()
+    );
+    assert!(
+        app.client
+            .delete_bid(&space.space_id, &round.round_id)
+            .await
+            .is_err()
+    );
+
+    Ok(())
+}
+
 /*
 #[tokio::test]
 async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {

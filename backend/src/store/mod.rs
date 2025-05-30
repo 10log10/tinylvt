@@ -1426,7 +1426,7 @@ pub async fn create_bid(
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
-    // Verify the round exists and hasn't ended
+    // Verify the round exists and is ongoing
     let round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
     )
@@ -1438,7 +1438,11 @@ pub async fn create_bid(
         e => StoreError::Database(e),
     })?;
 
-    if round.end_at <= time::now() {
+    let now = time::now();
+    if now < round.start_at {
+        return Err(StoreError::RoundNotStarted);
+    }
+    if now >= round.end_at {
         return Err(StoreError::RoundEnded);
     }
 
@@ -1516,7 +1520,7 @@ pub async fn delete_bid(
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
-    // Verify the round exists and hasn't ended
+    // Verify the round exists and is ongoing
     let round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
     )
@@ -1528,7 +1532,12 @@ pub async fn delete_bid(
         e => StoreError::Database(e),
     })?;
 
-    if round.end_at <= time::now() {
+    let now = dbg!(time::now());
+    dbg!(jiff::Timestamp::now());
+    if now < dbg!(round.start_at) {
+        return Err(StoreError::RoundNotStarted);
+    }
+    if now >= dbg!(round.end_at) {
         return Err(StoreError::RoundEnded);
     }
 
@@ -1583,6 +1592,8 @@ pub enum StoreError {
     RoundEnded,
     #[error("Auction round not found")]
     AuctionRoundNotFound,
+    #[error("Round has not started yet")]
+    RoundNotStarted,
 }
 
 impl From<sqlx::Error> for StoreError {

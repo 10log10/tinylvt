@@ -14,10 +14,8 @@ pub fn log_error(e: impl Into<anyhow::Error>) {
 pub fn get_subscriber(env_filter: String) -> impl Subscriber + Sync + Send {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(env_filter));
-    let stderr = fmt::Layer::new()
-        .with_writer(std::io::stderr)
-        .pretty()
-        .with_span_events(fmt::format::FmtSpan::CLOSE);
+    let stderr = fmt::Layer::new().with_writer(std::io::stderr).pretty();
+    // .with_span_events(fmt::format::FmtSpan::CLOSE);
     Registry::default().with(env_filter).with(stderr)
 }
 
