@@ -12,8 +12,8 @@ use tracing::Level;
 use uuid::Uuid;
 
 use payloads::{
-    AuctionId, AuctionRoundId, CommunityId, InviteId, PermissionLevel, Role,
-    SiteId, SpaceId, UserId, requests,
+    AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
+    Role, SiteId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
@@ -304,17 +304,6 @@ impl AuctionRound {
 }
 
 pub use payloads::SpaceRound;
-
-#[derive(Debug, Clone, FromRow)]
-pub struct Bid {
-    pub space_id: SpaceId,
-    pub round_id: AuctionRoundId,
-    pub user_id: UserId,
-    #[sqlx(try_from = "SqlxTs")]
-    pub created_at: Timestamp,
-    #[sqlx(try_from = "SqlxTs")]
-    pub updated_at: Timestamp,
-}
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserEligibility {
@@ -1385,7 +1374,9 @@ pub async fn get_space_round(
     pool: &PgPool,
 ) -> Result<SpaceRound, StoreError> {
     // Get the space to validate user permissions
-    let (_, _) = get_validated_space(space_id, user_id, PermissionLevel::Member, pool).await?;
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
 
     let space_round = sqlx::query_as::<_, SpaceRound>(
         "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 AND round_id = $2",
@@ -1408,7 +1399,9 @@ pub async fn list_space_rounds(
     pool: &PgPool,
 ) -> Result<Vec<SpaceRound>, StoreError> {
     // Get the space to validate user permissions
-    let (_, _) = get_validated_space(space_id, user_id, PermissionLevel::Member, pool).await?;
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
 
     let space_rounds = sqlx::query_as::<_, SpaceRound>(
         "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 ORDER BY (
@@ -1420,6 +1413,136 @@ pub async fn list_space_rounds(
     .await?;
 
     Ok(space_rounds)
+}
+
+pub async fn create_bid(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    // Verify the round exists and hasn't ended
+    let round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    if round.end_at <= time::now() {
+        return Err(StoreError::RoundEnded);
+    }
+
+    // Create the bid
+    sqlx::query(
+        "INSERT INTO bids (space_id, round_id, user_id) VALUES ($1, $2, $3)",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_bid(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Bid, StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    let bid = sqlx::query_as::<_, Bid>(
+        "SELECT * FROM bids WHERE space_id = $1 AND round_id = $2 AND user_id = $3",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::BidNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    Ok(bid)
+}
+
+pub async fn list_bids(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<Bid>, StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    let bids = sqlx::query_as::<_, Bid>(
+        "SELECT * FROM bids WHERE space_id = $1 AND round_id = $2 AND user_id = $3",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(bids)
+}
+
+pub async fn delete_bid(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Get the space to validate user permissions
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    // Verify the round exists and hasn't ended
+    let round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    if round.end_at <= time::now() {
+        return Err(StoreError::RoundEnded);
+    }
+
+    // Delete the bid
+    sqlx::query(
+        "DELETE FROM bids WHERE space_id = $1 AND round_id = $2 AND user_id = $3",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1454,6 +1577,12 @@ pub enum StoreError {
     AuctionNotFound,
     #[error("Space round not found")]
     SpaceRoundNotFound,
+    #[error("Bid not found")]
+    BidNotFound,
+    #[error("Round has ended")]
+    RoundEnded,
+    #[error("Auction round not found")]
+    AuctionRoundNotFound,
 }
 
 impl From<sqlx::Error> for StoreError {

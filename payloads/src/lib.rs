@@ -157,6 +157,18 @@ pub struct SpaceRound {
     pub value: rust_decimal::Decimal,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct Bid {
+    pub space_id: SpaceId,
+    pub round_id: AuctionRoundId,
+    pub user_id: UserId,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Timestamp"))]
+    pub created_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Timestamp"))]
+    pub updated_at: Timestamp,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use serde::{Deserialize, Serialize};
@@ -619,6 +631,42 @@ impl APIClient {
     ) -> Result<Vec<SpaceRound>, ClientError> {
         let response = self.get("space_rounds", &space_id).await?;
         ok_body(response).await
+    }
+
+    pub async fn create_bid(
+        &self,
+        space_id: &SpaceId,
+        round_id: &AuctionRoundId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("create_bid", &(space_id, round_id)).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn get_bid(
+        &self,
+        space_id: &SpaceId,
+        round_id: &AuctionRoundId,
+    ) -> Result<Bid, ClientError> {
+        let response = self.get("bid", &(space_id, round_id)).await?;
+        ok_body(response).await
+    }
+
+    pub async fn list_bids(
+        &self,
+        space_id: &SpaceId,
+        round_id: &AuctionRoundId,
+    ) -> Result<Vec<Bid>, ClientError> {
+        let response = self.get("bids", &(space_id, round_id)).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_bid(
+        &self,
+        space_id: &SpaceId,
+        round_id: &AuctionRoundId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_bid", &(space_id, round_id)).await?;
+        ok_empty(response).await
     }
 }
 
