@@ -38,7 +38,7 @@ async fn create_read_update_delete_space() -> anyhow::Result<()> {
     // List spaces
     let spaces = app.client.list_spaces(&site.site_id).await?;
     assert_eq!(spaces.len(), 1);
-    assert_eq!(spaces[0].space_details.name, "test space b");
+    assert_eq!(spaces[0].space_details.name, "test space a updated");
 
     // Delete the space
     app.client.delete_space(&space.space_id).await?;

@@ -43,6 +43,12 @@ impl TestApp {
         Ok(())
     }
 
+    pub async fn login_alice(&self) -> anyhow::Result<()> {
+        self.client.logout().await?;
+        self.client.login(&alice_credentials()).await?;
+        Ok(())
+    }
+
     pub async fn login_bob(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
         self.client.login(&bob_credentials()).await?;
@@ -106,8 +112,7 @@ impl TestApp {
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
-        self.client.logout().await?;
-        self.client.login(&alice_credentials()).await?;
+        self.login_alice().await?;
         Ok(community_id)
     }
 
@@ -187,7 +192,7 @@ impl TestApp {
     ) -> anyhow::Result<()> {
         let req = requests::UpdateSpace {
             space_id: prev.space_id,
-            space_details: space_details_b(prev.space_details.site_id),
+            space_details: space_details_a_update(prev.space_details.site_id),
         };
         let resp = self.client.update_space(&req).await?;
         assert_space_equal(&req.space_details, &resp.space_details)?;
@@ -324,7 +329,7 @@ pub fn assert_site_equal(
     Ok(())
 }
 
-fn space_details_a(site_id: SiteId) -> payloads::Space {
+pub fn space_details_a(site_id: SiteId) -> payloads::Space {
     payloads::Space {
         site_id,
         name: "test space".into(),
@@ -334,10 +339,21 @@ fn space_details_a(site_id: SiteId) -> payloads::Space {
     }
 }
 
-fn space_details_b(site_id: SiteId) -> payloads::Space {
+#[allow(unused)]
+pub fn space_details_b(site_id: SiteId) -> payloads::Space {
     payloads::Space {
         site_id,
         name: "test space b".into(),
+        description: None,
+        eligibility_points: 10.0,
+        is_available: true,
+    }
+}
+
+fn space_details_a_update(site_id: SiteId) -> payloads::Space {
+    payloads::Space {
+        site_id,
+        name: "test space a updated".into(),
         description: Some("updated test space description".into()),
         eligibility_points: 15.0,
         is_available: false,

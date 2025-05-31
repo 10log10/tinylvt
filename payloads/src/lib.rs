@@ -148,12 +148,12 @@ pub struct AuctionRound {
     pub eligibility_threshold: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
 pub struct SpaceRound {
     pub space_id: SpaceId,
     pub round_id: AuctionRoundId,
-    pub winning_user_id: Option<UserId>,
+    pub winning_username: Option<String>,
     pub value: rust_decimal::Decimal,
 }
 
@@ -625,11 +625,11 @@ impl APIClient {
         ok_body(response).await
     }
 
-    pub async fn list_space_rounds(
+    pub async fn list_space_rounds_for_round(
         &self,
-        space_id: &SpaceId,
+        round_id: &AuctionRoundId,
     ) -> Result<Vec<SpaceRound>, ClientError> {
-        let response = self.get("space_rounds", &space_id).await?;
+        let response = self.get("space_rounds_for_round", &round_id).await?;
         ok_body(response).await
     }
 

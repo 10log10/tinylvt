@@ -1379,8 +1379,23 @@ pub async fn get_space_round(
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
+    // need left join since winning_user_id can be NULL, but we don't want to
+    // drop the row if it's NULL
     let space_round = sqlx::query_as::<_, SpaceRound>(
-        "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 AND round_id = $2",
+        "SELECT
+            sr.round_id,
+            sr.space_id,
+            sr.value,
+            u.username as winning_username
+        FROM space_rounds sr
+        LEFT JOIN users u ON
+            sr.winning_user_id = u.id
+        WHERE
+            space_id = $1
+            AND round_id = $2
+        ORDER BY (
+            SELECT round_num FROM auction_rounds WHERE id = round_id
+        )",
     )
     .bind(space_id)
     .bind(round_id)
@@ -1394,22 +1409,40 @@ pub async fn get_space_round(
     Ok(space_round)
 }
 
-pub async fn list_space_rounds(
-    space_id: &SpaceId,
+pub async fn list_space_rounds_for_round(
+    round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
 ) -> Result<Vec<SpaceRound>, StoreError> {
     // Get the space to validate user permissions
-    let (_, _) =
-        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
-            .await?;
+    let auction = sqlx::query_as::<_, Auction>(
+        "SELECT * FROM auctions WHERE id = (
+            SELECT auction_id from auction_rounds WHERE id = $1
+        )",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await?;
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
 
+    // need left join since winning_user_id can be NULL, but we don't want to
+    // drop the row if it's NULL
     let space_rounds = sqlx::query_as::<_, SpaceRound>(
-        "SELECT space_id, round_id, winning_user_id, value FROM space_rounds WHERE space_id = $1 ORDER BY (
+        "SELECT
+            sr.round_id,
+            sr.space_id,
+            sr.value,
+            u.username as winning_username
+        FROM space_rounds sr
+        LEFT JOIN users u ON
+            sr.winning_user_id = u.id
+        WHERE round_id = $1
+        ORDER BY (
             SELECT round_num FROM auction_rounds WHERE id = round_id
         )",
     )
-    .bind(space_id)
+    .bind(round_id)
     .fetch_all(pool)
     .await?;
 

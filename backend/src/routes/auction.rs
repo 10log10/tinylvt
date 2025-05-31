@@ -94,14 +94,15 @@ pub async fn get_space_round(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/space_rounds")]
-pub async fn list_space_rounds(
+#[get("/space_rounds_for_round")]
+pub async fn list_space_rounds_for_round(
     user: Identity,
-    space_id: web::Json<SpaceId>,
+    round_id: web::Json<AuctionRoundId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let rounds = store::list_space_rounds(&space_id, &user_id, &pool).await?;
+    let rounds =
+        store::list_space_rounds_for_round(&round_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(rounds))
 }
 

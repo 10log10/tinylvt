@@ -262,7 +262,7 @@ pub async fn update_space_rounds_for_auction(
             SET end_at = $1 
             WHERE id = $2",
         )
-        .bind(time_source.now().to_sqlx())
+        .bind(concluded_round.end_at.to_sqlx())
         .bind(auction.id)
         .execute(&mut *tx)
         .await

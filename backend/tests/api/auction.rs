@@ -226,7 +226,10 @@ async fn test_space_round_creation() -> anyhow::Result<()> {
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
 
-    let space_rounds = app.client.list_space_rounds(&space.space_id).await?;
+    let space_rounds = app
+        .client
+        .list_space_rounds_for_round(&round.round_id)
+        .await?;
     assert_eq!(space_rounds.len(), 0);
 
     // Advance time past the round end
@@ -237,15 +240,22 @@ async fn test_space_round_creation() -> anyhow::Result<()> {
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Check space round was created
-    let space_rounds = app.client.list_space_rounds(&space.space_id).await?;
+    let space_rounds = app
+        .client
+        .list_space_rounds_for_round(&round.round_id)
+        .await?;
     assert_eq!(space_rounds.len(), 1);
     let space_round = &space_rounds[0];
 
     // Verify space round properties
     assert_eq!(space_round.space_id, space.space_id);
     assert_eq!(space_round.round_id, round.round_id);
-    assert_eq!(space_round.winning_user_id, None);
+    assert_eq!(space_round.winning_username, None);
     assert_eq!(space_round.value, rust_decimal::Decimal::ZERO);
+
+    // Verify conclusion of the auction
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert_eq!(auction.end_at, Some(round.round_details.end_at));
 
     Ok(())
 }
@@ -312,9 +322,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     Ok(())
 }
 
-// #[tokio::test]
-// #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test]
 async fn test_bid_after_round_end() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
@@ -359,6 +367,110 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_continued_bidding() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    // Create an auction that starts now
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let mut rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let mut round = &rounds[0];
+
+    let max_rounds = 5;
+
+    for i in 0..max_rounds {
+        // Create a bid by Alice
+        app.login_alice().await?;
+        app.client
+            .create_bid(&space.space_id, &round.round_id)
+            .await?;
+        // Create a bid by Bob
+        app.login_bob().await?;
+        app.client
+            .create_bid(&space.space_id, &round.round_id)
+            .await?;
+
+        // Advance time past round end
+        app.time_source
+            .set(round.round_details.end_at + Span::new().seconds(1));
+
+        // View results and create the next round
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+        // View the result of the last round
+        let space_rounds = app
+            .client
+            .list_space_rounds_for_round(&round.round_id)
+            .await?;
+        let space_round = &space_rounds[0];
+        assert_eq!(space_round.value, rust_decimal::Decimal::from(i));
+
+        // Get the next round
+        rounds = app.client.list_auction_rounds(&auction_id).await?;
+        round = &rounds[i + 1];
+    }
+
+    // now only bob makes another bid, and should win the space for 5
+    app.client
+        .create_bid(&space.space_id, &round.round_id)
+        .await?;
+    // Advance time past round end
+    app.time_source
+        .set(round.round_details.end_at + Span::new().seconds(1));
+    // View results and conclude the auction
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // View the result of the last round
+    let space_rounds = app
+        .client
+        .list_space_rounds_for_round(&round.round_id)
+        .await?;
+    let space_round = &space_rounds[0];
+    assert_eq!(space_round.value, rust_decimal::Decimal::from(max_rounds));
+    assert_eq!(
+        *space_round,
+        payloads::SpaceRound {
+            space_id: space.space_id,
+            round_id: round.round_id,
+            winning_username: Some("bob".into()),
+            value: rust_decimal::Decimal::from(max_rounds),
+        }
+    );
+
+    // Verify conclusion of the auction after bidding stops
+
+    rounds = app.client.list_auction_rounds(&auction_id).await?;
+    round = &rounds[6];
+    app.time_source
+        .set(round.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert_eq!(auction.end_at, Some(round.round_details.end_at));
+
+    Ok(())
+}
+
+/*
+// create second space
+let spacea = app.create_test_space(&site.site_id).await?;
+let spaceb_id = app
+    .client
+    .create_space(&helpers::space_details_b(site.site_id))
+    .await?;
+let spaceb = app.client.get_space(&spaceb_id).await?;
+*/
 
 /*
 #[tokio::test]
