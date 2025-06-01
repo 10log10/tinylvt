@@ -1,5 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{HttpMessage, HttpRequest, HttpResponse, web};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use sqlx::PgPool;
 
 use crate::password::{
@@ -12,6 +12,7 @@ use super::{APIError, get_user_id};
     skip(credentials, pool),
     fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
 )]
+#[post("/login")]
 pub async fn login(
     request: HttpRequest,
     credentials: web::Json<Credentials>,
@@ -42,12 +43,14 @@ pub async fn login(
 }
 
 #[tracing::instrument(skip(user))]
+#[post("/login_check")]
 pub async fn login_check(user: Identity) -> Result<HttpResponse, APIError> {
     get_user_id(&user)?;
     Ok(HttpResponse::Ok().finish())
 }
 
 #[tracing::instrument(skip(user))]
+#[post("/logout")]
 pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
     let _ = get_user_id(&user); // to instrument the user_id, if exists
     user.logout();
@@ -56,6 +59,7 @@ pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
 
 // TODO: return error if email is not a valid format
 #[tracing::instrument(skip(new_user_details, pool))]
+#[post("/create_account")]
 pub async fn create_account(
     request: HttpRequest,
     new_user_details: web::Json<NewUserDetails>,

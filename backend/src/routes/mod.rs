@@ -6,7 +6,7 @@ pub mod site;
 use actix_identity::Identity;
 use actix_web::{
     HttpResponse, Responder, ResponseError, body::BoxBody,
-    dev::HttpServiceFactory, web,
+    dev::HttpServiceFactory, get, web,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -15,11 +15,11 @@ use crate::store::{self, StoreError};
 
 pub fn api_services() -> impl HttpServiceFactory {
     web::scope("/api")
-        .route("/health_check", web::get().to(health_check))
-        .route("/login", web::post().to(login::login))
-        .route("/login_check", web::post().to(login::login_check))
-        .route("/logout", web::post().to(login::logout))
-        .route("/create_account", web::post().to(login::create_account))
+        .service(health_check)
+        .service(login::login)
+        .service(login::login_check)
+        .service(login::logout)
+        .service(login::create_account)
         .service(community::create_community)
         .service(community::get_communities)
         .service(community::invite_community_member)
@@ -51,6 +51,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::delete_bid)
 }
 
+#[get("/health_check")]
 pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("healthy")
 }
