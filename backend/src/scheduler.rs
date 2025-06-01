@@ -17,6 +17,20 @@
 //!       | auction start
 //!       |
 //! proxy_bidding_lead_time
+//!
+//!
+//! auction start
+//! update round results (skipped)
+//! update user eligibilities (skipped)
+//! create next round
+//!
+//! round concludes
+//! update round results
+//! update user eligibilities
+//! create next round
+//!
+//! round concludes
+//! update round results; auction concluded
 //! ```
 
 use anyhow::Context;
@@ -72,7 +86,7 @@ pub async fn schedule_tick(
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
     // the future).
-    let auctions_with_concluded_round = sqlx::query_as::<_, store::Auction>(
+    let auctions_without_ongoing_round = sqlx::query_as::<_, store::Auction>(
         "SELECT * FROM auctions
         WHERE $1 >= start_at
             AND end_at IS NULL
@@ -86,15 +100,68 @@ pub async fn schedule_tick(
     .fetch_all(pool)
     .await?;
 
-    for auction in &auctions_with_concluded_round {
-        let _ =
-            update_round_space_results_for_auction(auction, pool, time_source)
-                .await
-                .map_err(log_error);
-        // TODO: update user eligibilities after a round
-        let _ = add_subsequent_rounds_for_auction(auction, pool)
+    for auction in &auctions_without_ongoing_round {
+        let previous_round = sqlx::query_as::<_, store::AuctionRound>(
+            "SELECT * FROM auction_rounds 
+            WHERE auction_id = $1 
+            ORDER BY round_num DESC
+            LIMIT 1",
+        )
+        .bind(auction.id)
+        .fetch_optional(pool)
+        .await
+        .context("failed to query for concluded round")?;
+
+        // If there's a previous round, check if it had activity
+        if let Some(previous_round) = &previous_round {
+            if let Ok(false) = update_round_space_results_for_auction(
+                auction,
+                previous_round,
+                pool,
+            )
             .await
-            .map_err(log_error);
+            .map_err(log_error)
+            {
+                // auction has concluded
+                continue;
+            }
+        }
+
+        // Create next round and update eligibilities atomically
+        let mut tx = pool.begin().await?;
+        match add_subsequent_rounds_for_auction(
+            auction,
+            &previous_round,
+            &mut tx,
+        )
+        .await
+        .map_err(log_error)
+        {
+            Ok(new_round_id) => {
+                // Update eligibilities only if there was a previous round
+                if let Some(previous_round) = &previous_round {
+                    if let Err(e) = update_user_eligibilities(
+                        auction,
+                        previous_round,
+                        &new_round_id,
+                        &mut tx,
+                    )
+                    .await
+                    {
+                        log_error(e);
+                        let _ = tx.rollback().await;
+                        continue;
+                    }
+                }
+
+                if let Err(e) = tx.commit().await {
+                    log_error(anyhow::Error::from(e));
+                }
+            }
+            Err(_) => {
+                let _ = tx.rollback().await;
+            }
+        }
     }
     Ok(())
 }
@@ -117,12 +184,14 @@ pub async fn schedule_tick(
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool, time_source))]
+///
+/// Returns whether the auction is still ongoing.
+#[tracing::instrument(skip(pool))]
 pub async fn update_round_space_results_for_auction(
     auction: &store::Auction,
+    previous_round: &store::AuctionRound,
     pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     // Get the auction params to know the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
         "SELECT * FROM auction_params WHERE id = $1",
@@ -141,25 +210,6 @@ pub async fn update_round_space_results_for_auction(
     .await
     .context("failed to get available spaces for site")?;
 
-    // Get the most recently concluded round
-    let concluded_round = sqlx::query_as::<_, store::AuctionRound>(
-        "SELECT * FROM auction_rounds 
-        WHERE auction_id = $1 
-        AND end_at <= $2
-        ORDER BY round_num DESC
-        LIMIT 1",
-    )
-    .bind(auction.id)
-    .bind(time_source.now().to_sqlx())
-    .fetch_optional(pool)
-    .await
-    .context("failed to query for concluded round")?;
-
-    // If there's no concluded round yet, nothing to update
-    let Some(concluded_round) = concluded_round else {
-        return Ok(());
-    };
-
     let mut tx = pool.begin().await.context("failed to begin transaction")?;
     let mut any_bids = false;
 
@@ -170,7 +220,7 @@ pub async fn update_round_space_results_for_auction(
             WHERE space_id = $1 AND round_id = $2",
         )
         .bind(space.id)
-        .bind(concluded_round.id)
+        .bind(previous_round.id)
         .fetch_one(&mut *tx)
         .await
         .with_context(|| {
@@ -197,7 +247,7 @@ pub async fn update_round_space_results_for_auction(
         )
         .bind(space.id)
         .bind(auction.id)
-        .bind(concluded_round.round_num)
+        .bind(previous_round.round_num)
         .fetch_optional(&mut *tx)
         .await
         .with_context(|| {
@@ -213,7 +263,7 @@ pub async fn update_round_space_results_for_auction(
                 LIMIT 1",
             )
             .bind(space.id)
-            .bind(concluded_round.id)
+            .bind(previous_round.id)
             .fetch_one(&mut *tx)
             .await
             .with_context(|| {
@@ -241,7 +291,7 @@ pub async fn update_round_space_results_for_auction(
             ) VALUES ($1, $2, $3, $4)",
         )
         .bind(space.id)
-        .bind(concluded_round.id)
+        .bind(previous_round.id)
         .bind(winning_user_id)
         .bind(new_value)
         .execute(&mut *tx)
@@ -258,7 +308,7 @@ pub async fn update_round_space_results_for_auction(
             SET end_at = $1 
             WHERE id = $2",
         )
-        .bind(concluded_round.end_at.to_sqlx())
+        .bind(previous_round.end_at.to_sqlx())
         .bind(auction.id)
         .execute(&mut *tx)
         .await
@@ -269,42 +319,186 @@ pub async fn update_round_space_results_for_auction(
 
     tx.commit().await.context("failed to commit transaction")?;
 
+    Ok(any_bids)
+}
+
+/// Update user eligibilities after an auction round concludes.
+///
+/// In each round, eligibility is based on two factors:
+/// 1. New bids placed in the just-concluded round
+/// 2. Standing high bids from the round before that
+///
+/// This accounts for the natural alternating pattern of bidding where bidders don't
+/// need to rebid on spaces they're already winning. For example:
+///
+/// Round X-1:
+/// - Bidder A bids on a space
+/// - Round concludes, A becomes high bidder
+///
+/// Round X:
+/// - Bidder A doesn't need to bid (they're winning from X-1)
+/// - Bidder B bids to take the lead
+/// - Round concludes, B becomes high bidder
+///
+/// Round X+1:
+/// - Bidder B doesn't need to bid (they're winning from X)
+/// - Bidder A bids to take back the lead
+/// - Round concludes, A becomes high bidder
+///
+/// When calculating eligibility for round X+1, we need to count:
+/// - New bids placed in round X
+/// - Standing high bids from round X-1
+/// This ensures bidders maintain eligibility even in rounds where they don't need
+/// to place new bids because they're already winning from the previous round.
+///
+/// The eligibility calculation takes the total eligibility points from these
+/// spaces and divides by the eligibility threshold. For example, if the
+/// threshold is 0.5 (50%), and a user has activity on spaces worth 10 points,
+/// their eligibility is set to 20 points (10 / 0.5).
+///
+/// After the first round, eligibility cannot increase. For example, if a user
+/// has 20 points of eligibility after round 1:
+/// - If they bid on 15 points of spaces in round 2, eligibility stays at 20
+/// - If they bid on 5 points of spaces in round 2, eligibility drops to 10 (5 / 0.5)
+#[tracing::instrument(skip(tx))]
+pub async fn update_user_eligibilities(
+    auction: &store::Auction,
+    previous_round: &store::AuctionRound,
+    new_round_id: &payloads::AuctionRoundId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<()> {
+    // Get all spaces for this auction's site to calculate eligibility points
+    let spaces = sqlx::query_as::<_, store::Space>(
+        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
+    )
+    .bind(auction.site_id)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to get available spaces for site")?;
+
+    // Get all users who either bid in the previous round or had a winning bid in the round before that
+    let bidding_users = sqlx::query_scalar::<_, payloads::UserId>(
+        "SELECT DISTINCT user_id 
+         FROM (
+             SELECT user_id FROM bids WHERE round_id = $1
+             UNION
+             SELECT winning_user_id FROM round_space_results rsr
+             JOIN auction_rounds ar ON rsr.round_id = ar.id
+             WHERE ar.auction_id = $2 
+             AND ar.round_num = $3 
+             AND winning_user_id IS NOT NULL
+         ) users",
+    )
+    .bind(previous_round.id)
+    .bind(auction.id)
+    .bind(previous_round.round_num - 1)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to get users who bid or had standing high bids")?;
+
+    for user_id in bidding_users {
+        // Get all spaces this user bid on in the previous round OR was winning from two rounds ago
+        let active_spaces = sqlx::query_scalar::<_, payloads::SpaceId>(
+            "SELECT space_id FROM (
+                SELECT space_id FROM bids 
+                WHERE round_id = $1 AND user_id = $2
+                UNION
+                SELECT space_id FROM round_space_results rsr
+                JOIN auction_rounds ar ON rsr.round_id = ar.id
+                WHERE ar.auction_id = $3
+                AND ar.round_num = $4
+                AND winning_user_id = $2
+            ) spaces",
+        )
+        .bind(previous_round.id)
+        .bind(user_id)
+        .bind(auction.id)
+        .bind(previous_round.round_num - 1)
+        .fetch_all(&mut **tx)
+        .await
+        .with_context(|| {
+            format!("failed to get active spaces for user {}", user_id)
+        })?;
+
+        // Calculate total eligibility points from active spaces
+        let total_points: f64 = spaces
+            .iter()
+            .filter(|space| active_spaces.contains(&space.id))
+            .map(|space| space.eligibility_points)
+            .sum();
+
+        // Calculate new eligibility by dividing by threshold
+        let mut new_eligibility =
+            total_points / previous_round.eligibility_threshold;
+
+        // If not first round (round_num > 0), get previous eligibility and ensure no increase
+        if previous_round.round_num > 0 {
+            let prev_eligibility = sqlx::query_scalar::<_, f64>(
+                "SELECT eligibility FROM user_eligibilities 
+                WHERE round_id = $1 AND user_id = $2",
+            )
+            .bind(previous_round.id)
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to get previous eligibility for user {} in round {}",
+                    user_id, previous_round.round_num
+                )
+            })?;
+
+            if let Some(prev) = prev_eligibility {
+                new_eligibility = new_eligibility.min(prev);
+            }
+        }
+
+        // Store the new eligibility for the next round
+        sqlx::query(
+            "INSERT INTO user_eligibilities (user_id, round_id, eligibility)
+            VALUES ($1, $2, $3)",
+        )
+        .bind(user_id)
+        .bind(new_round_id)
+        .bind(new_eligibility)
+        .execute(&mut **tx)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to store eligibility for user {} in round {}",
+                user_id,
+                previous_round.round_num + 1
+            )
+        })?;
+    }
+
     Ok(())
 }
 
 /// For an in-progress auction, create the next auction round as needed.
-#[tracing::instrument(skip(pool))]
+#[tracing::instrument(skip(tx))]
 pub async fn add_subsequent_rounds_for_auction(
     auction: &store::Auction,
-    pool: &PgPool,
-) -> anyhow::Result<()> {
+    previous_round: &Option<store::AuctionRound>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<payloads::AuctionRoundId> {
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
         "SELECT * FROM auction_params WHERE id = $1",
     )
     .bind(&auction.auction_params_id)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await
     .context("getting auction params; skipping")?;
 
     let timezone =
         sqlx::query_as::<_, store::Site>("SELECT * FROM sites where id = $1")
             .bind(auction.site_id)
-            .fetch_one(pool)
+            .fetch_one(&mut **tx)
             .await
             .context("getting site; skipping")?
             .timezone;
 
-    let last_auction_round = sqlx::query_as::<_, store::AuctionRound>(
-        "SELECT * FROM auction_rounds
-            WHERE auction_id = $1
-            ORDER BY round_num DESC LIMIT 1",
-    )
-    .bind(auction.id)
-    .fetch_optional(pool)
-    .await
-    .context("getting last auction round; skipping")?;
-
-    let start_time_ts = last_auction_round
+    let start_time_ts = previous_round
         .as_ref()
         .map(|r| r.end_at)
         .unwrap_or(auction.start_at);
@@ -326,33 +520,36 @@ pub async fn add_subsequent_rounds_for_auction(
         .checked_add(auction_params.round_duration)
         .context("computing round end time; skipping")?;
 
-    let round_num: i32 =
-        last_auction_round.map(|r| r.round_num + 1).unwrap_or(0);
+    let round_num: i32 = previous_round
+        .as_ref()
+        .map(|r| r.round_num + 1)
+        .unwrap_or(0);
 
     let eligibility_threshold = get_eligibility_for_round_num(
         round_num,
         &auction_params.activity_rule_params.eligibility_progression,
     );
 
-    sqlx::query(
+    let new_round = sqlx::query_as::<_, store::AuctionRound>(
         "INSERT INTO auction_rounds (
-                auction_id,
-                round_num,
-                start_at,
-                end_at,
-                eligibility_threshold
-            ) VALUES ($1, $2, $3, $4, $5)",
+            auction_id,
+            round_num,
+            start_at,
+            end_at,
+            eligibility_threshold
+        ) VALUES ($1, $2, $3, $4, $5)
+        RETURNING *",
     )
     .bind(auction.id)
     .bind(round_num)
     .bind(start_time_ts.to_sqlx())
     .bind(zoned_end_time.timestamp().to_sqlx())
     .bind(eligibility_threshold)
-    .execute(pool)
+    .fetch_one(&mut **tx)
     .await
     .context("inserting round into database")?;
 
-    Ok(())
+    Ok(new_round.id)
 }
 
 fn get_eligibility_for_round_num(

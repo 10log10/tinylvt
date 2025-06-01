@@ -263,6 +263,11 @@ CREATE INDEX idx_bids_space_id ON bids (space_id);
 CREATE INDEX idx_bids_round_id_user_id ON bids (round_id, user_id);
 
 -- User eligibility across auction rounds.
+--
+-- Like round_space_results, this is updated after a round concludes, and
+-- indicates how much eligibility the user has for the next round, based on the
+-- previous round's eligibility threshold and bidder activity. Only exists for
+-- round numbers greater than zero.
 CREATE TABLE user_eligibilities (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
