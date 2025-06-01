@@ -157,12 +157,12 @@ pub struct SpaceRound {
     pub value: rust_decimal::Decimal,
 }
 
+/// Visible only to the creator
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
 pub struct Bid {
     pub space_id: SpaceId,
     pub round_id: AuctionRoundId,
-    pub user_id: UserId,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Timestamp"))]
     pub created_at: Timestamp,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "jiff_sqlx::Timestamp"))]

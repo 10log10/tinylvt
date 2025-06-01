@@ -9,7 +9,7 @@
 //! ```text
 //!          round_duration
 //!                v
-//! |------------|---|---|---|---|
+//! |------------|---|---|---|---| < auction concluded by setting end_at
 //!       ^      ^   ^
 //!       |      |   round concludes, space_rounds updates with results,
 //!       |      |   new rounds are created if there is still activity
@@ -51,25 +51,51 @@ impl Scheduler {
         let mut interval = time::interval(self.tick_interval);
         loop {
             interval.tick().await;
-            schedule_tick(&self.pool, &self.time_source).await;
+            let _ = schedule_tick(&self.pool, &self.time_source)
+                .await
+                .map_err(log_error);
         }
     }
 }
 
 /// Update state once right now.
 #[tracing::instrument(skip(pool, time_source))]
-pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
+pub async fn schedule_tick(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
     // tracing::instrument will log the errors if they occur
     let _ = store::update_is_active_from_schedule(pool, time_source)
         .await
         .map_err(log_error);
-    let _ = update_space_rounds(pool, time_source)
-        .await
-        .map_err(log_error);
-    // TODO: update user eligibilities after a round
-    let _ = add_subsequent_rounds(pool, time_source)
-        .await
-        .map_err(log_error);
+
+    // Get all auctions where the start time is in the past, the auction hasn't
+    // yet concluded, and there is not an ongoing auction round (the end time in
+    // the future).
+    let auctions_with_concluded_round = sqlx::query_as::<_, store::Auction>(
+        "SELECT * FROM auctions
+        WHERE $1 >= start_at
+            AND end_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM auction_rounds
+                WHERE auction_id = auctions.id
+                AND $1 < end_at
+            )",
+    )
+    .bind(time_source.now().to_sqlx())
+    .fetch_all(pool)
+    .await?;
+
+    for auction in &auctions_with_concluded_round {
+        let _ = update_space_rounds_for_auction(auction, pool, time_source)
+            .await
+            .map_err(log_error);
+        // TODO: update user eligibilities after a round
+        let _ = add_subsequent_rounds_for_auction(auction, pool)
+            .await
+            .map_err(log_error);
+    }
+    Ok(())
 }
 
 /// For rounds that have concluded (now > end_time), create an entry for each
@@ -90,37 +116,6 @@ pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
 /// This function only fails early if it cannot read the auctions that need
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool, time_source))]
-pub async fn update_space_rounds(
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    // Get all auctions where the start time is in the past, the auction hasn't
-    // yet concluded, and there is not an ongoing auction round (the end time in
-    // the future).
-    let auctions = sqlx::query_as::<_, store::Auction>(
-        "SELECT * FROM auctions
-        WHERE $1 >= start_at
-            AND end_at IS NULL
-            AND NOT EXISTS (
-                SELECT 1 FROM auction_rounds
-                WHERE auction_id = auctions.id
-                AND $1 < end_at
-            )",
-    )
-    .bind(time_source.now().to_sqlx())
-    .fetch_all(pool)
-    .await?;
-
-    for auction in &auctions {
-        let _ = update_space_rounds_for_auction(auction, pool, time_source)
-            .await
-            .map_err(log_error);
-    }
-
-    Ok(())
-}
-
 #[tracing::instrument(skip(pool, time_source))]
 pub async fn update_space_rounds_for_auction(
     auction: &store::Auction,
@@ -276,42 +271,7 @@ pub async fn update_space_rounds_for_auction(
     Ok(())
 }
 
-/// For auctions that are in progress, create the next auction round as needed.
-///
-/// This function only fails early if it cannot read the auctions that need
-/// updating. If updating a specific auction, errors are logged, but do not
-/// prevent updates to other auctions in the queue.
-#[tracing::instrument(skip(pool, time_source))]
-pub async fn add_subsequent_rounds(
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    // Get all auctions where the start time is in the past, the auction hasn't
-    // yet concluded, and there is not an ongoing auction round (the end time in
-    // the future).
-    let auctions = sqlx::query_as::<_, store::Auction>(
-        "SELECT * FROM auctions
-        WHERE $1 >= start_at
-            AND end_at IS NULL
-            AND NOT EXISTS (
-                SELECT 1 FROM auction_rounds
-                WHERE auction_id = auctions.id
-                AND $1 < end_at
-            )",
-    )
-    .bind(time_source.now().to_sqlx())
-    .fetch_all(pool)
-    .await?;
-
-    for auction in &auctions {
-        let _ = add_subsequent_rounds_for_auction(auction, pool)
-            .await
-            .map_err(log_error);
-    }
-
-    Ok(())
-}
-
+/// For an in-progress auction, create the next auction round as needed.
 #[tracing::instrument(skip(pool))]
 pub async fn add_subsequent_rounds_for_auction(
     auction: &store::Auction,
