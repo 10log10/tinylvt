@@ -17,9 +17,9 @@ DROP FUNCTION IF EXISTS set_updated_at;
 
 -- Drop indexes
 DROP INDEX IF EXISTS one_leader_per_community;
-DROP INDEX IF EXISTS idx_space_rounds_space_id;
-DROP INDEX IF EXISTS idx_space_rounds_round_id;
-DROP INDEX IF EXISTS idx_space_rounds_round_space;
+DROP INDEX IF EXISTS idx_round_space_results_space_id;
+DROP INDEX IF EXISTS idx_round_space_results_round_id;
+DROP INDEX IF EXISTS idx_round_space_results_round_space;
 DROP INDEX IF EXISTS idx_bids_user_id;
 DROP INDEX IF EXISTS idx_bids_round_id;
 DROP INDEX IF EXISTS idx_bids_space_id;
@@ -34,7 +34,7 @@ DROP TABLE IF EXISTS use_proxy_bidding;
 DROP TABLE IF EXISTS user_values;
 DROP TABLE IF EXISTS user_eligibilities;
 DROP TABLE IF EXISTS bids;
-DROP TABLE IF EXISTS space_rounds;
+DROP TABLE IF EXISTS round_space_results;
 DROP TABLE IF EXISTS auction_rounds;
 DROP TABLE IF EXISTS auctions;
 DROP TABLE IF EXISTS auction_params;

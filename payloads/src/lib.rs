@@ -150,7 +150,7 @@ pub struct AuctionRound {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
-pub struct SpaceRound {
+pub struct RoundSpaceResult {
     pub space_id: SpaceId,
     pub round_id: AuctionRoundId,
     pub winning_username: Option<String>,
@@ -616,20 +616,23 @@ impl APIClient {
         ok_body(response).await
     }
 
-    pub async fn get_space_round(
+    pub async fn get_round_space_result(
         &self,
         space_id: &SpaceId,
         round_id: &AuctionRoundId,
-    ) -> Result<SpaceRound, ClientError> {
-        let response = self.post("space_round", &(space_id, round_id)).await?;
+    ) -> Result<RoundSpaceResult, ClientError> {
+        let response = self
+            .post("round_space_result", &(space_id, round_id))
+            .await?;
         ok_body(response).await
     }
 
-    pub async fn list_space_rounds_for_round(
+    pub async fn list_round_space_results_for_round(
         &self,
         round_id: &AuctionRoundId,
-    ) -> Result<Vec<SpaceRound>, ClientError> {
-        let response = self.get("space_rounds_for_round", &round_id).await?;
+    ) -> Result<Vec<RoundSpaceResult>, ClientError> {
+        let response =
+            self.get("round_space_results_for_round", &round_id).await?;
         ok_body(response).await
     }
 

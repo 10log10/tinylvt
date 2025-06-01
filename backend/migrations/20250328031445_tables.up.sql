@@ -230,7 +230,7 @@ CREATE TABLE auction_rounds (
 --
 -- Populated when a round concludes. `value` always exists, but winning_user
 -- only exists if someone has big for the space.
-CREATE TABLE space_rounds (
+CREATE TABLE round_space_results (
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
     winning_user_id UUID REFERENCES users (id),
@@ -238,9 +238,9 @@ CREATE TABLE space_rounds (
     value NUMERIC(20, 6) NOT NULL,
     PRIMARY KEY (space_id, round_id)
 );
-CREATE INDEX idx_space_rounds_space_id ON space_rounds (space_id);
-CREATE INDEX idx_space_rounds_round_id ON space_rounds (round_id);
-CREATE INDEX idx_space_rounds_round_space ON space_rounds (round_id, space_id);
+CREATE INDEX idx_round_space_results_space_id ON round_space_results (space_id);
+CREATE INDEX idx_round_space_results_round_id ON round_space_results (round_id);
+CREATE INDEX idx_round_space_results_round_space ON round_space_results (round_id, space_id);
 
 -- All bids for spaces in an auction round that meet (are) the minimum bid
 -- increment.

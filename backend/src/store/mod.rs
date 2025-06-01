@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use payloads::{
     AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, SiteId, SpaceId, UserId, requests,
+    Role, RoundSpaceResult, SiteId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
@@ -302,8 +302,6 @@ impl AuctionRound {
         }
     }
 }
-
-pub use payloads::SpaceRound;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserEligibility {
@@ -1368,85 +1366,83 @@ pub async fn list_auction_rounds(
     Ok(rounds.into_iter().map(|r| r.into_response()).collect())
 }
 
-pub async fn get_space_round(
+pub async fn get_round_space_result(
     space_id: &SpaceId,
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<SpaceRound, StoreError> {
-    // Get the space to validate user permissions
-    let (_, _) =
-        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
-            .await?;
+) -> Result<RoundSpaceResult, StoreError> {
+    // Verify user has access to the space
+    get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+        .await?;
 
-    // need left join since winning_user_id can be NULL, but we don't want to
-    // drop the row if it's NULL
-    let space_round = sqlx::query_as::<_, SpaceRound>(
-        "SELECT
-            sr.round_id,
-            sr.space_id,
-            sr.value,
-            u.username as winning_username
-        FROM space_rounds sr
-        LEFT JOIN users u ON
-            sr.winning_user_id = u.id
-        WHERE
-            space_id = $1
-            AND round_id = $2
-        ORDER BY (
-            SELECT round_num FROM auction_rounds WHERE id = round_id
-        )",
+    let round_space_result = sqlx::query_as::<_, RoundSpaceResult>(
+        r#"
+        SELECT
+            space_id,
+            round_id,
+            (SELECT username FROM users WHERE id = winning_user_id)
+                AS winning_username,
+            value
+        FROM round_space_results
+        WHERE space_id = $1 AND round_id = $2
+        "#,
     )
     .bind(space_id)
     .bind(round_id)
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::SpaceRoundNotFound,
-        e => StoreError::Database(e),
+        sqlx::Error::RowNotFound => StoreError::RoundSpaceResultNotFound,
+        e => e.into(),
     })?;
 
-    Ok(space_round)
+    Ok(round_space_result)
 }
 
-pub async fn list_space_rounds_for_round(
+pub async fn list_round_space_results_for_round(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<SpaceRound>, StoreError> {
-    // Get the space to validate user permissions
-    let auction = sqlx::query_as::<_, Auction>(
-        "SELECT * FROM auctions WHERE id = (
-            SELECT auction_id from auction_rounds WHERE id = $1
-        )",
+) -> Result<Vec<RoundSpaceResult>, StoreError> {
+    // Verify user has access to the auction round
+    let auction_round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
     )
     .bind(round_id)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        e => e.into(),
+    })?;
+
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_round.auction_id)
+            .fetch_one(pool)
+            .await?;
+
     let community_id = get_site_community_id(&auction.site_id, pool).await?;
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
-    // need left join since winning_user_id can be NULL, but we don't want to
-    // drop the row if it's NULL
-    let space_rounds = sqlx::query_as::<_, SpaceRound>(
-        "SELECT
-            sr.round_id,
-            sr.space_id,
-            sr.value,
-            u.username as winning_username
-        FROM space_rounds sr
-        LEFT JOIN users u ON
-            sr.winning_user_id = u.id
+    let round_space_results = sqlx::query_as::<_, RoundSpaceResult>(
+        r#"
+        SELECT
+            space_id,
+            round_id,
+            (SELECT username FROM users WHERE id = winning_user_id)
+                AS winning_username,
+            value
+        FROM round_space_results
         WHERE round_id = $1
-        ORDER BY (
-            SELECT round_num FROM auction_rounds WHERE id = round_id
-        )",
+        "#,
     )
     .bind(round_id)
     .fetch_all(pool)
     .await?;
 
-    Ok(space_rounds)
+    Ok(round_space_results)
 }
 
 pub async fn create_bid(
@@ -1619,8 +1615,8 @@ pub enum StoreError {
     InsufficientPermissions { required: PermissionLevel },
     #[error("Auction not found")]
     AuctionNotFound,
-    #[error("Space round not found")]
-    SpaceRoundNotFound,
+    #[error("Round space result not found")]
+    RoundSpaceResultNotFound,
     #[error("Bid not found")]
     BidNotFound,
     #[error("Round has ended")]

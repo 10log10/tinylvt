@@ -11,7 +11,7 @@
 //!                v
 //! |------------|---|---|---|---| < auction concluded by setting end_at
 //!       ^      ^   ^
-//!       |      |   round concludes, space_rounds updates with results,
+//!       |      |   round concludes, round_space_results updates with results,
 //!       |      |   new rounds are created if there is still activity
 //!       |      |
 //!       | auction start
@@ -87,9 +87,10 @@ pub async fn schedule_tick(
     .await?;
 
     for auction in &auctions_with_concluded_round {
-        let _ = update_space_rounds_for_auction(auction, pool, time_source)
-            .await
-            .map_err(log_error);
+        let _ =
+            update_round_space_results_for_auction(auction, pool, time_source)
+                .await
+                .map_err(log_error);
         // TODO: update user eligibilities after a round
         let _ = add_subsequent_rounds_for_auction(auction, pool)
             .await
@@ -117,7 +118,7 @@ pub async fn schedule_tick(
 /// updating. If updating a specific auction, errors are logged, but do not
 /// prevent updates to other auctions in the queue.
 #[tracing::instrument(skip(pool, time_source))]
-pub async fn update_space_rounds_for_auction(
+pub async fn update_round_space_results_for_auction(
     auction: &store::Auction,
     pool: &PgPool,
     time_source: &TimeSource,
@@ -181,7 +182,7 @@ pub async fn update_space_rounds_for_auction(
 
         // Get previous value if it exists
         let prev_value = sqlx::query_scalar::<_, rust_decimal::Decimal>(
-            "SELECT value FROM space_rounds 
+            "SELECT value FROM round_space_results 
             WHERE space_id = $1 
             AND round_id IN (
                 SELECT id FROM auction_rounds 
@@ -232,7 +233,7 @@ pub async fn update_space_rounds_for_auction(
 
         // Create space round entry
         sqlx::query(
-            "INSERT INTO space_rounds (
+            "INSERT INTO round_space_results (
                 space_id, 
                 round_id,
                 winning_user_id,

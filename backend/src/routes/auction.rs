@@ -80,8 +80,8 @@ pub async fn list_auction_rounds(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[post("/space_round")]
-pub async fn get_space_round(
+#[post("/round_space_result")]
+pub async fn get_round_space_result(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
     pool: web::Data<PgPool>,
@@ -89,20 +89,22 @@ pub async fn get_space_round(
     let user_id = get_user_id(&user)?;
     let (space_id, round_id) = params.into_inner();
     let round =
-        store::get_space_round(&space_id, &round_id, &user_id, &pool).await?;
+        store::get_round_space_result(&space_id, &round_id, &user_id, &pool)
+            .await?;
     Ok(HttpResponse::Ok().json(round))
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/space_rounds_for_round")]
-pub async fn list_space_rounds_for_round(
+#[get("/round_space_results_for_round")]
+pub async fn list_round_space_results_for_round(
     user: Identity,
     round_id: web::Json<AuctionRoundId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let rounds =
-        store::list_space_rounds_for_round(&round_id, &user_id, &pool).await?;
+        store::list_round_space_results_for_round(&round_id, &user_id, &pool)
+            .await?;
     Ok(HttpResponse::Ok().json(rounds))
 }
 
