@@ -417,11 +417,15 @@ pub async fn create_user(
 }
 
 /// Create a new user as would happen during signup.
-pub async fn read_user(pool: &PgPool, id: &UserId) -> Result<User, Error> {
+pub async fn read_user(pool: &PgPool, id: &UserId) -> Result<User, StoreError> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1;")
         .bind(id)
         .fetch_one(pool)
         .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::UserNotFound,
+            e => StoreError::Database(e),
+        })
 }
 
 /// Update fields that are not in the signup process.
@@ -503,7 +507,7 @@ pub async fn accept_invite(
     .fetch_optional(pool)
     .await?;
     let Some(invite) = invite else {
-        return Err(StoreError::InvalidInvite);
+        return Err(StoreError::CommunityInviteNotFound);
     };
     if let Some(invite_email) = invite.email {
         if invite_email != user.email {
@@ -821,12 +825,16 @@ pub async fn get_site_community_id(
     site_id: &SiteId,
     pool: &PgPool,
 ) -> Result<CommunityId, StoreError> {
-    Ok(sqlx::query_as::<_, CommunityId>(
+    sqlx::query_as::<_, CommunityId>(
         "SELECT community_id FROM sites WHERE id = $1",
     )
     .bind(site_id)
     .fetch_one(pool)
-    .await?)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+        e => StoreError::Database(e),
+    })
 }
 
 pub async fn get_site(
@@ -836,7 +844,11 @@ pub async fn get_site(
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
         .bind(site_id)
         .fetch_one(pool)
-        .await?;
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+            e => StoreError::Database(e),
+        })?;
     let open_hours = match &site.open_hours_id {
         Some(open_hours_id) => {
             let days_of_week = sqlx::query_as::<_, payloads::OpenHoursWeekday>(
@@ -854,7 +866,11 @@ pub async fn get_site(
     )
     .bind(site.default_auction_params_id)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionParamsNotFound,
+        e => StoreError::Database(e),
+    })?;
     let site_details = payloads::Site {
         community_id: site.community_id,
         name: site.name,
@@ -1023,12 +1039,20 @@ async fn get_validated_space(
         sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = $1")
             .bind(space_id)
             .fetch_one(pool)
-            .await?;
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => StoreError::SpaceNotFound,
+                e => StoreError::Database(e),
+            })?;
 
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
         .bind(space.site_id)
         .fetch_one(pool)
-        .await?;
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+            e => StoreError::Database(e),
+        })?;
 
     let actor = get_validated_member(user_id, &site.community_id, pool).await?;
 
@@ -1605,8 +1629,6 @@ pub enum StoreError {
     SpanTooLarge(Box<Span>),
     #[error("Unique constraint violation")]
     NotUnique(#[source] sqlx::Error),
-    #[error("Row not found")]
-    RowNotFound(#[source] sqlx::Error),
     #[error("Database error")]
     Database(#[source] sqlx::Error),
     #[error("Unexpected error")]
@@ -1625,6 +1647,20 @@ pub enum StoreError {
     AuctionRoundNotFound,
     #[error("Round has not started yet")]
     RoundNotStarted,
+    #[error("User not found")]
+    UserNotFound,
+    #[error("Community not found")]
+    CommunityNotFound,
+    #[error("Site not found")]
+    SiteNotFound,
+    #[error("Space not found")]
+    SpaceNotFound,
+    #[error("Community invite not found")]
+    CommunityInviteNotFound,
+    #[error("Open hours not found")]
+    OpenHoursNotFound,
+    #[error("Auction params not found")]
+    AuctionParamsNotFound,
 }
 
 impl From<sqlx::Error> for StoreError {
@@ -1633,8 +1669,6 @@ impl From<sqlx::Error> for StoreError {
             if db_err.code().as_deref() == Some("23505") {
                 return StoreError::NotUnique(e);
             }
-        } else if matches!(e, sqlx::Error::RowNotFound) {
-            return StoreError::RowNotFound(e);
         }
         StoreError::Database(e)
     }

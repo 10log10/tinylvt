@@ -16,7 +16,7 @@ async fn create_read_update_delete_site() -> anyhow::Result<()> {
             .await
             .unwrap_err()
             .to_string()
-            .contains("Row not found")
+            .contains("Site not found")
     );
 
     Ok(())
@@ -48,7 +48,7 @@ async fn create_read_update_delete_space() -> anyhow::Result<()> {
             .await
             .unwrap_err()
             .to_string()
-            .contains("Row not found")
+            .contains("Space not found")
     );
 
     Ok(())
