@@ -374,6 +374,12 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     let community_id = app.create_two_person_community().await?;
     let site = app.create_test_site(&community_id).await?;
     let space = app.create_test_space(&site.site_id).await?;
+    // a dummy space so bob can get eligibility in the first round, while not
+    // bidding for space a
+    let space_b_id = app
+        .client
+        .create_space(&helpers::space_details_b(site.site_id))
+        .await?;
 
     // Create an auction that starts now
     let start_time = app.time_source.now();
@@ -389,17 +395,24 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
 
     let max_rounds = 5;
 
+    // Ensure bob has eligibility in the first round
+    app.login_bob().await?;
+    app.client.create_bid(&space_b_id, &round.round_id).await?;
+
     for i in 0..max_rounds {
-        // Create a bid by Alice
-        app.login_alice().await?;
-        app.client
-            .create_bid(&space.space_id, &round.round_id)
-            .await?;
-        // Create a bid by Bob
-        app.login_bob().await?;
-        app.client
-            .create_bid(&space.space_id, &round.round_id)
-            .await?;
+        if i % 2 == 0 {
+            // Create a bid by Alice
+            app.login_alice().await?;
+            app.client
+                .create_bid(&space.space_id, &round.round_id)
+                .await?;
+        } else {
+            // Create a bid by Bob
+            app.login_bob().await?;
+            app.client
+                .create_bid(&space.space_id, &round.round_id)
+                .await?;
+        }
 
         // Advance time past round end
         app.time_source
@@ -409,19 +422,22 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
         scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
 
         // View the result of the last round
-        let round_space_results = app
+        let round_space_result = app
             .client
-            .list_round_space_results_for_round(&round.round_id)
+            .get_round_space_result(&space.space_id, &round.round_id)
             .await?;
-        let round_space_result = &round_space_results[0];
+        dbg!(&round_space_result);
         assert_eq!(round_space_result.value, rust_decimal::Decimal::from(i));
 
         // Get the next round
         rounds = app.client.list_auction_rounds(&auction_id).await?;
         round = &rounds[i + 1];
+
+        dbg!(i);
     }
 
     // now only bob makes another bid, and should win the space for 5
+    app.login_bob().await?;
     app.client
         .create_bid(&space.space_id, &round.round_id)
         .await?;
@@ -432,17 +448,17 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
 
     // View the result of the last round
-    let round_space_results = app
+    let round_space_result = app
         .client
-        .list_round_space_results_for_round(&round.round_id)
+        .get_round_space_result(&space.space_id, &round.round_id)
         .await?;
-    let round_space_result = &round_space_results[0];
+    dbg!(&round_space_result);
     assert_eq!(
         round_space_result.value,
         rust_decimal::Decimal::from(max_rounds)
     );
     assert_eq!(
-        *round_space_result,
+        round_space_result,
         payloads::RoundSpaceResult {
             space_id: space.space_id,
             round_id: round.round_id,
@@ -461,6 +477,107 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
 
     let auction = app.client.get_auction(&auction_id).await?;
     assert_eq!(auction.end_at, Some(round.round_details.end_at));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bid_eligibility() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create two spaces with different eligibility points
+    let space_a = app.create_test_space(&site.site_id).await?; // 10 points
+    let space_b = app
+        .client
+        .create_space(&payloads::Space {
+            site_id: site.site_id,
+            name: "test space b".into(),
+            description: None,
+            eligibility_points: 15.0, // Higher points than space_a
+            is_available: true,
+        })
+        .await?;
+    let space_b = app.client.get_space(&space_b).await?;
+
+    // Create an auction that starts now
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Round 0 - no eligibility constraints
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_0 = &rounds[0];
+
+    // Alice bids only for space_a, Bob bids only for space_b
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_0.round_id)
+        .await?; // Alice bids on space_a
+
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space_b.space_id, &round_0.round_id)
+        .await?; // Bob bids on space_b
+
+    // Advance time to end round 0
+    app.time_source
+        .advance(auction_details.auction_params.round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Round 1 - eligibility is based on round 0 results
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_1 = &rounds[1];
+
+    // Get round 0 results - Alice should have won space_a and Bob should have won space_b
+    let results = app
+        .client
+        .list_round_space_results_for_round(&round_0.round_id)
+        .await?;
+    let space_a_result = results
+        .iter()
+        .find(|r| r.space_id == space_a.space_id)
+        .unwrap();
+    let space_b_result = results
+        .iter()
+        .find(|r| r.space_id == space_b.space_id)
+        .unwrap();
+
+    assert_eq!(space_a_result.winning_username.as_deref(), Some("alice"));
+    assert_eq!(space_b_result.winning_username.as_deref(), Some("bob"));
+
+    // Alice cannot bid on space_a in round 1 since she's already winning it
+    app.login_alice().await?;
+    let result = app
+        .client
+        .create_bid(&space_a.space_id, &round_1.round_id)
+        .await;
+    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+
+    // But she can bid on space_b (though it will fail due to insufficient eligibility)
+    let result = app
+        .client
+        .create_bid(&space_b.space_id, &round_1.round_id)
+        .await;
+    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+
+    // Bob cannot bid on space_b in round 1 since he's already winning it
+    app.login_bob().await?;
+    let result = app
+        .client
+        .create_bid(&space_b.space_id, &round_1.round_id)
+        .await;
+    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+
+    // But he can bid on space_a since he has enough eligibility (15 points * 2 = 30 points > 25 points needed)
+    app.client
+        .create_bid(&space_a.space_id, &round_1.round_id)
+        .await?;
 
     Ok(())
 }

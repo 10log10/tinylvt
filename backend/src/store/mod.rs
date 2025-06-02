@@ -1477,7 +1477,7 @@ pub async fn create_bid(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Get the space to validate user permissions
-    let (_, _) =
+    let (space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
@@ -1499,6 +1499,92 @@ pub async fn create_bid(
     }
     if now >= round.end_at {
         return Err(StoreError::RoundEnded);
+    }
+
+    // Check if user is already the standing high bidder from the previous round
+    if round.round_num > 0 {
+        let previous_round = sqlx::query_as::<_, AuctionRound>(
+            "SELECT * FROM auction_rounds 
+            WHERE auction_id = $1 AND round_num = $2",
+        )
+        .bind(round.auction_id)
+        .bind(round.round_num - 1)
+        .fetch_one(pool)
+        .await?;
+
+        let is_winning = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM round_space_results 
+                WHERE round_id = $1 
+                AND space_id = $2 
+                AND winning_user_id = $3
+            )",
+        )
+        .bind(previous_round.id)
+        .bind(space_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+        if is_winning {
+            return Err(StoreError::AlreadyWinningSpace);
+        }
+    }
+
+    // If not first round, check eligibility
+    if round.round_num > 0 {
+        // Get user's eligibility for this round
+        let eligibility = sqlx::query_scalar::<_, f64>(
+            "SELECT eligibility FROM user_eligibilities 
+            WHERE round_id = $1 AND user_id = $2",
+        )
+        .bind(round_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(StoreError::NoEligibility)?;
+
+        // Get all spaces this user is currently bidding on or winning in this round
+        let active_spaces = sqlx::query_scalar::<_, SpaceId>(
+            "SELECT space_id FROM (
+                SELECT space_id FROM bids 
+                WHERE round_id = $1 AND user_id = $2
+                UNION
+                SELECT space_id FROM round_space_results rsr
+                JOIN auction_rounds ar ON rsr.round_id = ar.id
+                WHERE ar.auction_id = $3
+                AND ar.round_num = $4
+                AND winning_user_id = $2
+            ) spaces",
+        )
+        .bind(round_id)
+        .bind(user_id)
+        .bind(round.auction_id)
+        .bind(round.round_num - 1)
+        .fetch_all(pool)
+        .await?;
+
+        // Calculate total eligibility points including the new space
+        let mut total_points = space.eligibility_points;
+        let existing_spaces = sqlx::query_as::<_, Space>(
+            "SELECT * FROM spaces WHERE id = ANY($1) AND is_available = true",
+        )
+        .bind(&active_spaces)
+        .fetch_all(pool)
+        .await?;
+
+        total_points += existing_spaces
+            .iter()
+            .map(|space| space.eligibility_points)
+            .sum::<f64>();
+
+        // Check if total would exceed eligibility
+        if total_points > eligibility {
+            return Err(StoreError::ExceedsEligibility {
+                available: eligibility,
+                required: total_points,
+            });
+        }
     }
 
     // Create the bid
@@ -1661,6 +1747,14 @@ pub enum StoreError {
     OpenHoursNotFound,
     #[error("Auction params not found")]
     AuctionParamsNotFound,
+    #[error("No eligibility found for the user")]
+    NoEligibility,
+    #[error(
+        "Exceeds eligibility. Available: {available}, Required: {required}"
+    )]
+    ExceedsEligibility { available: f64, required: f64 },
+    #[error("Cannot bid on a space you are already winning")]
+    AlreadyWinningSpace,
 }
 
 impl From<sqlx::Error> for StoreError {
