@@ -45,6 +45,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::list_auction_rounds)
         .service(auction::get_round_space_result)
         .service(auction::list_round_space_results_for_round)
+        .service(auction::get_eligibility)
+        .service(auction::list_eligibility)
         .service(auction::create_bid)
         .service(auction::get_bid)
         .service(auction::list_bids)

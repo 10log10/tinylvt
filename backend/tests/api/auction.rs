@@ -4,6 +4,9 @@ use backend::time::TimeSource;
 use jiff::Timestamp;
 use jiff::{Span, Zoned};
 use payloads::requests;
+use reqwest::StatusCode;
+
+use crate::helpers::assert_status_code;
 
 #[tokio::test]
 async fn test_mock_time() -> anyhow::Result<()> {
@@ -43,9 +46,6 @@ async fn test_auction_crud() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_auction_unauthorized() -> anyhow::Result<()> {
-    use crate::helpers::assert_status_code;
-    use reqwest::StatusCode;
-
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
     let site = app.create_test_site(&community_id).await?;
@@ -582,60 +582,78 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     Ok(())
 }
 
-/*
-// create second space
-let spacea = app.create_test_space(&site.site_id).await?;
-let spaceb_id = app
-    .client
-    .create_space(&helpers::space_details_b(site.site_id))
-    .await?;
-let spaceb = app.client.get_space(&spaceb_id).await?;
-*/
-
-/*
 #[tokio::test]
-async fn test_subsequent_auction_round_creation() -> anyhow::Result<()> {
+async fn test_eligibility_routes() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
     let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
 
     // Create an auction that starts now
-    let start_time = time::now();
-    let auction = app.create_test_auction(&site.site_id).await?;
-    scheduler::schedule_tick(&app.db_pool).await?;
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
 
-    // Round 0 should now exist
-    let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
-    let round = &rounds[0];
-    assert_eq!(round.round_details.round_num, 0);
-    assert_eq!(round.round_details.auction_id, auction.auction_id);
-    assert_eq!(round.round_details.start_at, start_time);
-    assert_eq!(
-        round.round_details.end_at,
-        start_time + Span::new().minutes(1)
-    );
-    assert_eq!(round.round_details.eligibility_threshold, 0.5);
+    let round0 = &rounds[0];
 
-    // test that the subsequent round gets created
-    time::set_mock_time(round.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool).await?;
+    // Place a bid in round 0 to establish some eligibility
+    app.client
+        .create_bid(&space.space_id, &round0.round_id)
+        .await?;
 
-    let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
+    // Advance time past round 0
+    app.time_source
+        .set(round0.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Get rounds again - should now have round 1
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 2);
-    let round = &rounds[1];
-    assert_eq!(round.round_details.round_num, 1);
-    assert_eq!(round.round_details.auction_id, auction.auction_id);
+    let round1 = &rounds[1];
+
+    // Test get_eligibility for round 1
+    let eligibility = app.client.get_eligibility(&round1.round_id).await?;
+    assert!(
+        eligibility > 0.0,
+        "Expected non-zero eligibility for round 1"
+    );
+
+    // Test list_eligibility for all rounds
+    let eligibilities = app.client.list_eligibility(&auction_id).await?;
     assert_eq!(
-        round.round_details.start_at,
-        start_time + Span::new().minutes(1)
+        eligibilities.len(),
+        1,
+        "Expected eligibility values for both rounds"
     );
     assert_eq!(
-        round.round_details.end_at,
-        start_time + Span::new().minutes(2)
+        eligibilities[0], eligibility,
+        "Expected matching eligibility for round 1"
     );
-    assert_eq!(round.round_details.eligibility_threshold, 0.5);
+
+    // Test unauthorized access
+    app.client.logout().await?;
+    let details = payloads::requests::CreateAccount {
+        username: "charlie".into(),
+        password: "charliepw".into(),
+        email: "charlie@example.com".into(),
+    };
+    app.client.create_account(&details).await?;
+    app.client.login(&details).await?;
+
+    assert_status_code(
+        app.client.get_eligibility(&round1.round_id).await,
+        reqwest::StatusCode::UNAUTHORIZED,
+    );
+    assert_status_code(
+        app.client.list_eligibility(&auction_id).await,
+        reqwest::StatusCode::UNAUTHORIZED,
+    );
 
     Ok(())
 }
-*/

@@ -671,6 +671,22 @@ impl APIClient {
         let response = self.post("delete_bid", &(space_id, round_id)).await?;
         ok_empty(response).await
     }
+
+    pub async fn get_eligibility(
+        &self,
+        round_id: &AuctionRoundId,
+    ) -> Result<f64, ClientError> {
+        let response = self.get("get_eligibility", &round_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn list_eligibility(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<f64>, ClientError> {
+        let response = self.get("list_eligibility", &auction_id).await?;
+        ok_body(response).await
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -310,6 +310,108 @@ pub struct UserEligibility {
     pub eligibility: f64,
 }
 
+/// Calculate the total eligibility points required for a set of spaces
+async fn calculate_total_eligibility_points(
+    spaces: &[SpaceId],
+    pool: &PgPool,
+) -> Result<f64, StoreError> {
+    let spaces = sqlx::query_as::<_, Space>(
+        "SELECT * FROM spaces WHERE id = ANY($1) AND is_available = true",
+    )
+    .bind(spaces)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(spaces.iter().map(|space| space.eligibility_points).sum())
+}
+
+/// Get a user's eligibility for a specific auction round
+pub async fn get_eligibility(
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<f64, StoreError> {
+    // Verify the round exists and get auction info
+    let round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    // Validate user has access to this auction's community
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(round.auction_id)
+            .fetch_one(pool)
+            .await?;
+
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
+
+    // Get user's eligibility for this round
+    let eligibility = sqlx::query_scalar::<_, f64>(
+        "SELECT eligibility FROM user_eligibilities 
+        WHERE round_id = $1 AND user_id = $2",
+    )
+    .bind(round_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(0.0); // Return 0 if no eligibility record exists
+
+    Ok(eligibility)
+}
+
+/// List a user's eligibility for all rounds after round 0 in an auction.
+pub async fn list_eligibility(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<f64>, StoreError> {
+    // Validate user has access to this auction's community
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_id)
+            .fetch_one(pool)
+            .await?;
+
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
+
+    // Get all rounds for this auction in order
+    let rounds = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds 
+        WHERE auction_id = $1 
+        ORDER BY round_num",
+    )
+    .bind(auction_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Get eligibility for each round
+    let mut eligibilities = Vec::with_capacity(rounds.len());
+    for round in &rounds[1..] {
+        let eligibility = sqlx::query_scalar::<_, f64>(
+            "SELECT eligibility FROM user_eligibilities 
+            WHERE round_id = $1 AND user_id = $2",
+        )
+        .bind(round.id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or(0.0); // Return 0 if no eligibility record exists
+
+        eligibilities.push(eligibility);
+    }
+
+    Ok(eligibilities)
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct UserValues {
     pub user_id: UserId,
@@ -1566,17 +1668,8 @@ pub async fn create_bid(
 
         // Calculate total eligibility points including the new space
         let mut total_points = space.eligibility_points;
-        let existing_spaces = sqlx::query_as::<_, Space>(
-            "SELECT * FROM spaces WHERE id = ANY($1) AND is_available = true",
-        )
-        .bind(&active_spaces)
-        .fetch_all(pool)
-        .await?;
-
-        total_points += existing_spaces
-            .iter()
-            .map(|space| space.eligibility_points)
-            .sum::<f64>();
+        total_points +=
+            calculate_total_eligibility_points(&active_spaces, pool).await?;
 
         // Check if total would exceed eligibility
         if total_points > eligibility {
