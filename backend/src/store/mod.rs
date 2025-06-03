@@ -315,12 +315,11 @@ async fn calculate_total_eligibility_points(
     spaces: &[SpaceId],
     pool: &PgPool,
 ) -> Result<f64, StoreError> {
-    let spaces = sqlx::query_as::<_, Space>(
-        "SELECT * FROM spaces WHERE id = ANY($1) AND is_available = true",
-    )
-    .bind(spaces)
-    .fetch_all(pool)
-    .await?;
+    let spaces =
+        sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = ANY($1)")
+            .bind(spaces)
+            .fetch_all(pool)
+            .await?;
 
     Ok(spaces.iter().map(|space| space.eligibility_points).sum())
 }
@@ -1802,6 +1801,7 @@ pub async fn create_bid(
     if now >= round.end_at {
         return Err(StoreError::RoundEnded);
     }
+    // TODO: ensure the space is available
 
     // Check if user is already the standing high bidder from the previous round
     if round.round_num > 0 {

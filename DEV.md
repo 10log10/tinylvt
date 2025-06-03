@@ -53,3 +53,7 @@ ulimit -n 65535
 ```
 RUST_LOG=backend=info cargo test long_community_name_rejected -- --nocapture
 ```
+
+## Tracing
+
+Remember that [care must be taken](https://docs.rs/tracing/latest/tracing/struct.Span.html#in-asynchronous-code) when using tracing spans in async code. [Instrument attribute macros](https://docs.rs/tracing/latest/tracing/attr.instrument.html) are the preferred path.
