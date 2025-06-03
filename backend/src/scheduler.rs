@@ -78,21 +78,88 @@ impl Scheduler {
     }
 }
 
-/// Update state once right now.
+/// Process a single auction that doesn't have an ongoing round.
+/// This function handles creating new rounds and updating results for the auction.
+#[tracing::instrument(skip(pool, auction))]
+async fn process_auction_without_round(
+    pool: &PgPool,
+    auction: store::Auction,
+) -> anyhow::Result<()> {
+    let previous_round = sqlx::query_as::<_, store::AuctionRound>(
+        "SELECT * FROM auction_rounds 
+        WHERE auction_id = $1 
+        ORDER BY round_num DESC
+        LIMIT 1",
+    )
+    .bind(auction.id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to query for concluded round")?;
+
+    // If there's a previous round, check if it had activity
+    if let Some(previous_round) = &previous_round {
+        if let Ok(false) = update_round_space_results_for_auction(
+            &auction,
+            previous_round,
+            pool,
+        )
+        .await
+        .map_err(log_error)
+        {
+            // auction has concluded
+            return Ok(());
+        }
+    }
+
+    // Create next round and update eligibilities atomically
+    let mut tx = pool.begin().await?;
+    match add_subsequent_rounds_for_auction(
+        &auction,
+        &previous_round,
+        &mut tx,
+    )
+    .await
+    .map_err(log_error)
+    {
+        Ok(new_round_id) => {
+            // Update eligibilities only if there was a previous round
+            if let Some(previous_round) = &previous_round {
+                if let Err(e) = update_user_eligibilities(
+                    &auction,
+                    previous_round,
+                    &new_round_id,
+                    &mut tx,
+                )
+                .await
+                {
+                    log_error(e);
+                    let _ = tx.rollback().await;
+                    return Ok(());
+                }
+            }
+
+            if let Err(e) = tx.commit().await {
+                log_error(anyhow::Error::from(e));
+            }
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+        }
+    }
+
+    Ok(())
+}
+
+/// Get all auctions that have started but don't have an ongoing round.
 #[tracing::instrument(skip(pool, time_source))]
-pub async fn schedule_tick(
+async fn get_auctions_without_ongoing_round(
     pool: &PgPool,
     time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    // tracing::instrument will log the errors if they occur
-    let _ = store::update_is_active_from_schedule(pool, time_source)
-        .await
-        .map_err(log_error);
-
+) -> anyhow::Result<Vec<store::Auction>> {
     // Get all auctions where the start time is in the past, the auction hasn't
     // yet concluded, and there is not an ongoing auction round (the end time in
     // the future).
-    let auctions_without_ongoing_round = sqlx::query_as::<_, store::Auction>(
+    sqlx::query_as::<_, store::Auction>(
         "SELECT * FROM auctions
         WHERE $1 >= start_at
             AND end_at IS NULL
@@ -104,71 +171,52 @@ pub async fn schedule_tick(
     )
     .bind(time_source.now().to_sqlx())
     .fetch_all(pool)
-    .await?;
+    .await
+    .map_err(Into::into)
+}
 
-    for auction in &auctions_without_ongoing_round {
-        let previous_round = sqlx::query_as::<_, store::AuctionRound>(
-            "SELECT * FROM auction_rounds 
-            WHERE auction_id = $1 
-            ORDER BY round_num DESC
-            LIMIT 1",
-        )
-        .bind(auction.id)
-        .fetch_optional(pool)
-        .await
-        .context("failed to query for concluded round")?;
-
-        // If there's a previous round, check if it had activity
-        if let Some(previous_round) = &previous_round {
-            if let Ok(false) = update_round_space_results_for_auction(
-                auction,
-                previous_round,
-                pool,
-            )
-            .await
-            .map_err(log_error)
-            {
-                // auction has concluded
-                continue;
+/// Process all auctions that don't have ongoing rounds in parallel.
+#[tracing::instrument(skip(pool, auctions))]
+async fn process_auctions_without_rounds(
+    pool: &PgPool,
+    auctions: Vec<store::Auction>,
+) -> anyhow::Result<()> {
+    let mut handles = Vec::new();
+    
+    for auction in auctions {
+        let pool = pool.clone();
+        
+        let handle = tokio::spawn(async move {
+            if let Err(e) = process_auction_without_round(&pool, auction).await {
+                log_error(e);
             }
-        }
-
-        // Create next round and update eligibilities atomically
-        let mut tx = pool.begin().await?;
-        match add_subsequent_rounds_for_auction(
-            auction,
-            &previous_round,
-            &mut tx,
-        )
-        .await
-        .map_err(log_error)
-        {
-            Ok(new_round_id) => {
-                // Update eligibilities only if there was a previous round
-                if let Some(previous_round) = &previous_round {
-                    if let Err(e) = update_user_eligibilities(
-                        auction,
-                        previous_round,
-                        &new_round_id,
-                        &mut tx,
-                    )
-                    .await
-                    {
-                        log_error(e);
-                        let _ = tx.rollback().await;
-                        continue;
-                    }
-                }
-
-                if let Err(e) = tx.commit().await {
-                    log_error(anyhow::Error::from(e));
-                }
-            }
-            Err(_) => {
-                let _ = tx.rollback().await;
-            }
-        }
+        });
+        
+        handles.push(handle);
     }
+
+    // Wait for all auction processing to complete
+    for handle in handles {
+        let _ = handle.await.map_err(|e| log_error(anyhow::Error::from(e)));
+    }
+
+    Ok(())
+}
+
+/// Update state once right now.
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn schedule_tick(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    // Update active states from schedule
+    let _ = store::update_is_active_from_schedule(pool, time_source)
+        .await
+        .map_err(log_error);
+
+    // Process auctions without ongoing rounds
+    let auctions = get_auctions_without_ongoing_round(pool, time_source).await?;
+    process_auctions_without_rounds(pool, auctions).await?;
 
     // Process proxy bidding for active rounds
     process_proxy_bidding_for_active_rounds(pool, time_source).await?;
@@ -586,10 +634,123 @@ fn get_eligibility_for_round_num(
     progression[idx].1
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow)]
 struct ActiveRound {
     round_id: AuctionRoundId,
     auction_id: AuctionId,
+}
+
+/// Process proxy bidding for a single auction round.
+#[tracing::instrument(skip(pool, time_source))]
+async fn process_single_round(
+    round: ActiveRound,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    // Get all proxy bidding settings for this auction
+    let proxy_settings = sqlx::query_as::<_, store::UseProxyBidding>(
+        "SELECT * FROM use_proxy_bidding 
+        WHERE auction_id = $1",
+    )
+    .bind(round.auction_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Get all spaces for this auction
+    let spaces = sqlx::query_as::<_, store::Space>(
+        "SELECT s.* FROM spaces s
+        JOIN sites si ON s.site_id = si.id
+        JOIN auctions a ON si.id = a.site_id
+        WHERE a.id = $1 AND s.is_available = true",
+    )
+    .bind(round.auction_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to get auction spaces")?;
+
+    // Get current round results to determine prices and winning bids
+    let round_results = sqlx::query_as::<_, RoundSpaceResult>(
+        "SELECT * FROM round_space_results
+        WHERE round_id = $1",
+    )
+    .bind(round.round_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to get round results")?;
+
+    // Process each user's proxy bidding settings
+    for settings in proxy_settings {
+        // Get user values for all spaces
+        let user_values = sqlx::query_as::<_, store::UserValue>(
+            "SELECT * FROM user_values 
+            WHERE user_id = $1 AND space_id = ANY($2)",
+        )
+        .bind(settings.user_id)
+        .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
+        .fetch_all(pool)
+        .await
+        .context("failed to get user values")?;
+
+        // Calculate surpluses for all spaces
+        let mut space_data: Vec<(SpaceId, Decimal)> = Vec::new(); // (space_id, surplus)
+        for space in &spaces {
+            // Get user's value for this space
+            let user_value = user_values
+                .iter()
+                .find(|v| v.space_id == space.id)
+                .map(|v| v.value)
+                .unwrap_or_else(|| Decimal::ZERO);
+
+            // Get current price
+            let current_price = round_results
+                .iter()
+                .find(|r| r.space_id == space.id)
+                .map(|r| r.value)
+                .unwrap_or_else(|| Decimal::ZERO);
+
+            let surplus = user_value - current_price;
+            if surplus >= Decimal::ZERO {
+                space_data.push((space.id, surplus));
+            }
+        }
+
+        // Sort by surplus (highest to lowest)
+        space_data.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Try bidding on spaces in surplus order until we hit max_items
+        let mut successful_bids = 0;
+        for (space_id, _) in space_data {
+            if successful_bids >= settings.max_items as usize {
+                break;
+            }
+
+            match store::create_bid(
+                &space_id,
+                &round.round_id,
+                &settings.user_id,
+                pool,
+                time_source,
+            )
+            .await
+            {
+                Ok(_) => {
+                    successful_bids += 1;
+                }
+                Err(store::StoreError::ExceedsEligibility { .. })
+                | Err(store::StoreError::NoEligibility)
+                | Err(store::StoreError::AlreadyWinningSpace) => {
+                    // Expected errors - try next space
+                    continue;
+                }
+                Err(e) => {
+                    // Log unexpected errors but continue processing
+                    log_error(anyhow::Error::from(e));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Process proxy bidding for all active rounds.
@@ -610,110 +771,27 @@ async fn process_proxy_bidding_for_active_rounds(
     .fetch_all(pool)
     .await?;
 
-    // Process each auction's active round
+    // Process each auction's active round in parallel
+    let mut handles = Vec::new();
+
     for round in active_rounds {
-        // Get all proxy bidding settings for this auction
-        let proxy_settings = sqlx::query_as::<_, store::UseProxyBidding>(
-            "SELECT * FROM use_proxy_bidding 
-            WHERE auction_id = $1",
-        )
-        .bind(round.auction_id)
-        .fetch_all(pool)
-        .await?;
+        let pool = pool.clone();
+        let time_source = time_source.clone();
 
-        // Get all spaces for this auction
-        let spaces = sqlx::query_as::<_, store::Space>(
-            "SELECT s.* FROM spaces s
-            JOIN sites si ON s.site_id = si.id
-            JOIN auctions a ON si.id = a.site_id
-            WHERE a.id = $1 AND s.is_available = true",
-        )
-        .bind(round.auction_id)
-        .fetch_all(pool)
-        .await
-        .context("failed to get auction spaces")?;
-
-        // Get current round results to determine prices and winning bids
-        let round_results = sqlx::query_as::<_, RoundSpaceResult>(
-            "SELECT * FROM round_space_results
-            WHERE round_id = $1",
-        )
-        .bind(round.round_id)
-        .fetch_all(pool)
-        .await
-        .context("failed to get round results")?;
-
-        // Process each user's proxy bidding settings
-        for settings in proxy_settings {
-            // Get user values for all spaces
-            let user_values = sqlx::query_as::<_, store::UserValue>(
-                "SELECT * FROM user_values 
-                WHERE user_id = $1 AND space_id = ANY($2)",
-            )
-            .bind(settings.user_id)
-            .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
-            .fetch_all(pool)
-            .await
-            .context("failed to get user values")?;
-
-            // Calculate surpluses for all spaces
-            let mut space_data: Vec<(SpaceId, Decimal)> = Vec::new(); // (space_id, surplus)
-            for space in &spaces {
-                // Get user's value for this space
-                let user_value = user_values
-                    .iter()
-                    .find(|v| v.space_id == space.id)
-                    .map(|v| v.value)
-                    .unwrap_or_else(|| Decimal::ZERO);
-
-                // Get current price
-                let current_price = round_results
-                    .iter()
-                    .find(|r| r.space_id == space.id)
-                    .map(|r| r.value)
-                    .unwrap_or_else(|| Decimal::ZERO);
-
-                let surplus = user_value - current_price;
-                if surplus >= Decimal::ZERO {
-                    space_data.push((space.id, surplus));
-                }
+        let handle = tokio::spawn(async move {
+            if let Err(e) =
+                process_single_round(round, &pool, &time_source).await
+            {
+                log_error(e);
             }
+        });
 
-            // Sort by surplus (highest to lowest)
-            space_data.sort_by(|a, b| b.1.cmp(&a.1));
+        handles.push(handle);
+    }
 
-            // Try bidding on spaces in surplus order until we hit max_items
-            let mut successful_bids = 0;
-            for (space_id, _) in space_data {
-                if successful_bids >= settings.max_items as usize {
-                    break;
-                }
-
-                match store::create_bid(
-                    &space_id,
-                    &round.round_id,
-                    &settings.user_id,
-                    pool,
-                    time_source,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        successful_bids += 1;
-                    }
-                    Err(store::StoreError::ExceedsEligibility { .. })
-                    | Err(store::StoreError::NoEligibility)
-                    | Err(store::StoreError::AlreadyWinningSpace) => {
-                        // Expected errors - try next space
-                        continue;
-                    }
-                    Err(e) => {
-                        // Log unexpected errors but continue processing
-                        log_error(anyhow::Error::from(e));
-                    }
-                }
-            }
-        }
+    // Wait for all tasks to complete
+    for handle in handles {
+        let _ = handle.await.map_err(|e| log_error(anyhow::Error::from(e)));
     }
 
     Ok(())
