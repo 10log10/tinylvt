@@ -1,6 +1,6 @@
 use actix_identity::Identity;
 use actix_web::{HttpResponse, get, post, web};
-use payloads::{AuctionId, SpaceId, requests};
+use payloads::{AuctionId, SpaceId};
 use sqlx::PgPool;
 
 use super::{APIError, get_user_id};
@@ -10,7 +10,7 @@ use crate::store;
 #[post("/create_or_update_user_value")]
 pub async fn create_or_update_user_value(
     user: Identity,
-    details: web::Json<requests::UserValue>,
+    details: web::Json<payloads::requests::UserValue>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
@@ -58,7 +58,7 @@ pub async fn list_user_values(
 #[post("/create_or_update_proxy_bidding")]
 pub async fn create_or_update_proxy_bidding(
     user: Identity,
-    details: web::Json<requests::UseProxyBidding>,
+    details: web::Json<payloads::requests::UseProxyBidding>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
@@ -90,4 +90,3 @@ pub async fn delete_proxy_bidding(
     store::delete_proxy_bidding(&auction_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().finish())
 }
-

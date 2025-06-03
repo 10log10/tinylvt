@@ -36,11 +36,17 @@
 use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
+use payloads::{AuctionId, AuctionRoundId, RoundSpaceResult, SpaceId};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::time::Duration;
 use tokio::time;
 
-use crate::{store, telemetry::log_error, time::TimeSource};
+use crate::{
+    store::{self},
+    telemetry::log_error,
+    time::TimeSource,
+};
 
 pub struct Scheduler {
     pool: PgPool,
@@ -163,6 +169,10 @@ pub async fn schedule_tick(
             }
         }
     }
+
+    // Process proxy bidding for active rounds
+    process_proxy_bidding_for_active_rounds(pool, time_source).await?;
+
     Ok(())
 }
 
@@ -574,6 +584,139 @@ fn get_eligibility_for_round_num(
         Err(idx) => idx - 1,
     };
     progression[idx].1
+}
+
+#[derive(sqlx::FromRow)]
+struct ActiveRound {
+    round_id: AuctionRoundId,
+    auction_id: AuctionId,
+}
+
+/// Process proxy bidding for all active rounds.
+/// This is separated from schedule_tick to keep the main scheduling logic clean.
+#[tracing::instrument(skip(pool, time_source))]
+async fn process_proxy_bidding_for_active_rounds(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    // First get all auctions with active rounds
+    let active_rounds = sqlx::query_as::<_, ActiveRound>(
+        "SELECT DISTINCT ar.id as round_id, ar.auction_id
+        FROM auction_rounds ar
+        JOIN auctions a ON ar.auction_id = a.id
+        WHERE $1 >= ar.start_at AND $1 < ar.end_at",
+    )
+    .bind(time_source.now().to_sqlx())
+    .fetch_all(pool)
+    .await?;
+
+    // Process each auction's active round
+    for round in active_rounds {
+        // Get all proxy bidding settings for this auction
+        let proxy_settings = sqlx::query_as::<_, store::UseProxyBidding>(
+            "SELECT * FROM use_proxy_bidding 
+            WHERE auction_id = $1",
+        )
+        .bind(round.auction_id)
+        .fetch_all(pool)
+        .await?;
+
+        // Get all spaces for this auction
+        let spaces = sqlx::query_as::<_, store::Space>(
+            "SELECT s.* FROM spaces s
+            JOIN sites si ON s.site_id = si.id
+            JOIN auctions a ON si.id = a.site_id
+            WHERE a.id = $1 AND s.is_available = true",
+        )
+        .bind(round.auction_id)
+        .fetch_all(pool)
+        .await
+        .context("failed to get auction spaces")?;
+
+        // Get current round results to determine prices and winning bids
+        let round_results = sqlx::query_as::<_, RoundSpaceResult>(
+            "SELECT * FROM round_space_results
+            WHERE round_id = $1",
+        )
+        .bind(round.round_id)
+        .fetch_all(pool)
+        .await
+        .context("failed to get round results")?;
+
+        // Process each user's proxy bidding settings
+        for settings in proxy_settings {
+            // Get user values for all spaces
+            let user_values = sqlx::query_as::<_, store::UserValue>(
+                "SELECT * FROM user_values 
+                WHERE user_id = $1 AND space_id = ANY($2)",
+            )
+            .bind(settings.user_id)
+            .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
+            .fetch_all(pool)
+            .await
+            .context("failed to get user values")?;
+
+            // Calculate surpluses for all spaces
+            let mut space_data: Vec<(SpaceId, Decimal)> = Vec::new(); // (space_id, surplus)
+            for space in &spaces {
+                // Get user's value for this space
+                let user_value = user_values
+                    .iter()
+                    .find(|v| v.space_id == space.id)
+                    .map(|v| v.value)
+                    .unwrap_or_else(|| Decimal::ZERO);
+
+                // Get current price
+                let current_price = round_results
+                    .iter()
+                    .find(|r| r.space_id == space.id)
+                    .map(|r| r.value)
+                    .unwrap_or_else(|| Decimal::ZERO);
+
+                let surplus = user_value - current_price;
+                if surplus >= Decimal::ZERO {
+                    space_data.push((space.id, surplus));
+                }
+            }
+
+            // Sort by surplus (highest to lowest)
+            space_data.sort_by(|a, b| b.1.cmp(&a.1));
+
+            // Try bidding on spaces in surplus order until we hit max_items
+            let mut successful_bids = 0;
+            for (space_id, _) in space_data {
+                if successful_bids >= settings.max_items as usize {
+                    break;
+                }
+
+                match store::create_bid(
+                    &space_id,
+                    &round.round_id,
+                    &settings.user_id,
+                    pool,
+                    time_source,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        successful_bids += 1;
+                    }
+                    Err(store::StoreError::ExceedsEligibility { .. })
+                    | Err(store::StoreError::NoEligibility)
+                    | Err(store::StoreError::AlreadyWinningSpace) => {
+                        // Expected errors - try next space
+                        continue;
+                    }
+                    Err(e) => {
+                        // Log unexpected errors but continue processing
+                        log_error(anyhow::Error::from(e));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -455,7 +455,7 @@ pub async fn create_or_update_user_value(
         DO UPDATE SET value = EXCLUDED.value",
     )
     .bind(user_id)
-    .bind(&details.space_id)
+    .bind(details.space_id)
     .bind(details.value)
     .execute(pool)
     .await?;
