@@ -3,6 +3,7 @@ mod community;
 mod database;
 mod helpers;
 mod login;
+mod proxy_bidding;
 mod site;
 
 use helpers::spawn_app;
