@@ -2,6 +2,7 @@ pub mod auction;
 pub mod community;
 pub mod login;
 pub mod site;
+pub mod proxy_bidding;
 
 use actix_identity::Identity;
 use actix_web::{
@@ -51,6 +52,13 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::get_bid)
         .service(auction::list_bids)
         .service(auction::delete_bid)
+        .service(proxy_bidding::create_or_update_user_value)
+        .service(proxy_bidding::get_user_value)
+        .service(proxy_bidding::delete_user_value)
+        .service(proxy_bidding::list_user_values)
+        .service(proxy_bidding::create_or_update_proxy_bidding)
+        .service(proxy_bidding::get_proxy_bidding)
+        .service(proxy_bidding::delete_proxy_bidding)
 }
 
 #[get("/health_check")]

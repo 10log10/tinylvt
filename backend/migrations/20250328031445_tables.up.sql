@@ -279,7 +279,9 @@ CREATE TABLE user_eligibilities (
 -- User-assigned values for each space, for proxy bidding.
 --
 -- The proxy bidding mechanism automatically bids for the space that has the
--- largest difference between the user's value and the current value.
+-- largest difference between the user's value and the current value. This is a
+-- simple utility-greedy strategy that ignores the value of bundles of items
+-- (complementary demand).
 CREATE TABLE user_values (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
@@ -293,9 +295,14 @@ CREATE INDEX idx_user_values_user_id ON user_values (user_id);
 
 -- A row present in this table indicates that a user's space values should be
 -- used for automatic proxy bidding.
+--
+-- max_items defines how many items the user is willing to win. The proxy
+-- bidding system will bid for up to that many items, attempting to maximize
+-- the user's surplus (max_value - current_price).
 CREATE TABLE use_proxy_bidding (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
+    max_items INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (user_id, auction_id)
 );

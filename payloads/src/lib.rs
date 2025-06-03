@@ -171,6 +171,7 @@ pub struct Bid {
 
 pub mod requests {
     use crate::CommunityId;
+    use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -223,6 +224,18 @@ pub mod requests {
         pub space_id: super::SpaceId,
         pub space_details: super::Space,
     }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UserValue {
+        pub space_id: super::SpaceId,
+        pub value: Decimal,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UseProxyBidding {
+        pub auction_id: super::AuctionId,
+        pub max_items: i32,
+    }
 }
 
 pub mod responses {
@@ -230,6 +243,7 @@ pub mod responses {
     use jiff::Timestamp;
     #[cfg(feature = "use-sqlx")]
     use jiff_sqlx::Timestamp as SqlxTs;
+    use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -296,6 +310,21 @@ pub mod responses {
         pub round_details: super::AuctionRound,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct UserValue {
+        pub space_id: super::SpaceId,
+        pub value: Decimal,
+        pub created_at: Timestamp,
+        pub updated_at: Timestamp,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct UseProxyBidding {
+        pub auction_id: super::AuctionId,
+        pub max_items: i32,
+        pub created_at: Timestamp,
     }
 }
 
@@ -686,6 +715,64 @@ impl APIClient {
     ) -> Result<Vec<f64>, ClientError> {
         let response = self.get("list_eligibility", &auction_id).await?;
         ok_body(response).await
+    }
+
+    pub async fn create_or_update_user_value(
+        &self,
+        details: &requests::UserValue,
+    ) -> Result<(), ClientError> {
+        let response =
+            self.post("create_or_update_user_value", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn get_user_value(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<responses::UserValue, ClientError> {
+        let response = self.get("user_value", space_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_user_value(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_user_value", space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn list_user_values(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<Vec<responses::UserValue>, ClientError> {
+        let response = self.get("user_values", site_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_or_update_proxy_bidding(
+        &self,
+        details: &requests::UseProxyBidding,
+    ) -> Result<(), ClientError> {
+        let response =
+            self.post("create_or_update_proxy_bidding", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn get_proxy_bidding(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Option<responses::UseProxyBidding>, ClientError> {
+        let response = self.get("proxy_bidding", auction_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_proxy_bidding(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_proxy_bidding", auction_id).await?;
+        ok_empty(response).await
     }
 }
 

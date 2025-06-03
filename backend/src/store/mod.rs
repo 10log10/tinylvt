@@ -413,7 +413,7 @@ pub async fn list_eligibility(
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct UserValues {
+pub struct UserValue {
     pub user_id: UserId,
     pub space_id: SpaceId,
     pub value: Decimal,
@@ -423,12 +423,212 @@ pub struct UserValues {
     pub updated_at: Timestamp,
 }
 
+impl From<UserValue> for payloads::responses::UserValue {
+    fn from(value: UserValue) -> Self {
+        Self {
+            space_id: value.space_id,
+            value: value.value,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+pub async fn create_or_update_user_value(
+    details: &payloads::requests::UserValue,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Verify the space exists and user has access to it
+    let (_, _) = get_validated_space(
+        &details.space_id,
+        user_id,
+        PermissionLevel::Member,
+        pool,
+    )
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO user_values (user_id, space_id, value)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id, space_id)
+        DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(user_id)
+    .bind(&details.space_id)
+    .bind(details.value)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_user_value(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::UserValue, StoreError> {
+    // Verify the space exists and user has access to it
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    let value = sqlx::query_as::<_, UserValue>(
+        "SELECT * FROM user_values WHERE space_id = $1 AND user_id = $2",
+    )
+    .bind(space_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::UserValueNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    Ok(value.into())
+}
+
+pub async fn delete_user_value(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Verify the space exists and user has access to it
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+            .await?;
+
+    sqlx::query("DELETE FROM user_values WHERE space_id = $1 AND user_id = $2")
+        .bind(space_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn list_user_values(
+    user_id: &UserId,
+    site_id: &SiteId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::UserValue>, StoreError> {
+    // Verify user has access to the site
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+
+    let _ = get_validated_member(user_id, &site.community_id, pool).await?;
+
+    let values = sqlx::query_as::<_, UserValue>(
+        "SELECT uv.* FROM user_values uv
+        JOIN spaces s ON uv.space_id = s.id
+        WHERE uv.user_id = $1 AND s.site_id = $2",
+    )
+    .bind(user_id)
+    .bind(site_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(values.into_iter().map(Into::into).collect())
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct UseProxyBidding {
     pub user_id: UserId,
     pub auction_id: AuctionId,
+    pub max_items: i32,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
+}
+
+impl From<UseProxyBidding> for payloads::responses::UseProxyBidding {
+    fn from(value: UseProxyBidding) -> Self {
+        Self {
+            auction_id: value.auction_id,
+            max_items: value.max_items,
+            created_at: value.created_at,
+        }
+    }
+}
+
+pub async fn create_or_update_proxy_bidding(
+    details: &payloads::requests::UseProxyBidding,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Verify user has access to the auction
+    let (_, _) = get_validated_auction(
+        &details.auction_id,
+        user_id,
+        PermissionLevel::Member,
+        pool,
+    )
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO use_proxy_bidding (user_id, auction_id, max_items)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id, auction_id)
+        DO UPDATE SET max_items = EXCLUDED.max_items",
+    )
+    .bind(user_id)
+    .bind(details.auction_id)
+    .bind(details.max_items)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_proxy_bidding(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Option<payloads::responses::UseProxyBidding>, StoreError> {
+    // Verify user has access to the auction
+    let (_, _) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Member,
+        pool,
+    )
+    .await?;
+
+    let settings = sqlx::query_as::<_, UseProxyBidding>(
+        "SELECT * FROM use_proxy_bidding WHERE auction_id = $1 AND user_id = $2",
+    )
+    .bind(auction_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(settings.map(|s| s.into()))
+}
+
+pub async fn delete_proxy_bidding(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Verify user has access to the auction
+    let (_, _) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Member,
+        pool,
+    )
+    .await?;
+
+    sqlx::query(
+        "DELETE FROM use_proxy_bidding WHERE auction_id = $1 AND user_id = $2",
+    )
+    .bind(auction_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
@@ -1848,6 +2048,10 @@ pub enum StoreError {
     ExceedsEligibility { available: f64, required: f64 },
     #[error("Cannot bid on a space you are already winning")]
     AlreadyWinningSpace,
+    #[error("User value not found")]
+    UserValueNotFound,
+    #[error("Proxy bidding settings not found")]
+    ProxyBiddingNotFound,
 }
 
 impl From<sqlx::Error> for StoreError {
