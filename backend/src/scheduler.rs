@@ -78,74 +78,24 @@ impl Scheduler {
     }
 }
 
-/// Process a single auction that doesn't have an ongoing round.
-/// This function handles creating new rounds and updating results for the auction.
-#[tracing::instrument(skip(pool, auction))]
-async fn process_auction_without_round(
+/// Update state once right now.
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn schedule_tick(
     pool: &PgPool,
-    auction: store::Auction,
+    time_source: &TimeSource,
 ) -> anyhow::Result<()> {
-    let previous_round = sqlx::query_as::<_, store::AuctionRound>(
-        "SELECT * FROM auction_rounds 
-        WHERE auction_id = $1 
-        ORDER BY round_num DESC
-        LIMIT 1",
-    )
-    .bind(auction.id)
-    .fetch_optional(pool)
-    .await
-    .context("failed to query for concluded round")?;
-
-    // If there's a previous round, check if it had activity
-    if let Some(previous_round) = &previous_round {
-        if let Ok(false) = update_round_space_results_for_auction(
-            &auction,
-            previous_round,
-            pool,
-        )
+    // Update active states from schedule
+    let _ = store::update_is_active_from_schedule(pool, time_source)
         .await
-        .map_err(log_error)
-        {
-            // auction has concluded
-            return Ok(());
-        }
-    }
+        .map_err(log_error);
 
-    // Create next round and update eligibilities atomically
-    let mut tx = pool.begin().await?;
-    match add_subsequent_rounds_for_auction(
-        &auction,
-        &previous_round,
-        &mut tx,
-    )
-    .await
-    .map_err(log_error)
-    {
-        Ok(new_round_id) => {
-            // Update eligibilities only if there was a previous round
-            if let Some(previous_round) = &previous_round {
-                if let Err(e) = update_user_eligibilities(
-                    &auction,
-                    previous_round,
-                    &new_round_id,
-                    &mut tx,
-                )
-                .await
-                {
-                    log_error(e);
-                    let _ = tx.rollback().await;
-                    return Ok(());
-                }
-            }
+    // Process auctions without ongoing rounds
+    let auctions =
+        get_auctions_without_ongoing_round(pool, time_source).await?;
+    process_auctions_without_rounds(pool, auctions).await?;
 
-            if let Err(e) = tx.commit().await {
-                log_error(anyhow::Error::from(e));
-            }
-        }
-        Err(_) => {
-            let _ = tx.rollback().await;
-        }
-    }
+    // Process proxy bidding for active rounds
+    process_proxy_bidding_for_active_rounds(pool, time_source).await?;
 
     Ok(())
 }
@@ -182,16 +132,17 @@ async fn process_auctions_without_rounds(
     auctions: Vec<store::Auction>,
 ) -> anyhow::Result<()> {
     let mut handles = Vec::new();
-    
+
     for auction in auctions {
         let pool = pool.clone();
-        
+
         let handle = tokio::spawn(async move {
-            if let Err(e) = process_auction_without_round(&pool, auction).await {
+            if let Err(e) = process_auction_without_round(&pool, auction).await
+            {
                 log_error(e);
             }
         });
-        
+
         handles.push(handle);
     }
 
@@ -203,23 +154,70 @@ async fn process_auctions_without_rounds(
     Ok(())
 }
 
-/// Update state once right now.
-#[tracing::instrument(skip(pool, time_source))]
-pub async fn schedule_tick(
+/// Process a single auction that doesn't have an ongoing round.
+/// This function handles creating new rounds and updating results for the auction.
+#[tracing::instrument(skip(pool, auction))]
+async fn process_auction_without_round(
     pool: &PgPool,
-    time_source: &TimeSource,
+    auction: store::Auction,
 ) -> anyhow::Result<()> {
-    // Update active states from schedule
-    let _ = store::update_is_active_from_schedule(pool, time_source)
+    let previous_round = sqlx::query_as::<_, store::AuctionRound>(
+        "SELECT * FROM auction_rounds 
+        WHERE auction_id = $1 
+        ORDER BY round_num DESC
+        LIMIT 1",
+    )
+    .bind(auction.id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to query for concluded round")?;
+
+    // If there's a previous round, check if it had activity
+    if let Some(previous_round) = &previous_round {
+        if let Ok(false) = update_round_space_results_for_auction(
+            &auction,
+            previous_round,
+            pool,
+        )
         .await
-        .map_err(log_error);
+        .map_err(log_error)
+        {
+            // auction has concluded
+            return Ok(());
+        }
+    }
 
-    // Process auctions without ongoing rounds
-    let auctions = get_auctions_without_ongoing_round(pool, time_source).await?;
-    process_auctions_without_rounds(pool, auctions).await?;
+    // Create next round and update eligibilities atomically
+    let mut tx = pool.begin().await?;
+    match add_subsequent_rounds_for_auction(&auction, &previous_round, &mut tx)
+        .await
+        .map_err(log_error)
+    {
+        Ok(new_round_id) => {
+            // Update eligibilities only if there was a previous round
+            if let Some(previous_round) = &previous_round {
+                if let Err(e) = update_user_eligibilities(
+                    &auction,
+                    previous_round,
+                    &new_round_id,
+                    &mut tx,
+                )
+                .await
+                {
+                    log_error(e);
+                    let _ = tx.rollback().await;
+                    return Ok(());
+                }
+            }
 
-    // Process proxy bidding for active rounds
-    process_proxy_bidding_for_active_rounds(pool, time_source).await?;
+            if let Err(e) = tx.commit().await {
+                log_error(anyhow::Error::from(e));
+            }
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+        }
+    }
 
     Ok(())
 }
@@ -380,6 +378,83 @@ pub async fn update_round_space_results_for_auction(
     Ok(any_bids)
 }
 
+/// For an in-progress auction, create the next auction round as needed.
+#[tracing::instrument(skip(tx))]
+pub async fn add_subsequent_rounds_for_auction(
+    auction: &store::Auction,
+    previous_round: &Option<store::AuctionRound>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<payloads::AuctionRoundId> {
+    let auction_params = sqlx::query_as::<_, store::AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(&auction.auction_params_id)
+    .fetch_one(&mut **tx)
+    .await
+    .context("getting auction params; skipping")?;
+
+    let timezone =
+        sqlx::query_as::<_, store::Site>("SELECT * FROM sites where id = $1")
+            .bind(auction.site_id)
+            .fetch_one(&mut **tx)
+            .await
+            .context("getting site; skipping")?
+            .timezone;
+
+    let start_time_ts = previous_round
+        .as_ref()
+        .map(|r| r.end_at)
+        .unwrap_or(auction.start_at);
+
+    // use DST-aware datetime math in case the round duration is days or
+    // larger
+    let zoned_start_time = match start_time_ts
+        .in_tz(&timezone)
+        .context("converting to timezone; falling back to DST-naive")
+    {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("{e:#}");
+            auction.start_at.to_zoned(TimeZone::UTC)
+        }
+    };
+
+    let zoned_end_time = zoned_start_time
+        .checked_add(auction_params.round_duration)
+        .context("computing round end time; skipping")?;
+
+    let round_num: i32 = previous_round
+        .as_ref()
+        .map(|r| r.round_num + 1)
+        .unwrap_or(0);
+
+    let eligibility_threshold = get_eligibility_for_round_num(
+        round_num,
+        &auction_params.activity_rule_params.eligibility_progression,
+    );
+
+    let new_round = sqlx::query_as::<_, store::AuctionRound>(
+        "INSERT INTO auction_rounds (
+            auction_id,
+            round_num,
+            start_at,
+            end_at,
+            eligibility_threshold
+        ) VALUES ($1, $2, $3, $4, $5)
+        RETURNING *",
+    )
+    .bind(auction.id)
+    .bind(round_num)
+    .bind(start_time_ts.to_sqlx())
+    .bind(zoned_end_time.timestamp().to_sqlx())
+    .bind(eligibility_threshold)
+    .fetch_one(&mut **tx)
+    .await
+    .context("inserting round into database")?;
+
+    Ok(new_round.id)
+}
+
 /// Update user eligibilities after an auction round concludes.
 ///
 /// In each round, eligibility is based on two factors:
@@ -533,83 +608,6 @@ pub async fn update_user_eligibilities(
     Ok(())
 }
 
-/// For an in-progress auction, create the next auction round as needed.
-#[tracing::instrument(skip(tx))]
-pub async fn add_subsequent_rounds_for_auction(
-    auction: &store::Auction,
-    previous_round: &Option<store::AuctionRound>,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<payloads::AuctionRoundId> {
-    let auction_params = sqlx::query_as::<_, store::AuctionParams>(
-        "SELECT * FROM auction_params WHERE id = $1",
-    )
-    .bind(&auction.auction_params_id)
-    .fetch_one(&mut **tx)
-    .await
-    .context("getting auction params; skipping")?;
-
-    let timezone =
-        sqlx::query_as::<_, store::Site>("SELECT * FROM sites where id = $1")
-            .bind(auction.site_id)
-            .fetch_one(&mut **tx)
-            .await
-            .context("getting site; skipping")?
-            .timezone;
-
-    let start_time_ts = previous_round
-        .as_ref()
-        .map(|r| r.end_at)
-        .unwrap_or(auction.start_at);
-
-    // use DST-aware datetime math in case the round duration is days or
-    // larger
-    let zoned_start_time = match start_time_ts
-        .in_tz(&timezone)
-        .context("converting to timezone; falling back to DST-naive")
-    {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!("{e:#}");
-            auction.start_at.to_zoned(TimeZone::UTC)
-        }
-    };
-
-    let zoned_end_time = zoned_start_time
-        .checked_add(auction_params.round_duration)
-        .context("computing round end time; skipping")?;
-
-    let round_num: i32 = previous_round
-        .as_ref()
-        .map(|r| r.round_num + 1)
-        .unwrap_or(0);
-
-    let eligibility_threshold = get_eligibility_for_round_num(
-        round_num,
-        &auction_params.activity_rule_params.eligibility_progression,
-    );
-
-    let new_round = sqlx::query_as::<_, store::AuctionRound>(
-        "INSERT INTO auction_rounds (
-            auction_id,
-            round_num,
-            start_at,
-            end_at,
-            eligibility_threshold
-        ) VALUES ($1, $2, $3, $4, $5)
-        RETURNING *",
-    )
-    .bind(auction.id)
-    .bind(round_num)
-    .bind(start_time_ts.to_sqlx())
-    .bind(zoned_end_time.timestamp().to_sqlx())
-    .bind(eligibility_threshold)
-    .fetch_one(&mut **tx)
-    .await
-    .context("inserting round into database")?;
-
-    Ok(new_round.id)
-}
-
 fn get_eligibility_for_round_num(
     round_num: i32,
     progression: &[(i32, f64)],
@@ -638,6 +636,50 @@ fn get_eligibility_for_round_num(
 struct ActiveRound {
     round_id: AuctionRoundId,
     auction_id: AuctionId,
+}
+
+/// Process proxy bidding for all active rounds.
+/// This is separated from schedule_tick to keep the main scheduling logic clean.
+#[tracing::instrument(skip(pool, time_source))]
+async fn process_proxy_bidding_for_active_rounds(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    // First get all auctions with active rounds
+    let active_rounds = sqlx::query_as::<_, ActiveRound>(
+        "SELECT DISTINCT ar.id as round_id, ar.auction_id
+        FROM auction_rounds ar
+        JOIN auctions a ON ar.auction_id = a.id
+        WHERE $1 >= ar.start_at AND $1 < ar.end_at",
+    )
+    .bind(time_source.now().to_sqlx())
+    .fetch_all(pool)
+    .await?;
+
+    // Process each auction's active round in parallel
+    let mut handles = Vec::new();
+
+    for round in active_rounds {
+        let pool = pool.clone();
+        let time_source = time_source.clone();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) =
+                process_single_round(round, &pool, &time_source).await
+            {
+                log_error(e);
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all tasks to complete
+    for handle in handles {
+        let _ = handle.await.map_err(|e| log_error(anyhow::Error::from(e)));
+    }
+
+    Ok(())
 }
 
 /// Process proxy bidding for a single auction round.
@@ -748,50 +790,6 @@ async fn process_single_round(
                 }
             }
         }
-    }
-
-    Ok(())
-}
-
-/// Process proxy bidding for all active rounds.
-/// This is separated from schedule_tick to keep the main scheduling logic clean.
-#[tracing::instrument(skip(pool, time_source))]
-async fn process_proxy_bidding_for_active_rounds(
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    // First get all auctions with active rounds
-    let active_rounds = sqlx::query_as::<_, ActiveRound>(
-        "SELECT DISTINCT ar.id as round_id, ar.auction_id
-        FROM auction_rounds ar
-        JOIN auctions a ON ar.auction_id = a.id
-        WHERE $1 >= ar.start_at AND $1 < ar.end_at",
-    )
-    .bind(time_source.now().to_sqlx())
-    .fetch_all(pool)
-    .await?;
-
-    // Process each auction's active round in parallel
-    let mut handles = Vec::new();
-
-    for round in active_rounds {
-        let pool = pool.clone();
-        let time_source = time_source.clone();
-
-        let handle = tokio::spawn(async move {
-            if let Err(e) =
-                process_single_round(round, &pool, &time_source).await
-            {
-                log_error(e);
-            }
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all tasks to complete
-    for handle in handles {
-        let _ = handle.await.map_err(|e| log_error(anyhow::Error::from(e)));
     }
 
     Ok(())
