@@ -1785,10 +1785,15 @@ pub async fn create_bid(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
-    // Get the space to validate user permissions
+    // Get the space to validate user permissions and check availability
     let (space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
+            
+    // Ensure the space is available for bidding
+    if !space.is_available {
+        return Err(StoreError::SpaceNotAvailable);
+    }
 
     // Verify the round exists and is ongoing
     let round = sqlx::query_as::<_, AuctionRound>(
@@ -1809,7 +1814,6 @@ pub async fn create_bid(
     if now >= round.end_at {
         return Err(StoreError::RoundEnded);
     }
-    // TODO: ensure the space is available
 
     // Check if user is already the standing high bidder from the previous round
     if round.round_num > 0 {
@@ -2056,6 +2060,8 @@ pub enum StoreError {
     ExceedsEligibility { available: f64, required: f64 },
     #[error("Cannot bid on a space you are already winning")]
     AlreadyWinningSpace,
+    #[error("Space is not available for bidding")]
+    SpaceNotAvailable,
     #[error("User value not found")]
     UserValueNotFound,
     #[error("Proxy bidding settings not found")]

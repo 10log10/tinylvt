@@ -657,3 +657,46 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_bid_unavailable_space() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create a space but mark it as unavailable
+    let mut space_details = helpers::space_details_a(site.site_id);
+    space_details.is_available = false;
+    let space_id = app.client.create_space(&space_details).await?;
+
+    // Create an auction that starts now
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    let round = &rounds[0];
+
+    // Try to create a bid on the unavailable space - should fail
+    let result = app.client.create_bid(&space_id, &round.round_id).await;
+
+    // The error message should indicate the space is not available
+    if let Err(payloads::ClientError::APIError(code, message)) = result {
+        // Verify we got a 400 Bad Request
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert!(
+            message.contains("Space is not available for bidding"),
+            "Unexpected error message: {}",
+            message
+        );
+    } else {
+        panic!("Expected APIError but got {:?}", result);
+    }
+
+    Ok(())
+}
