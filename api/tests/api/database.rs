@@ -1,6 +1,6 @@
 //! Some basic database tests.
 //!
-//! Though backend::store defines its own level of API interface, most tests are
+//! Though api::store defines its own level of API interface, most tests are
 //! at the http route level.
 use std::str::FromStr;
 
@@ -13,7 +13,7 @@ use rust_decimal::dec;
 use sqlx::{Error, PgPool};
 use sqlx_postgres::types::PgInterval;
 
-use backend::store::{
+use api::store::{
     self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
     OpenHoursWeekday, Site, Space, StoreError, User,
 };

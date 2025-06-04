@@ -14,7 +14,7 @@ To restart container, first do: `docker stop postgres && docker rm postgres`
 Run the backend:
 
 ```
-cd backend
+cd api
 DATABASE_URL=postgresql://user:password@localhost:5432/database IP_ADDRESS=127.0.0.1 cargo run
 ```
 
@@ -51,7 +51,7 @@ ulimit -n 65535
 ## Viewing logs
 
 ```
-RUST_LOG=backend=info cargo test long_community_name_rejected -- --nocapture
+RUST_LOG=api=info cargo test long_community_name_rejected -- --nocapture
 ```
 
 ## Tracing

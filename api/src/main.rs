@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use backend::{
+use api::{
     Config, build,
     scheduler::Scheduler,
     telemetry::{get_subscriber, init_subscriber},

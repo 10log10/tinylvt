@@ -1,5 +1,5 @@
 [package]
-name = "backend"
+name = "api"
 version = "0.1.0"
 edition = "2024"
 
@@ -37,4 +37,4 @@ tracing-subscriber = { version = "0.3.19", features = ["registry", "env-filter"]
 uuid = { workspace = true }
 
 [dev-dependencies]
-backend = { path = ".", features = ["test-utils"] }
+api = { path = ".", features = ["test-utils"] }

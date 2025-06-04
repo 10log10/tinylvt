@@ -1,6 +1,6 @@
 [workspace]
-# members= ["backend", "payloads", "ui"]
-members= ["backend", "payloads", "email-hash"]
+# members= ["api", "payloads", "ui"]
+members= ["api", "payloads", "email-hash"]
 resolver = "3"
 
 [workspace.dependencies]

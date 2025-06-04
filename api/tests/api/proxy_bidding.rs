@@ -1,5 +1,5 @@
 use crate::helpers::{self, spawn_app};
-use backend::scheduler;
+use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use rust_decimal::Decimal;

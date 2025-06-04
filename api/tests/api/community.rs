@@ -47,11 +47,8 @@ async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
     let community_id = app.create_two_person_community().await?;
     app.create_schedule(&community_id).await?;
 
-    backend::store::update_is_active_from_schedule(
-        &app.db_pool,
-        &app.time_source,
-    )
-    .await?;
+    api::store::update_is_active_from_schedule(&app.db_pool, &app.time_source)
+        .await?;
     let members = app.client.get_members(&community_id).await?;
 
     for member in &members {
@@ -63,11 +60,8 @@ async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
     }
 
     app.time_source.advance(jiff::Span::new().hours(2));
-    backend::store::update_is_active_from_schedule(
-        &app.db_pool,
-        &app.time_source,
-    )
-    .await?;
+    api::store::update_is_active_from_schedule(&app.db_pool, &app.time_source)
+        .await?;
     let members = app.client.get_members(&community_id).await?;
 
     // all members now inactive
