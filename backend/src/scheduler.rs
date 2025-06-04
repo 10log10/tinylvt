@@ -36,7 +36,7 @@
 use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
-use payloads::{RoundSpaceResult, SpaceId};
+use payloads::SpaceId;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::time::Duration;
@@ -744,21 +744,19 @@ async fn process_single_round(
 
     // Get the most recent completed round results to determine current prices
     // We look at the round with the highest round_num that is less than the current round
-    let prev_round_space_results = sqlx::query_as::<_, RoundSpaceResult>(
-        "SELECT rsr.space_id, rsr.round_id, 
-                (SELECT username FROM users WHERE id = rsr.winning_user_id)
-                    AS winning_username,
-                rsr.value
-        FROM round_space_results rsr
-        JOIN auction_rounds ar ON rsr.round_id = ar.id
-        WHERE ar.auction_id = $1
+    let prev_round_space_results =
+        sqlx::query_as::<_, store::RoundSpaceResult>(
+            "SELECT *
+            FROM round_space_results rsr
+            JOIN auction_rounds ar ON rsr.round_id = ar.id
+            WHERE ar.auction_id = $1
             AND ar.round_num = $2",
-    )
-    .bind(round.auction_id)
-    .bind(round.round_num - 1)
-    .fetch_all(pool)
-    .await
-    .context("failed to get round results")?;
+        )
+        .bind(round.auction_id)
+        .bind(round.round_num - 1)
+        .fetch_all(pool)
+        .await
+        .context("failed to get round results")?;
 
     tracing::info!(
         "Found {} round results from previous rounds",
@@ -806,7 +804,7 @@ async fn process_user_proxy_bidding(
     // all spaces
     spaces: &[store::Space],
     // prices as of the previous round; does not exist for round 0
-    prev_round_space_results: &[payloads::RoundSpaceResult],
+    prev_round_space_results: &[store::RoundSpaceResult],
     current_round_id: &payloads::AuctionRoundId,
     bid_increment: rust_decimal::Decimal,
     pool: &PgPool,
@@ -826,6 +824,12 @@ async fn process_user_proxy_bidding(
     })?;
 
     tracing::info!("Found {} space values", user_values.len(),);
+
+    // Count the number of spaces the user is already the high bidder for
+    let num_spaces_already_winning = prev_round_space_results
+        .iter()
+        .filter(|rsr| rsr.winning_user_id == Some(settings.user_id))
+        .count();
 
     // Calculate surpluses for spaces where user has set values
     let mut space_surpluses: Vec<(SpaceId, Decimal)> = Vec::new();
@@ -864,7 +868,9 @@ async fn process_user_proxy_bidding(
     // Try bidding on spaces in surplus order until we hit max_items
     let mut successful_bids = 0;
     for (space_id, surplus) in space_surpluses {
-        if successful_bids >= settings.max_items as usize {
+        if successful_bids + num_spaces_already_winning
+            >= settings.max_items as usize
+        {
             break;
         }
 

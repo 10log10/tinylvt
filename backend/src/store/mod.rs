@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use payloads::{
     AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, RoundSpaceResult, SiteId, SpaceId, UserId, requests,
+    Role, SiteId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
@@ -301,6 +301,14 @@ impl AuctionRound {
             updated_at: self.updated_at,
         }
     }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct RoundSpaceResult {
+    pub space_id: SpaceId,
+    pub round_id: AuctionRoundId,
+    pub winning_user_id: Option<UserId>,
+    pub value: rust_decimal::Decimal,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1696,12 +1704,12 @@ pub async fn get_round_space_result(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<RoundSpaceResult, StoreError> {
+) -> Result<payloads::RoundSpaceResult, StoreError> {
     // Verify user has access to the space
     get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
         .await?;
 
-    let round_space_result = sqlx::query_as::<_, RoundSpaceResult>(
+    let round_space_result = sqlx::query_as::<_, payloads::RoundSpaceResult>(
         r#"
         SELECT
             space_id,
@@ -1729,7 +1737,7 @@ pub async fn list_round_space_results_for_round(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<RoundSpaceResult>, StoreError> {
+) -> Result<Vec<payloads::RoundSpaceResult>, StoreError> {
     // Verify user has access to the auction round
     let auction_round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
@@ -1751,7 +1759,7 @@ pub async fn list_round_space_results_for_round(
     let community_id = get_site_community_id(&auction.site_id, pool).await?;
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
-    let round_space_results = sqlx::query_as::<_, RoundSpaceResult>(
+    let round_space_results = sqlx::query_as::<_, payloads::RoundSpaceResult>(
         r#"
         SELECT
             space_id,

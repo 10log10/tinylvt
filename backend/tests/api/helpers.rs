@@ -43,6 +43,13 @@ impl TestApp {
         Ok(())
     }
 
+    pub async fn create_charlie_user(&self) -> anyhow::Result<()> {
+        let body = charlie_credentials();
+        self.client.create_account(&body).await?;
+        self.mark_user_email_verified(&body.username).await?;
+        Ok(())
+    }
+
     pub async fn login_alice(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
         self.client.login(&alice_credentials()).await?;
@@ -52,6 +59,12 @@ impl TestApp {
     pub async fn login_bob(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
         self.client.login(&bob_credentials()).await?;
+        Ok(())
+    }
+
+    pub async fn login_charlie(&self) -> anyhow::Result<()> {
+        self.client.logout().await?;
+        self.client.login(&charlie_credentials()).await?;
         Ok(())
     }
 
@@ -112,6 +125,38 @@ impl TestApp {
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
+        self.login_alice().await?;
+        Ok(community_id)
+    }
+
+    pub async fn create_three_person_community(
+        &self,
+    ) -> anyhow::Result<CommunityId> {
+        self.create_alice_user().await?;
+        let community_id = self.create_test_community().await?;
+
+        // Invite and add Bob
+        self.invite_bob().await?;
+        self.create_bob_user().await?;
+        self.login_bob().await?;
+        self.accept_invite().await?;
+
+        // Invite and add Charlie
+        self.login_alice().await?;
+        let details = requests::InviteCommunityMember {
+            community_id,
+            new_member_email: Some(charlie_credentials().email),
+        };
+        self.client.invite_member(&details).await?;
+        self.create_charlie_user().await?;
+        self.login_charlie().await?;
+        let invites = self.client.get_invites().await?;
+        let charlie_invite = invites
+            .iter()
+            .find(|invite| invite.community_name == "Test community")
+            .unwrap();
+        self.client.accept_invite(&charlie_invite.id).await?;
+
         self.login_alice().await?;
         Ok(community_id)
     }
@@ -225,6 +270,14 @@ fn bob_credentials() -> requests::CreateAccount {
         username: "bob".into(),
         password: "bobspw".into(),
         email: "bob@example.com".into(),
+    }
+}
+
+fn charlie_credentials() -> requests::CreateAccount {
+    requests::CreateAccount {
+        username: "charlie".into(),
+        password: "charliepw".into(),
+        email: "charlie@example.com".into(),
     }
 }
 
@@ -345,6 +398,17 @@ pub fn space_details_b(site_id: SiteId) -> payloads::Space {
         site_id,
         name: "test space b".into(),
         description: None,
+        eligibility_points: 10.0,
+        is_available: true,
+    }
+}
+
+#[allow(unused)]
+pub fn space_details_c(site_id: SiteId) -> payloads::Space {
+    payloads::Space {
+        site_id,
+        name: "test space c".into(),
+        description: Some("test space c description".into()),
         eligibility_points: 10.0,
         is_available: true,
     }
