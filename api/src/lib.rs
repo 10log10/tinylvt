@@ -51,10 +51,10 @@ pub async fn build(
             )
             .service(routes::api_services())
             // static files service
-            // .service(
-            // actix_files::Files::new("/", "../ui/dist/")
-            // .index_file("index.html"),
-            // )
+            .service(
+                actix_files::Files::new("/", "../ui/dist/")
+                    .index_file("index.html"),
+            )
             .app_data(db_pool.clone())
             .app_data(time_source.clone())
     })

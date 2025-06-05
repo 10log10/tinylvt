@@ -1,0 +1,11 @@
+/* Global default styles applied to all elements, which can be overridden */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply bg-black text-white;
+    }
+}
