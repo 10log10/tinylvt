@@ -1,8 +1,8 @@
 pub mod auction;
 pub mod community;
 pub mod login;
-pub mod site;
 pub mod proxy_bidding;
+pub mod site;
 
 use actix_identity::Identity;
 use actix_web::{
@@ -19,6 +19,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(health_check)
         .service(login::login)
         .service(login::login_check)
+        .service(login::user_profile)
         .service(login::logout)
         .service(login::create_account)
         .service(community::create_community)

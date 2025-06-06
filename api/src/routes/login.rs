@@ -1,10 +1,11 @@
 use actix_identity::Identity;
-use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use sqlx::PgPool;
 
 use crate::password::{
     AuthError, Credentials, NewUserDetails, create_user, validate_credentials,
 };
+use crate::store;
 
 use super::{APIError, get_user_id};
 
@@ -67,4 +68,24 @@ pub async fn create_account(
 ) -> Result<HttpResponse, APIError> {
     create_user(new_user_details.0, &pool).await?;
     Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool))]
+#[get("/user_profile")]
+pub async fn user_profile(
+    user: Identity,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let user_data = store::read_user(&pool, &user_id).await?;
+
+    let profile = payloads::responses::UserProfile {
+        username: user_data.username,
+        email: user_data.email,
+        display_name: user_data.display_name,
+        email_verified: user_data.email_verified,
+        balance: user_data.balance,
+    };
+
+    Ok(HttpResponse::Ok().json(profile))
 }

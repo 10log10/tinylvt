@@ -1,3 +1,4 @@
+mod auth;
 mod theme;
 
 use payloads::APIClient;
@@ -5,6 +6,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
+use auth::{AuthState, ForgotPassword, Login, Register, use_auth};
 use theme::ThemeToggle;
 
 #[derive(Default, Clone, PartialEq, Store)]
@@ -45,16 +47,81 @@ pub fn App() -> Html {
 
 #[function_component]
 fn Header() -> Html {
+    let (auth_state, check_auth) = use_auth();
+    let (_, auth_dispatch) = use_store::<AuthState>();
+    let navigator = use_navigator().unwrap();
+
+    // Check authentication status on mount
+    use_effect_with((), move |_| {
+        check_auth.emit(());
+        || ()
+    });
+
+    let on_logout = {
+        let auth_dispatch = auth_dispatch.clone();
+        let navigator = navigator.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let auth_dispatch = auth_dispatch.clone();
+            let navigator = navigator.clone();
+
+            yew::platform::spawn_local(async move {
+                let client = get_api_client();
+                match client.logout().await {
+                    Ok(()) => {
+                        // Update auth state
+                        auth_dispatch.reduce_mut(|state| {
+                            state.is_authenticated = false;
+                            state.username = None;
+                        });
+
+                        // Navigate to home
+                        navigator.push(&Route::Home);
+                    }
+                    Err(_) => {
+                        // Even if logout fails, clear local state
+                        auth_dispatch.reduce_mut(|state| {
+                            state.is_authenticated = false;
+                            state.username = None;
+                        });
+                        navigator.push(&Route::Home);
+                    }
+                }
+            });
+        })
+    };
+
     html! {
         <header class="bg-gray-100 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between items-center h-16">
                     <div class="flex items-center">
-                        <h1 class="text-xl font-bold text-gray-900 dark:text-white">{"TinyLVT"}</h1>
+                        <Link<Route> to={Route::Home} classes="text-xl font-bold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300">
+                            {"TinyLVT"}
+                        </Link<Route>>
                     </div>
                     <div class="flex items-center space-x-4">
+                        if auth_state.is_authenticated {
+                            if let Some(username) = &auth_state.username {
+                                <span class="text-sm text-gray-600 dark:text-gray-400">
+                                    {"Welcome, "}{username}
+                                </span>
+                            }
+                            <button
+                                onclick={on_logout}
+                                class="text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                            >
+                                {"Logout"}
+                            </button>
+                        } else {
+                            <Link<Route> to={Route::Login} classes="text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                                {"Login"}
+                            </Link<Route>>
+                            <Link<Route> to={Route::Register} classes="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md text-sm font-medium">
+                                {"Sign Up"}
+                            </Link<Route>>
+                        }
                         <ThemeToggle />
-                        // Add navigation items here later
                     </div>
                 </div>
             </div>
@@ -66,7 +133,7 @@ fn Header() -> Html {
 fn ErrorMessage() -> Html {
     let (err, dispatch) = use_store::<State>();
     let error_message = err.error_message.clone();
-    
+
     if error_message.is_some() {
         let dispatch = dispatch.clone();
         yew::platform::spawn_local(async move {
@@ -89,10 +156,12 @@ fn ErrorMessage() -> Html {
 enum Route {
     #[at("/")]
     Home,
-    // #[at("/about")]
-    // About,
-    // #[at("/login")]
-    // Login,
+    #[at("/login")]
+    Login,
+    #[at("/register")]
+    Register,
+    #[at("/forgot-password")]
+    ForgotPassword,
     // #[at("/profile")]
     // Profile,
     // #[at("/bids")]
@@ -105,7 +174,7 @@ enum Route {
 #[function_component]
 fn HealthCheck() -> Html {
     let health_status = use_state(|| "Checking...".to_string());
-    
+
     {
         let health_status = health_status.clone();
         use_effect_with((), move |_| {
@@ -113,14 +182,18 @@ fn HealthCheck() -> Html {
             yew::platform::spawn_local(async move {
                 let client = get_api_client();
                 match client.health_check().await {
-                    Ok(_) => health_status.set("✅ Connected to backend".to_string()),
-                    Err(e) => health_status.set(format!("❌ Backend error: {}", e)),
+                    Ok(_) => {
+                        health_status.set("✅ Connected to backend".to_string())
+                    }
+                    Err(e) => {
+                        health_status.set(format!("❌ Backend error: {}", e))
+                    }
                 }
             });
             || ()
         });
     }
-    
+
     html! {
         <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 rounded-lg">
             <h3 class="font-bold text-blue-900 dark:text-blue-100">{"Backend Health"}</h3>
@@ -131,7 +204,7 @@ fn HealthCheck() -> Html {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Home => html! { 
+        Route::Home => html! {
             <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div class="space-y-6">
                     <div>
@@ -160,10 +233,12 @@ fn switch(routes: Route) -> Html {
             </main>
         },
         // Route::About => html! { <about::About /> },
-        // Route::Login => html! { <login::Login /> },
+        Route::Login => html! { <Login /> },
+        Route::Register => html! { <Register /> },
+        Route::ForgotPassword => html! { <ForgotPassword /> },
         // Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
-        Route::NotFound => html! { 
+        Route::NotFound => html! {
             <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div class="text-center">
                     <h1 class="text-4xl font-bold text-gray-900 dark:text-white">{"404"}</h1>

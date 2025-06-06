@@ -326,6 +326,15 @@ pub mod responses {
         pub max_items: i32,
         pub created_at: Timestamp,
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct UserProfile {
+        pub username: String,
+        pub email: String,
+        pub display_name: Option<String>,
+        pub email_verified: bool,
+        pub balance: Decimal,
+    }
 }
 
 use derive_more::Display;
@@ -391,27 +400,39 @@ impl APIClient {
     }
 
     async fn post(&self, path: &str, body: &impl Serialize) -> ReqwestResult {
-        self.inner_client
-            .post(self.format_url(path))
-            .json(body)
-            .send()
-            .await
+        let request = self.inner_client.post(self.format_url(path)).json(body);
+
+        #[cfg(target_arch = "wasm32")]
+        let request = request.fetch_credentials_include();
+
+        request.send().await
     }
 
     async fn empty_post(&self, path: &str) -> ReqwestResult {
-        self.inner_client.post(self.format_url(path)).send().await
+        let request = self.inner_client.post(self.format_url(path));
+
+        #[cfg(target_arch = "wasm32")]
+        let request = request.fetch_credentials_include();
+
+        request.send().await
     }
 
     async fn get(&self, path: &str, body: &impl Serialize) -> ReqwestResult {
-        self.inner_client
-            .get(self.format_url(path))
-            .json(body)
-            .send()
-            .await
+        let request = self.inner_client.get(self.format_url(path)).json(body);
+
+        #[cfg(target_arch = "wasm32")]
+        let request = request.fetch_credentials_include();
+
+        request.send().await
     }
 
     async fn empty_get(&self, path: &str) -> ReqwestResult {
-        self.inner_client.get(self.format_url(path)).send().await
+        let request = self.inner_client.get(self.format_url(path));
+
+        #[cfg(target_arch = "wasm32")]
+        let request = request.fetch_credentials_include();
+
+        request.send().await
     }
 }
 
@@ -454,6 +475,14 @@ impl APIClient {
                 response.text().await?,
             )),
         }
+    }
+
+    /// Get the current user's profile information.
+    pub async fn user_profile(
+        &self,
+    ) -> Result<responses::UserProfile, ClientError> {
+        let response = self.empty_get("user_profile").await?;
+        ok_body(response).await
     }
 
     pub async fn create_community(
