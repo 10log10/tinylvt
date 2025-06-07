@@ -618,4 +618,3 @@ pub fn ForgotPassword() -> Html {
         </main>
     }
 }
-

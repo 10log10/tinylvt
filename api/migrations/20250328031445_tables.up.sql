@@ -5,6 +5,9 @@
 -- 'member'  -- Default membership level
 CREATE TYPE ROLE AS ENUM ('member', 'moderator', 'coleader', 'leader');
 
+-- Token actions for email verification and password reset
+CREATE TYPE TOKEN_ACTION AS ENUM ('email_verification', 'password_reset');
+
 CREATE TABLE communities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -33,7 +36,7 @@ CREATE TABLE users (
 CREATE TABLE tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- the token
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    action TEXT NOT NULL,
+    action TOKEN_ACTION NOT NULL,
     used BOOLEAN NOT NULL DEFAULT false, -- can only be used once
     expires_at TIMESTAMPTZ NOT NULL, -- must be used before expiry
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,

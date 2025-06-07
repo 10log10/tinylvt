@@ -24,11 +24,12 @@ payloads = { path = "../payloads", features = ["use-sqlx"] }
 # argon2 depends on an older version of rand_core with a now-deprecated trait
 rand_core = { version = "0.6.4", features = ["std"] }
 reqwest = { workspace = true, features = ["cookies"] }
+resend-rs = "0.15.0"  # For email sending
 rust_decimal = { workspace = true }
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { workspace = true }
 serde_json = "1.0.140"
-sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal" ] }
+sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal", "time" ] }
 sqlx-postgres = "0.8.3"
 thiserror = { workspace = true }
 tokio = { version = "1.44.1", features = ["full"] }

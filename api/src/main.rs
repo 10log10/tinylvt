@@ -8,7 +8,7 @@ use api::{
 };
 
 /// TinyLVT API Server
-/// 
+///
 /// Required environment variables:
 /// - DATABASE_URL: PostgreSQL connection string
 /// - IP_ADDRESS: Server bind address (127.0.0.1 for local, 0.0.0.0 for public)

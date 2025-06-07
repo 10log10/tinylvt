@@ -132,7 +132,7 @@ pub struct NewUserDetails {
 pub async fn create_user(
     new_user_details: NewUserDetails,
     pool: &PgPool,
-) -> Result<(), StoreError> {
+) -> Result<payloads::UserId, StoreError> {
     let password_hash = spawn_blocking_with_tracing(move || {
         compute_password_hash(new_user_details.password)
     })
@@ -153,7 +153,7 @@ pub async fn create_user(
             tracing::field::display(&new_user_details.username),
         )
         .record("user_id", tracing::field::display(&new_user_id));
-    Ok(())
+    Ok(new_user_id)
 }
 
 fn compute_password_hash(

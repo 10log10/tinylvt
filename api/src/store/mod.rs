@@ -1,3 +1,31 @@
+//! Database store module for TinyLVT API
+//!
+//! ## Design Decisions
+//!
+//! ### Token Management
+//! - **Auto-generated UUIDs**: The database automatically generates UUIDs for tokens using `DEFAULT gen_random_uuid()`.
+//!   This ensures consistent UUID generation and reduces network overhead.
+//! - **Single-use tokens**: All tokens (email verification, password reset) are marked as used after consumption
+//!   and cannot be reused.
+//! - **Time-based expiration**: Tokens have database-enforced expiration times. Email verification tokens
+//!   expire after 24 hours, password reset tokens after 1 hour.
+//!
+//! ### Time Source Dependency
+//! - **Mocked time for testing**: Functions that need current time (`consume_token`, `cleanup_expired_tokens`)
+//!   accept a `TimeSource` parameter instead of creating their own. This allows time to be mocked during tests.
+//! - **Consistent time handling**: All time-sensitive operations use the same `TimeSource` instance passed
+//!   from the application routes.
+//!
+//! ### Database Triggers
+//! - **Auto-updated timestamps**: The database has triggers that automatically update `updated_at` fields,
+//!   so application code doesn't need to manually set these values.
+//! - **Consistent audit trail**: All modifications are tracked at the database level for reliability.
+//!
+//! ### Type Safety
+//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it can be used directly with sqlx
+//!   queries without accessing the inner UUID value (`.0`).
+//! - **UserId binding**: Similar pattern for all ID types to ensure type safety at the query level.
+
 use anyhow::Context;
 use derive_more::Display;
 use jiff::Span;
@@ -5,8 +33,9 @@ use jiff::{Timestamp, civil::Time};
 use jiff_sqlx::ToSqlx;
 use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
-use sqlx::{Error, FromRow, PgPool, Postgres, Transaction};
+use sqlx::{Error, FromRow, PgPool, Postgres, Transaction, Type};
 use sqlx_postgres::types::PgInterval;
 use tracing::Level;
 use uuid::Uuid;
@@ -18,6 +47,15 @@ use payloads::{
 };
 
 use crate::time::TimeSource;
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize, Type,
+)]
+#[sqlx(type_name = "token_action", rename_all = "snake_case")]
+pub enum TokenAction {
+    EmailVerification,
+    PasswordReset,
+}
 
 impl From<Space> for payloads::Space {
     fn from(space: Space) -> Self {
@@ -58,14 +96,15 @@ pub struct User {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type, FromRow)]
 #[sqlx(transparent)]
 pub struct TokenId(pub Uuid);
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Token {
     pub id: TokenId,
-    pub action: String,
+    pub user_id: UserId,
+    pub action: TokenAction,
     pub used: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub expires_at: Timestamp,
@@ -756,10 +795,162 @@ pub async fn update_user(pool: &PgPool, user: &User) -> Result<User, Error> {
 }
 
 pub async fn delete_user(conn: &PgPool, id: &UserId) -> Result<User, Error> {
-    sqlx::query_as::<_, User>("DELETE FROM users WHERE id = $1;")
+    sqlx::query_as::<_, User>("DELETE FROM users WHERE id = $1 RETURNING *")
         .bind(id)
         .fetch_one(conn)
         .await
+}
+
+/// Create a token for email verification or password reset
+#[tracing::instrument(skip(pool))]
+pub async fn create_token(
+    user_id: &UserId,
+    action: TokenAction,
+    expires_at: Timestamp,
+    pool: &PgPool,
+) -> Result<TokenId, StoreError> {
+    let token_id = sqlx::query_as::<_, TokenId>(
+        r#"
+        INSERT INTO tokens (user_id, action, expires_at)
+        VALUES ($1, $2, $3)
+        RETURNING id
+        "#,
+    )
+    .bind(user_id)
+    .bind(action)
+    .bind(expires_at.to_sqlx())
+    .fetch_one(pool)
+    .await
+    .context("Failed to create token")?;
+
+    tracing::info!("Created {:?} token for user {}", action, user_id.0);
+    Ok(token_id)
+}
+
+/// Find and validate a token for use
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn consume_token(
+    token_id: &TokenId,
+    expected_action: TokenAction,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<UserId, StoreError> {
+    let mut tx = pool.begin().await.context("Failed to begin transaction")?;
+
+    // Get the token and validate it
+    let token = sqlx::query_as::<_, Token>(
+        r#"
+        SELECT *
+        FROM tokens 
+        WHERE id = $1
+        "#,
+    )
+    .bind(token_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("Failed to fetch token")?
+    .ok_or(StoreError::TokenNotFound)?;
+
+    // Validate token
+    if token.action != expected_action {
+        return Err(StoreError::InvalidTokenAction);
+    }
+
+    if token.used {
+        return Err(StoreError::TokenAlreadyUsed);
+    }
+
+    // Check expiration using the provided time source
+    let now = time_source.now();
+    if now > token.expires_at {
+        return Err(StoreError::TokenExpired);
+    }
+
+    // Mark token as used (updated_at handled by DB trigger)
+    sqlx::query(
+        r#"
+        UPDATE tokens 
+        SET used = true
+        WHERE id = $1
+        "#,
+    )
+    .bind(token_id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to mark token as used")?;
+
+    tx.commit().await.context("Failed to commit transaction")?;
+
+    tracing::info!(
+        "Consumed {:?} token for user {}",
+        expected_action,
+        token.user_id.0
+    );
+    Ok(token.user_id)
+}
+
+/// Mark user's email as verified
+#[tracing::instrument(skip(pool))]
+pub async fn verify_user_email(
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE users 
+        SET email_verified = true
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to verify user email")?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(StoreError::UserNotFound);
+    }
+
+    tracing::info!("Verified email for user {}", user_id.0);
+    Ok(())
+}
+
+/// Get user by email for password reset
+#[tracing::instrument(skip(pool))]
+pub async fn get_user_by_email(
+    email: &str,
+    pool: &PgPool,
+) -> Result<User, StoreError> {
+    sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+        .bind(email)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch user by email")?
+        .ok_or(StoreError::UserNotFound)
+}
+
+/// Clean up expired tokens
+#[tracing::instrument(skip(pool, time_source))]
+pub async fn cleanup_expired_tokens(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<u64, StoreError> {
+    let now = time_source.now();
+
+    let result = sqlx::query(
+        r#"
+        DELETE FROM tokens 
+        WHERE expires_at < $1
+        "#,
+    )
+    .bind(now.to_sqlx())
+    .execute(pool)
+    .await
+    .context("Failed to cleanup expired tokens")?;
+
+    tracing::info!("Cleaned up {} expired tokens", result.rows_affected());
+    Ok(result.rows_affected())
 }
 
 pub async fn get_validated_member(
@@ -1789,7 +1980,7 @@ pub async fn create_bid(
     let (space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
-            
+
     // Ensure the space is available for bidding
     if !space.is_available {
         return Err(StoreError::SpaceNotAvailable);
@@ -2066,6 +2257,14 @@ pub enum StoreError {
     UserValueNotFound,
     #[error("Proxy bidding settings not found")]
     ProxyBiddingNotFound,
+    #[error("Token not found")]
+    TokenNotFound,
+    #[error("Invalid token action")]
+    InvalidTokenAction,
+    #[error("Token already used")]
+    TokenAlreadyUsed,
+    #[error("Token expired")]
+    TokenExpired,
 }
 
 impl From<sqlx::Error> for StoreError {

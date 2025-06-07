@@ -18,8 +18,7 @@ pub async fn create_community(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let community =
-        store::create_community(&details, user_id, &pool).await?;
+    let community = store::create_community(&details, user_id, &pool).await?;
     // return the community id so we can start using for other things
     Ok(HttpResponse::Ok().json(community.id))
 }

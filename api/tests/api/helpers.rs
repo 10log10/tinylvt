@@ -1,6 +1,7 @@
 use api::time::TimeSource;
-use api::{Config, build, telemetry};
+use api::{Config, telemetry};
 use jiff::Span;
+use jiff_sqlx::ToSqlx;
 use payloads::{CommunityId, SiteId, requests, responses};
 use reqwest::StatusCode;
 use sqlx::{Error, PgPool, migrate::Migrator};
@@ -18,6 +19,164 @@ pub struct TestApp {
     pub db_pool: PgPool,
     pub client: payloads::APIClient,
     pub time_source: TimeSource,
+}
+
+/// Email testing utilities for TestApp
+impl TestApp {
+    /// Create a test account without marking email as verified (for testing email verification flow)
+    pub async fn create_unverified_user(
+        &self,
+        credentials: &payloads::requests::CreateAccount,
+    ) -> anyhow::Result<()> {
+        self.client.create_account(credentials).await?;
+        Ok(())
+    }
+
+    /// Extract verification token from database for a given email
+    pub async fn get_verification_token_from_db(
+        &self,
+        email: &str,
+    ) -> anyhow::Result<String> {
+        let token = sqlx::query_scalar::<_, String>(
+            "SELECT t.id::text FROM tokens t 
+             JOIN users u ON t.user_id = u.id 
+             WHERE u.email = $1 AND t.action = 'email_verification' AND t.used = false
+             ORDER BY t.created_at DESC LIMIT 1"
+        )
+        .bind(email)
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(token)
+    }
+
+    /// Extract password reset token from database for a given email
+    pub async fn get_password_reset_token_from_db(
+        &self,
+        email: &str,
+    ) -> anyhow::Result<String> {
+        let token = sqlx::query_scalar::<_, String>(
+            "SELECT t.id::text FROM tokens t 
+             JOIN users u ON t.user_id = u.id 
+             WHERE u.email = $1 AND t.action = 'password_reset' AND t.used = false
+             ORDER BY t.created_at DESC LIMIT 1"
+        )
+        .bind(email)
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(token)
+    }
+
+    /// Check if user's email is verified
+    pub async fn is_email_verified(&self, email: &str) -> anyhow::Result<bool> {
+        let verified = sqlx::query_scalar::<_, bool>(
+            "SELECT email_verified FROM users WHERE email = $1",
+        )
+        .bind(email)
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(verified)
+    }
+
+    /// Check if token exists and is unused
+    pub async fn is_token_valid(&self, token: &str) -> anyhow::Result<bool> {
+        let current_time = self.time_source.now();
+        let valid = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM tokens WHERE id = $1::uuid AND used = false AND expires_at > $2)"
+        )
+        .bind(token)
+        .bind(current_time.to_sqlx())
+        .fetch_one(&self.db_pool)
+        .await?;
+        Ok(valid)
+    }
+
+    /// Test email verification flow end-to-end
+    pub async fn test_email_verification_flow(&self) -> anyhow::Result<()> {
+        let credentials = payloads::requests::CreateAccount {
+            email: "test-verify@example.com".to_string(),
+            username: "testverify".to_string(),
+            password: "password123".to_string(),
+        };
+
+        // 1. Create unverified account
+        self.create_unverified_user(&credentials).await?;
+
+        // 2. Check email is not verified
+        assert!(!self.is_email_verified(&credentials.email).await?);
+
+        // 3. Get verification token from database (simulating extracting from email)
+        let token = self
+            .get_verification_token_from_db(&credentials.email)
+            .await?;
+
+        // 4. Verify email using the token
+        let verify_request = payloads::requests::VerifyEmail {
+            token: token.clone(),
+        };
+        self.client.verify_email(&verify_request).await?;
+
+        // 5. Check email is now verified
+        assert!(self.is_email_verified(&credentials.email).await?);
+
+        // 6. Check token is now used/invalid
+        assert!(!self.is_token_valid(&token).await?);
+
+        Ok(())
+    }
+
+    /// Test password reset flow end-to-end
+    pub async fn test_password_reset_flow(&self) -> anyhow::Result<()> {
+        let original_credentials = payloads::requests::CreateAccount {
+            email: "test-reset@example.com".to_string(),
+            username: "testreset".to_string(),
+            password: "oldpassword123".to_string(),
+        };
+
+        // 1. Create and verify account
+        self.create_unverified_user(&original_credentials).await?;
+        self.mark_user_email_verified(&original_credentials.username)
+            .await?;
+
+        // 2. Test original login works
+        self.client.login(&original_credentials).await?;
+        self.client.logout().await?;
+
+        // 3. Request password reset
+        let forgot_request = payloads::requests::ForgotPassword {
+            email: original_credentials.email.clone(),
+        };
+        self.client.forgot_password(&forgot_request).await?;
+
+        // 4. Get reset token from database
+        let reset_token = self
+            .get_password_reset_token_from_db(&original_credentials.email)
+            .await?;
+
+        // 5. Reset password using token
+        let new_password = "newpassword456";
+        let reset_request = payloads::requests::ResetPassword {
+            token: reset_token.clone(),
+            password: new_password.to_string(),
+        };
+        self.client.reset_password(&reset_request).await?;
+
+        // 6. Check token is now used/invalid
+        assert!(!self.is_token_valid(&reset_token).await?);
+
+        // 7. Test old password no longer works
+        let old_login_result = self.client.login(&original_credentials).await;
+        assert!(old_login_result.is_err());
+
+        // 8. Test new password works
+        let new_credentials = payloads::requests::CreateAccount {
+            email: original_credentials.email,
+            username: original_credentials.username,
+            password: new_password.to_string(),
+        };
+        self.client.login(&new_credentials).await?;
+
+        Ok(())
+    }
 }
 
 /// Functions to populate test data
@@ -94,7 +253,7 @@ impl TestApp {
         Ok(())
     }
 
-    async fn mark_user_email_verified(
+    pub async fn mark_user_email_verified(
         &self,
         username: &str,
     ) -> anyhow::Result<()> {
@@ -448,6 +607,12 @@ pub async fn spawn_app() -> TestApp {
         database_url: db_url,
         ip: "127.0.0.1".into(),
         port: 0,
+        allowed_origins: vec!["*".to_string()],
+        email_api_key: secrecy::SecretBox::new(Box::new(
+            "test-api-key".to_string(),
+        )),
+        email_from_address: "test@example.com".to_string(),
+        base_url: "http://localhost:8080".to_string(),
     };
 
     let client = reqwest::Client::builder()
@@ -456,7 +621,7 @@ pub async fn spawn_app() -> TestApp {
         .build()
         .unwrap();
 
-    let server = build(&mut config, time_source.clone()).await.unwrap();
+    let server = api::build(&mut config, time_source.clone()).await.unwrap();
     tokio::spawn(server);
 
     TestApp {

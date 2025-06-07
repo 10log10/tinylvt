@@ -22,6 +22,10 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(login::user_profile)
         .service(login::logout)
         .service(login::create_account)
+        .service(login::verify_email)
+        .service(login::forgot_password)
+        .service(login::reset_password)
+        .service(login::resend_verification_email)
         .service(community::create_community)
         .service(community::get_communities)
         .service(community::invite_community_member)
@@ -73,6 +77,8 @@ pub enum APIError {
     AuthError(#[source] anyhow::Error),
     #[error("Bad request")]
     BadRequest(#[source] anyhow::Error),
+    #[error("Not found")]
+    NotFound(#[source] anyhow::Error),
     #[error("Something went wrong")]
     UnexpectedError(#[from] anyhow::Error),
 }
@@ -86,6 +92,9 @@ impl ResponseError for APIError {
             Self::BadRequest(e) => {
                 HttpResponse::BadRequest().body(format!("{self}: {e}"))
             }
+            Self::NotFound(e) => {
+                HttpResponse::NotFound().body(format!("{self}: {e}"))
+            }
             Self::UnexpectedError(_) => {
                 HttpResponse::InternalServerError().body(self.to_string())
             }
@@ -98,6 +107,20 @@ impl From<StoreError> for APIError {
         match e {
             StoreError::Database(_) => APIError::UnexpectedError(e.into()),
             StoreError::MemberNotFound => APIError::AuthError(e.into()),
+            StoreError::TokenNotFound => APIError::NotFound(e.into()),
+            StoreError::UserNotFound => APIError::NotFound(e.into()),
+            StoreError::CommunityNotFound => APIError::NotFound(e.into()),
+            StoreError::SiteNotFound => APIError::NotFound(e.into()),
+            StoreError::SpaceNotFound => APIError::NotFound(e.into()),
+            StoreError::AuctionNotFound => APIError::NotFound(e.into()),
+            StoreError::AuctionRoundNotFound => APIError::NotFound(e.into()),
+            StoreError::RoundSpaceResultNotFound => APIError::NotFound(e.into()),
+            StoreError::BidNotFound => APIError::NotFound(e.into()),
+            StoreError::UserValueNotFound => APIError::NotFound(e.into()),
+            StoreError::ProxyBiddingNotFound => APIError::NotFound(e.into()),
+            StoreError::CommunityInviteNotFound => APIError::NotFound(e.into()),
+            StoreError::OpenHoursNotFound => APIError::NotFound(e.into()),
+            StoreError::AuctionParamsNotFound => APIError::NotFound(e.into()),
             _ => APIError::BadRequest(e.into()),
         }
     }

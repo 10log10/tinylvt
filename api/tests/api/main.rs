@@ -1,6 +1,7 @@
 mod auction;
 mod community;
 mod database;
+mod email;
 mod helpers;
 mod login;
 mod proxy_bidding;

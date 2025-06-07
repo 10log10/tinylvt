@@ -116,7 +116,8 @@ pub async fn get_eligibility(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let eligibility = store::get_eligibility(&round_id, &user_id, &pool).await?;
+    let eligibility =
+        store::get_eligibility(&round_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(eligibility))
 }
 
@@ -128,7 +129,8 @@ pub async fn list_eligibility(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let eligibilities = store::list_eligibility(&auction_id, &user_id, &pool).await?;
+    let eligibilities =
+        store::list_eligibility(&auction_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(eligibilities))
 }
 

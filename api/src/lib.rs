@@ -1,3 +1,4 @@
+pub mod email;
 pub mod password;
 pub mod routes;
 pub mod scheduler;
@@ -13,6 +14,7 @@ use actix_session::{
 use actix_web::cookie::{Key, time::Duration};
 use actix_web::dev::Server;
 use actix_web::{App, HttpServer, web};
+use secrecy::{ExposeSecret, SecretBox};
 use sqlx::PgPool;
 use std::net::TcpListener;
 
@@ -25,13 +27,44 @@ pub async fn build(
     config: &mut Config,
     time_source: TimeSource,
 ) -> std::io::Result<Server> {
+    build_with_email_service(config, time_source, None).await
+}
+
+/// Build the server with optional email service override (for testing)
+pub async fn build_with_email_service(
+    config: &mut Config,
+    time_source: TimeSource,
+    email_service_override: Option<web::Data<email::EmailService>>,
+) -> std::io::Result<Server> {
     let secret_key = Key::generate(); // key for signing session cookies
     let db_pool =
         web::Data::new(PgPool::connect(&config.database_url).await.unwrap());
     let time_source = web::Data::new(time_source);
 
-    // Clone config values for use in closure
+    // Use override email service for testing, or create real one
+    let email_service = match email_service_override {
+        Some(service) => service,
+        None => web::Data::new(email::EmailService::new(
+            secrecy::SecretBox::new(Box::new(
+                config.email_api_key.expose_secret().clone(),
+            )),
+            config.email_from_address.clone(),
+        )),
+    };
+
+    // Clone config for use in closure
     let allowed_origins = config.allowed_origins.clone();
+    let config_data = web::Data::new(Config {
+        database_url: config.database_url.clone(),
+        ip: config.ip.clone(),
+        port: config.port,
+        allowed_origins: config.allowed_origins.clone(),
+        email_api_key: secrecy::SecretBox::new(Box::new(
+            config.email_api_key.expose_secret().clone(),
+        )),
+        email_from_address: config.email_from_address.clone(),
+        base_url: config.base_url.clone(),
+    });
 
     // OS assigns the port if binding to 0
     let listener = TcpListener::bind(format!("{}:{}", config.ip, config.port))?;
@@ -51,7 +84,7 @@ pub async fn build(
                 .allow_any_method()
                 .allow_any_header()
                 .supports_credentials();
-            
+
             for origin in &allowed_origins {
                 cors = cors.allowed_origin(origin);
             }
@@ -78,6 +111,8 @@ pub async fn build(
             .service(routes::api_services())
             .app_data(db_pool.clone())
             .app_data(time_source.clone())
+            .app_data(email_service.clone())
+            .app_data(config_data.clone())
     })
     .listen(listener)?
     .run();
@@ -92,24 +127,37 @@ pub struct Config {
     pub port: u16,
     /// List of allowed CORS origins. Use "*" to allow any origin (development only)
     pub allowed_origins: Vec<String>,
+    /// Email service API key (e.g., Resend API key)
+    pub email_api_key: SecretBox<String>,
+    /// Email from address
+    pub email_from_address: String,
+    /// Base URL for email links (e.g., "https://yourdomain.com" or "http://localhost:8080")
+    pub base_url: String,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         use std::env::var;
-        
+
         let allowed_origins = var("ALLOWED_ORIGINS")
             .unwrap_or_else(|_| "*".to_string()) // Default to allow any origin for development
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        
+
         Config {
             database_url: var("DATABASE_URL").unwrap(),
             ip: var("IP_ADDRESS").unwrap(),
             port: var("PORT").unwrap().parse().unwrap(),
             allowed_origins,
+            email_api_key: SecretBox::new(Box::new(
+                var("EMAIL_API_KEY").expect("EMAIL_API_KEY must be set"),
+            )),
+            email_from_address: var("EMAIL_FROM_ADDRESS")
+                .expect("EMAIL_FROM_ADDRESS must be set"),
+            base_url: var("BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
         }
     }
 }

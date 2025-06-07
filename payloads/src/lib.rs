@@ -236,6 +236,27 @@ pub mod requests {
         pub auction_id: super::AuctionId,
         pub max_items: i32,
     }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ForgotPassword {
+        pub email: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ResetPassword {
+        pub token: String,
+        pub password: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ResendVerificationEmail {
+        pub email: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct VerifyEmail {
+        pub token: String,
+    }
 }
 
 pub mod responses {
@@ -334,6 +355,11 @@ pub mod responses {
         pub display_name: Option<String>,
         pub email_verified: bool,
         pub balance: Decimal,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SuccessMessage {
+        pub message: String,
     }
 }
 
@@ -482,6 +508,42 @@ impl APIClient {
         &self,
     ) -> Result<responses::UserProfile, ClientError> {
         let response = self.empty_get("user_profile").await?;
+        ok_body(response).await
+    }
+
+    /// Verify email address using a token from the verification email.
+    pub async fn verify_email(
+        &self,
+        details: &requests::VerifyEmail,
+    ) -> Result<responses::SuccessMessage, ClientError> {
+        let response = self.post("verify_email", details).await?;
+        ok_body(response).await
+    }
+
+    /// Request a password reset email for the given email address.
+    pub async fn forgot_password(
+        &self,
+        details: &requests::ForgotPassword,
+    ) -> Result<responses::SuccessMessage, ClientError> {
+        let response = self.post("forgot_password", details).await?;
+        ok_body(response).await
+    }
+
+    /// Reset password using a token from the password reset email.
+    pub async fn reset_password(
+        &self,
+        details: &requests::ResetPassword,
+    ) -> Result<responses::SuccessMessage, ClientError> {
+        let response = self.post("reset_password", details).await?;
+        ok_body(response).await
+    }
+
+    /// Resend email verification for the given email address.
+    pub async fn resend_verification_email(
+        &self,
+        details: &requests::ResendVerificationEmail,
+    ) -> Result<responses::SuccessMessage, ClientError> {
+        let response = self.post("resend_verification_email", details).await?;
         ok_body(response).await
     }
 
