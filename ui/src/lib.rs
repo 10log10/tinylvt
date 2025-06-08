@@ -6,7 +6,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
-use auth::{AuthState, ForgotPassword, Login, Register, use_auth};
+use auth::{AuthState, ForgotPassword, Login, Register, VerifyEmailPrompt, use_auth};
 use theme::ThemeToggle;
 
 #[derive(Default, Clone, PartialEq, Store)]
@@ -160,6 +160,8 @@ enum Route {
     Login,
     #[at("/register")]
     Register,
+    #[at("/verify-email")]
+    VerifyEmail,
     #[at("/forgot-password")]
     ForgotPassword,
     // #[at("/profile")]
@@ -207,6 +209,7 @@ fn switch(routes: Route) -> Html {
         Route::Home => html! {
             <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div class="space-y-6">
+                    <VerificationNotice />
                     <div>
                         <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{"Welcome to TinyLVT"}</h1>
                         <p class="mt-2 text-gray-600 dark:text-gray-300">{"A community-based land value tax auction system"}</p>
@@ -235,6 +238,7 @@ fn switch(routes: Route) -> Html {
         // Route::About => html! { <about::About /> },
         Route::Login => html! { <Login /> },
         Route::Register => html! { <Register /> },
+        Route::VerifyEmail => html! { <VerifyEmailPrompt /> },
         Route::ForgotPassword => html! { <ForgotPassword /> },
         // Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
@@ -246,5 +250,167 @@ fn switch(routes: Route) -> Html {
                 </div>
             </main>
         },
+    }
+}
+
+#[function_component]
+fn VerificationNotice() -> Html {
+    let (auth_state, _) = use_auth();
+    let show_notice = use_state(|| false);
+    let user_email = use_state(|| None::<String>);
+    let is_resending = use_state(|| false);
+    let resend_message = use_state(|| None::<String>);
+
+    // Check user profile for email verification status
+    {
+        let show_notice = show_notice.clone();
+        let user_email = user_email.clone();
+        let auth_state = auth_state.clone();
+        
+        use_effect_with(auth_state.clone(), move |auth_state| {
+            if auth_state.is_authenticated && !auth_state.is_loading {
+                let show_notice = show_notice.clone();
+                let user_email = user_email.clone();
+                
+                yew::platform::spawn_local(async move {
+                    let client = get_api_client();
+                    match client.user_profile().await {
+                        Ok(profile) => {
+                            // Show notice only if email is not verified
+                            if !profile.email_verified {
+                                show_notice.set(true);
+                                user_email.set(Some(profile.email));
+                            } else {
+                                // Email is verified, clear any leftover session flags
+                                let window = web_sys::window().unwrap();
+                                if let Ok(Some(session_storage)) = window.session_storage() {
+                                    let _ = session_storage.remove_item("show_verification_notice");
+                                    let _ = session_storage.remove_item("verification_email");
+                                }
+                                show_notice.set(false);
+                            }
+                        }
+                        Err(_) => {
+                            // Failed to fetch profile, don't show notice
+                            show_notice.set(false);
+                        }
+                    }
+                });
+            } else {
+                // User not authenticated, don't show notice
+                show_notice.set(false);
+            }
+            || ()
+        });
+    }
+
+    let on_dismiss = {
+        let show_notice = show_notice.clone();
+        Callback::from(move |_: MouseEvent| {
+            // Clear the notice from session storage and hide
+            let window = web_sys::window().unwrap();
+            if let Ok(Some(session_storage)) = window.session_storage() {
+                let _ = session_storage.remove_item("show_verification_notice");
+                let _ = session_storage.remove_item("verification_email");
+            }
+            show_notice.set(false);
+        })
+    };
+
+    let on_resend = {
+        let user_email = user_email.clone();
+        let is_resending = is_resending.clone();
+        let resend_message = resend_message.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            if let Some(email_addr) = (*user_email).clone() {
+                let is_resending = is_resending.clone();
+                let resend_message = resend_message.clone();
+
+                yew::platform::spawn_local(async move {
+                    is_resending.set(true);
+                    resend_message.set(None);
+
+                    let client = get_api_client();
+                    let request = payloads::requests::ResendVerificationEmail {
+                        email: email_addr,
+                    };
+
+                    match client.resend_verification_email(&request).await {
+                        Ok(_) => {
+                            resend_message.set(Some("Verification email sent!".to_string()));
+                        }
+                        Err(e) => {
+                            resend_message.set(Some(format!("Error: {}", e)));
+                        }
+                    }
+
+                    is_resending.set(false);
+                });
+            }
+        })
+    };
+
+    if *show_notice {
+        html! {
+            <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M2.94 6.412A2 2 0 002 8.108V16a2 2 0 002 2h12a2 2 0 002-2V8.108a2 2 0 00-.94-1.696l-6-3.75a2 2 0 00-2.12 0l-6 3.75zm2.615 2.423a1 1 0 10-1.11 1.664l5 3.333a1 1 0 001.11 0l5-3.333a1 1 0 00-1.11-1.664L10 12.027l-4.445-2.962z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-3 flex-1">
+                        <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                            {"Welcome! Please verify your email"}
+                        </h3>
+                        <div class="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                            <p>
+                                {"We've sent a verification link to "}
+                                if let Some(email_addr) = (*user_email).clone() {
+                                    <strong>{email_addr}</strong>
+                                } else {
+                                    {"your email address"}
+                                }
+                                {". Please check your inbox and click the link to verify your email."}
+                            </p>
+                        </div>
+                        if let Some(message) = (*resend_message).clone() {
+                            <div class="mt-2 text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                {message}
+                            </div>
+                        }
+                        <div class="mt-4 flex space-x-3">
+                            <button
+                                onclick={on_resend}
+                                disabled={*is_resending}
+                                class="text-sm bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-800 dark:text-yellow-100 dark:hover:bg-yellow-700 px-3 py-2 rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                if *is_resending {
+                                    {"Sending..."}
+                                } else {
+                                    {"Resend verification email"}
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    <div class="ml-auto pl-3">
+                        <div class="-mx-1.5 -my-1.5">
+                            <button
+                                onclick={on_dismiss}
+                                class="inline-flex bg-yellow-50 dark:bg-yellow-900/20 rounded-md p-1.5 text-yellow-500 hover:bg-yellow-100 dark:hover:bg-yellow-900/40 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-yellow-50 focus:ring-yellow-600"
+                            >
+                                <span class="sr-only">{"Dismiss"}</span>
+                                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    } else {
+        html! {}
     }
 }
