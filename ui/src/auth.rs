@@ -556,6 +556,7 @@ pub fn ForgotPassword() -> Html {
             }
 
             let form = form.clone();
+            let email = form_data.email.clone();
 
             yew::platform::spawn_local(async move {
                 // Set loading state
@@ -567,14 +568,23 @@ pub fn ForgotPassword() -> Html {
                     form.set(new_form);
                 }
 
-                // Simulate API call (not implemented in backend yet)
-                yew::platform::time::sleep(std::time::Duration::from_secs(2))
-                    .await;
+                let client = get_api_client();
+                let forgot_request = payloads::requests::ForgotPassword { email };
 
-                let mut new_form = (*form).clone();
-                new_form.is_loading = false;
-                new_form.message = Some("If an account with that email exists, we've sent you a password reset link.".to_string());
-                form.set(new_form);
+                match client.forgot_password(&forgot_request).await {
+                    Ok(response) => {
+                        let mut new_form = (*form).clone();
+                        new_form.is_loading = false;
+                        new_form.message = Some(response.message);
+                        form.set(new_form);
+                    }
+                    Err(e) => {
+                        let mut new_form = (*form).clone();
+                        new_form.is_loading = false;
+                        new_form.error = Some(format!("Error: {}", e));
+                        form.set(new_form);
+                    }
+                }
             });
         })
     };
@@ -982,5 +992,258 @@ pub fn VerifyEmailWithToken(props: &VerifyEmailWithTokenProps) -> Html {
             </main>
         },
         _ => html! { <div>{"Unknown state"}</div> }
+    }
+}
+
+// Reset Password Component
+#[derive(Default, Clone, PartialEq)]
+struct ResetPasswordForm {
+    password: String,
+    confirm_password: String,
+    is_loading: bool,
+    message: Option<String>,
+    error: Option<String>,
+}
+
+#[function_component]
+pub fn ResetPassword() -> Html {
+    let navigator = use_navigator().unwrap();
+    let form = use_state(ResetPasswordForm::default);
+    let token = use_state(|| None::<String>);
+
+    // Extract token from URL query parameters
+    {
+        let token = token.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let location = window.location();
+            
+            if let Ok(search) = location.search() {
+                if !search.is_empty() {
+                    // Parse query string (starts with '?')
+                    let query_string = &search[1..]; // Remove the '?' prefix
+                    for param in query_string.split('&') {
+                        if let Some((key, value)) = param.split_once('=') {
+                            if key == "token" {
+                                token.set(Some(value.to_string()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            || ()
+        });
+    }
+
+    let on_password_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.password = input.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_confirm_password_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.confirm_password = input.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_submit = {
+        let form = form.clone();
+        let token = token.clone();
+        let navigator = navigator.clone();
+
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+
+            let form_data = (*form).clone();
+            let token_value = (*token).clone();
+
+            // Validation
+            if token_value.is_none() {
+                let mut new_form = form_data;
+                new_form.error = Some("Invalid or missing reset token".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            if form_data.password.is_empty() || form_data.confirm_password.is_empty() {
+                let mut new_form = form_data;
+                new_form.error = Some("Please fill in all fields".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            if form_data.password != form_data.confirm_password {
+                let mut new_form = form_data;
+                new_form.error = Some("Passwords do not match".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            if form_data.password.len() < 8 {
+                let mut new_form = form_data;
+                new_form.error = Some("Password must be at least 8 characters".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            let form = form.clone();
+            let navigator = navigator.clone();
+            let token = token_value.unwrap();
+            let password = form_data.password.clone();
+
+            yew::platform::spawn_local(async move {
+                // Set loading state
+                {
+                    let mut new_form = form_data;
+                    new_form.is_loading = true;
+                    new_form.error = None;
+                    new_form.message = None;
+                    form.set(new_form);
+                }
+
+                let client = get_api_client();
+                let reset_request = payloads::requests::ResetPassword {
+                    token,
+                    password,
+                };
+
+                match client.reset_password(&reset_request).await {
+                    Ok(response) => {
+                        let mut new_form = (*form).clone();
+                        new_form.is_loading = false;
+                        new_form.message = Some(response.message);
+                        form.set(new_form);
+
+                        // Navigate to login after a short delay
+                        yew::platform::spawn_local(async move {
+                            yew::platform::time::sleep(std::time::Duration::from_secs(2)).await;
+                            navigator.push(&Route::Login);
+                        });
+                    }
+                    Err(e) => {
+                        let mut new_form = (*form).clone();
+                        new_form.is_loading = false;
+                        new_form.error = Some(format!("Password reset failed: {}", e));
+                        form.set(new_form);
+                    }
+                }
+            });
+        })
+    };
+
+    // Show loading state if no token yet
+    if token.is_none() {
+        return html! {
+            <main class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+                <div class="max-w-md w-full space-y-8 text-center">
+                    <div>
+                        <div class="mx-auto h-12 w-12">
+                            <svg class="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+                        <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
+                            {"Loading..."}
+                        </h2>
+                    </div>
+                </div>
+            </main>
+        };
+    }
+
+    html! {
+        <main class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+            <div class="max-w-md w-full space-y-8">
+                <div>
+                    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
+                        {"Reset your password"}
+                    </h2>
+                    <p class="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+                        {"Enter your new password below"}
+                    </p>
+                </div>
+                <form class="mt-8 space-y-6" onsubmit={on_submit}>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">{"New Password"}</label>
+                            <input
+                                id="password"
+                                name="password"
+                                type="password"
+                                required=true
+                                class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-700 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Password (min 8 characters)"
+                                value={form.password.clone()}
+                                onchange={on_password_change}
+                                disabled={form.is_loading}
+                            />
+                        </div>
+                        <div>
+                            <label for="confirm-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">{"Confirm New Password"}</label>
+                            <input
+                                id="confirm-password"
+                                name="confirm-password"
+                                type="password"
+                                required=true
+                                class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-700 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Confirm new password"
+                                value={form.confirm_password.clone()}
+                                onchange={on_confirm_password_change}
+                                disabled={form.is_loading}
+                            />
+                        </div>
+                    </div>
+
+                    if let Some(error) = &form.error {
+                        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded">
+                            {error}
+                        </div>
+                    }
+
+                    if let Some(message) = &form.message {
+                        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 px-4 py-3 rounded">
+                            {message}
+                        </div>
+                    }
+
+                    <div>
+                        <button
+                            type="submit"
+                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={form.is_loading}
+                        >
+                            if form.is_loading {
+                                <span class="flex items-center">
+                                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    {"Resetting password..."}
+                                </span>
+                            } else {
+                                {"Reset password"}
+                            }
+                        </button>
+                    </div>
+                </form>
+
+                <div class="text-center">
+                    <Link<Route> to={Route::Login} classes="text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400">
+                        {"Back to sign in"}
+                    </Link<Route>>
+                </div>
+            </div>
+        </main>
     }
 }

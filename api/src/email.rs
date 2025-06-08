@@ -129,7 +129,7 @@ If you didn't create an account, you can safely ignore this email.
         base_url: &str,
     ) -> Result<()> {
         let reset_link =
-            format!("{}/reset_password?token={}", base_url, reset_token);
+            format!("{}/reset-password?token={}", base_url, reset_token);
 
         let template = EmailTemplate {
             subject: "Reset your password".to_string(),

@@ -6,7 +6,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
-use auth::{AuthState, ForgotPassword, Login, Register, VerifyEmailPrompt, use_auth};
+use auth::{AuthState, ForgotPassword, Login, Register, ResetPassword, VerifyEmailPrompt, use_auth};
 use theme::ThemeToggle;
 
 #[derive(Default, Clone, PartialEq, Store)]
@@ -164,6 +164,8 @@ enum Route {
     VerifyEmail,
     #[at("/forgot-password")]
     ForgotPassword,
+    #[at("/reset-password")]
+    ResetPassword,
     // #[at("/profile")]
     // Profile,
     // #[at("/bids")]
@@ -240,6 +242,7 @@ fn switch(routes: Route) -> Html {
         Route::Register => html! { <Register /> },
         Route::VerifyEmail => html! { <VerifyEmailPrompt /> },
         Route::ForgotPassword => html! { <ForgotPassword /> },
+        Route::ResetPassword => html! { <ResetPassword /> },
         // Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
         Route::NotFound => html! {
