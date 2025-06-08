@@ -372,6 +372,7 @@ dependencies = [
  "api",
  "argon2",
  "derive_more 2.0.1",
+ "dotenvy",
  "jiff",
  "jiff-sqlx",
  "payloads",

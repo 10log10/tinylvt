@@ -114,7 +114,9 @@ impl From<StoreError> for APIError {
             StoreError::SpaceNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionRoundNotFound => APIError::NotFound(e.into()),
-            StoreError::RoundSpaceResultNotFound => APIError::NotFound(e.into()),
+            StoreError::RoundSpaceResultNotFound => {
+                APIError::NotFound(e.into())
+            }
             StoreError::BidNotFound => APIError::NotFound(e.into()),
             StoreError::UserValueNotFound => APIError::NotFound(e.into()),
             StoreError::ProxyBiddingNotFound => APIError::NotFound(e.into()),

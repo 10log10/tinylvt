@@ -7,3 +7,6 @@ target/
 **/*.rs.bk
 
 ui/dist
+
+# Environment variables (may contain sensitive data)
+.env

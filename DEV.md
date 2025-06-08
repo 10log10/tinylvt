@@ -13,9 +13,55 @@ DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt sqlx migrate run
 
 To restart container, first do: `docker stop postgres && docker rm postgres`
 
+## Environment Configuration
+
+You can now configure the application using either:
+
+1. **Environment variables** (traditional method)
+2. **`.env` file** (recommended for local development)
+
+### Using a .env file
+
+Copy the example environment file and customize it:
+
+```bash
+cp env.example .env
+# Edit .env with your values
+```
+
+Example `.env` file:
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt
+IP_ADDRESS=127.0.0.1
+PORT=8000
+ALLOWED_ORIGINS=*
+EMAIL_API_KEY=your_resend_api_key_here
+EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+BASE_URL=http://localhost:8080
+```
+
+### Using environment variables directly
+
+You can still use environment variables directly (they will override .env file values):
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt cargo run
+```
+
 ## Development with Hot Reloading
 
 For the best development experience with hot reloading:
+
+**Option 1: Using .env file (recommended)**
+
+Create a `.env` file (see above), then run:
+
+```
+cd api
+cargo run
+```
+
+**Option 2: Using environment variables**
 
 Run the backend (API server):
 
@@ -104,6 +150,9 @@ BACKEND_URL=https://api.tinylvt.com trunk build --release
 - `ALLOWED_ORIGINS`: 
   - Use `*` to allow any origin (development only)
   - Or comma-separated list of specific origins (e.g., `https://app.tinylvt.com,https://tinylvt.com`)
+- `EMAIL_API_KEY`: API key for email service (e.g., Resend)
+- `EMAIL_FROM_ADDRESS`: From address for outgoing emails
+- `BASE_URL`: Base URL for email links (optional, defaults to http://localhost:8080)
 
 Use `cargo watch -x ...` in place of `cargo ...` to watch for filesystem changes.
 

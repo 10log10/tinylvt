@@ -9,15 +9,33 @@ use api::{
 
 /// TinyLVT API Server
 ///
+/// Environment variables can be set directly or loaded from a .env file in the project root.
+///
 /// Required environment variables:
 /// - DATABASE_URL: PostgreSQL connection string
 /// - IP_ADDRESS: Server bind address (127.0.0.1 for local, 0.0.0.0 for public)
 /// - PORT: Server port
 /// - ALLOWED_ORIGINS: CORS origins ("*" for any origin in development, or comma-separated list for production)
+/// - EMAIL_API_KEY: API key for email service (e.g., Resend)
+/// - EMAIL_FROM_ADDRESS: From address for outgoing emails
+/// - BASE_URL: Base URL for email links (optional, defaults to http://localhost:8080)
+///
+/// Example .env file:
+/// DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt
+/// IP_ADDRESS=127.0.0.1
+/// PORT=8000
+/// ALLOWED_ORIGINS=*
+/// EMAIL_API_KEY=your_api_key
+/// EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+/// BASE_URL=http://localhost:8080
 ///
 /// Example development command:
+/// cargo run
+///
+/// Or with direct environment variables:
 /// DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt \
 /// IP_ADDRESS=127.0.0.1 PORT=8000 ALLOWED_ORIGINS=* \
+/// EMAIL_API_KEY=your_key EMAIL_FROM_ADDRESS=noreply@example.com \
 /// cargo run
 ///
 /// Example production command:
@@ -26,6 +44,10 @@ use api::{
 /// cargo run
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Load environment variables from .env file if available
+    // This will silently ignore if the file doesn't exist
+    let _ = dotenvy::dotenv();
+
     let subscriber = get_subscriber("info".into());
     init_subscriber(subscriber);
 

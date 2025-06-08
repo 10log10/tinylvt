@@ -18,6 +18,7 @@ actix-web = "4.10.2"
 anyhow = "1.0.97"
 argon2 = { version = "0.5.3", features = ["std"] }
 derive_more = { workspace = true }
+dotenvy = "0.15.7"
 jiff = { workspace = true }
 jiff-sqlx = { workspace = true, features = ["postgres"] }
 payloads = { path = "../payloads", features = ["use-sqlx"] }
