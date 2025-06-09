@@ -174,14 +174,15 @@ pub mod requests {
     use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
 
+    pub const EMAIL_MAX_LEN: usize = 255;
+    pub const USERNAME_MAX_LEN: usize = 50;
+    pub const DISPLAY_NAME_MAX_LEN: usize = 255;
+
     #[derive(Serialize, Deserialize)]
     pub struct LoginCredentials {
         pub username: String,
         pub password: String,
     }
-
-    pub const EMAIL_MAX_LEN: usize = 255;
-    pub const USERNAME_MAX_LEN: usize = 50;
 
     #[derive(Serialize, Deserialize)]
     pub struct CreateAccount {
@@ -256,6 +257,11 @@ pub mod requests {
     #[derive(Serialize, Deserialize, Debug)]
     pub struct VerifyEmail {
         pub token: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateProfile {
+        pub display_name: Option<String>,
     }
 }
 
@@ -864,6 +870,14 @@ impl APIClient {
     ) -> Result<(), ClientError> {
         let response = self.post("delete_proxy_bidding", auction_id).await?;
         ok_empty(response).await
+    }
+
+    pub async fn update_profile(
+        &self,
+        details: &requests::UpdateProfile,
+    ) -> Result<responses::UserProfile, ClientError> {
+        let response = self.post("update_profile", details).await?;
+        ok_body(response).await
     }
 }
 

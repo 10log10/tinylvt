@@ -794,6 +794,41 @@ pub async fn update_user(pool: &PgPool, user: &User) -> Result<User, Error> {
     .await
 }
 
+pub async fn update_user_profile(
+    user_id: &UserId,
+    display_name: &Option<String>,
+    pool: &PgPool,
+) -> Result<User, StoreError> {
+    let updated_user = sqlx::query_as!(
+        User,
+        r#"
+        UPDATE users SET
+            display_name = $2
+        WHERE id = $1
+        RETURNING
+            id as "id: UserId",
+            username,
+            email,
+            password_hash,
+            display_name,
+            email_verified,
+            balance,
+            created_at as "created_at: SqlxTs",
+            updated_at as "updated_at: SqlxTs"
+        "#,
+        user_id.0,
+        display_name.as_ref(),
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::UserNotFound,
+        _ => StoreError::Database(e),
+    })?;
+
+    Ok(updated_user)
+}
+
 pub async fn delete_user(conn: &PgPool, id: &UserId) -> Result<User, Error> {
     sqlx::query_as::<_, User>("DELETE FROM users WHERE id = $1 RETURNING *")
         .bind(id)

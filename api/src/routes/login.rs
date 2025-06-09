@@ -368,3 +368,39 @@ pub async fn user_profile(
 
     Ok(HttpResponse::Ok().json(profile))
 }
+
+#[tracing::instrument(skip(user, request, pool))]
+#[post("/update_profile")]
+pub async fn update_profile(
+    user: Identity,
+    request: web::Json<payloads::requests::UpdateProfile>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    
+    // Validate display_name length if provided
+    if let Some(ref display_name) = request.display_name {
+        if display_name.len() > payloads::requests::DISPLAY_NAME_MAX_LEN {
+            return Err(APIError::BadRequest(anyhow::anyhow!(
+                "Display name must not exceed {} characters", 
+                payloads::requests::DISPLAY_NAME_MAX_LEN
+            )));
+        }
+    }
+    
+    let updated_user = store::update_user_profile(
+        &user_id,
+        &request.display_name,
+        &pool,
+    ).await?;
+
+    let profile = payloads::responses::UserProfile {
+        username: updated_user.username,
+        email: updated_user.email,
+        display_name: updated_user.display_name,
+        email_verified: updated_user.email_verified,
+        balance: updated_user.balance,
+    };
+
+    Ok(HttpResponse::Ok().json(profile))
+}
