@@ -1,0 +1,1438 @@
+use yew::prelude::*;
+use yew_router::prelude::*;
+use payloads::{responses, requests};
+use web_sys::HtmlInputElement;
+
+use crate::{Route, get_api_client, auth::use_auth};
+
+#[derive(Default, Clone, PartialEq)]
+pub struct CommunitiesState {
+    pub communities: Vec<responses::Community>,
+    pub is_loading: bool,
+    pub error: Option<String>,
+}
+
+#[function_component]
+pub fn Communities() -> Html {
+    let (auth_state, _) = use_auth();
+    let navigator = use_navigator().unwrap();
+    let communities_state = use_state(CommunitiesState::default);
+
+    // Redirect if not authenticated
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        use_effect_with(auth_state, move |auth_state| {
+            if !auth_state.is_loading && !auth_state.is_authenticated {
+                navigator.push(&Route::Login);
+            }
+            || ()
+        });
+    }
+
+    // Load communities when component mounts
+    {
+        let communities_state = communities_state.clone();
+        let auth_state = auth_state.clone();
+        
+        use_effect_with(auth_state.is_authenticated, move |is_authenticated| {
+            if *is_authenticated {
+                let communities_state = communities_state.clone();
+                
+                yew::platform::spawn_local(async move {
+                    let mut state = (*communities_state).clone();
+                    state.is_loading = true;
+                    state.error = None;
+                    communities_state.set(state);
+
+                    let client = get_api_client();
+                    match client.get_communities().await {
+                        Ok(communities) => {
+                            let mut state = (*communities_state).clone();
+                            state.communities = communities;
+                            state.is_loading = false;
+                            communities_state.set(state);
+                        }
+                        Err(e) => {
+                            let mut state = (*communities_state).clone();
+                            state.error = Some(format!("Failed to load communities: {}", e));
+                            state.is_loading = false;
+                            communities_state.set(state);
+                        }
+                    }
+                });
+            }
+            || ()
+        });
+    }
+
+    let on_create_community = {
+        let navigator = navigator.clone();
+        
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::CreateCommunity);
+        })
+    };
+
+    let on_join_community = {
+        let navigator = navigator.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::CommunityInvites);
+        })
+    };
+
+    // Don't render anything if not authenticated
+    if !auth_state.is_authenticated {
+        return html! {};
+    }
+
+    html! {
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="space-y-6">
+                // Header section
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{"My Communities"}</h1>
+                        <p class="mt-2 text-gray-600 dark:text-gray-300">
+                            {"Manage your community memberships and create new communities"}
+                        </p>
+                    </div>
+                    <div class="flex space-x-3">
+                        <button
+                            onclick={on_join_community.clone()}
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            {"Join Community"}
+                        </button>
+                        <button
+                            onclick={on_create_community.clone()}
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            {"Create Community"}
+                        </button>
+                    </div>
+                </div>
+
+                // Error message
+                if let Some(error) = &communities_state.error {
+                    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded">
+                        {error}
+                    </div>
+                }
+
+                // Loading state
+                if communities_state.is_loading {
+                    <div class="text-center py-8">
+                        <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p class="mt-2 text-gray-600 dark:text-gray-400">{"Loading communities..."}</p>
+                    </div>
+                } else if communities_state.communities.is_empty() {
+                    // Empty state
+                    <div class="text-center py-12">
+                        <div class="mx-auto h-12 w-12 text-gray-400">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No communities"}</h3>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            {"You're not a member of any communities yet. Create your first community or join an existing one."}
+                        </p>
+                        <div class="mt-6 flex justify-center space-x-3">
+                            <button
+                                onclick={on_create_community}
+                                class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                {"Create your first community"}
+                            </button>
+                            <button
+                                onclick={on_join_community}
+                                class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                {"Join a community"}
+                            </button>
+                        </div>
+                    </div>
+                } else {
+                    // Communities grid
+                    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {for communities_state.communities.iter().map(|community| {
+                            let _community_id = community.id.clone();
+                            html! {
+                                <CommunityCard 
+                                    key={format!("{}", community.id.0)}
+                                    community={community.clone()}
+                                />
+                            }
+                        })}
+                    </div>
+                }
+            </div>
+        </main>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct CommunityCardProps {
+    pub community: responses::Community,
+}
+
+#[function_component]
+pub fn CommunityCard(props: &CommunityCardProps) -> Html {
+    let navigator = use_navigator().unwrap();
+    let community = &props.community;
+
+    let on_click = {
+        let navigator = navigator.clone();
+        let community_id = community.id.clone();
+        
+        Callback::from(move |_: MouseEvent| {
+            // Navigate to community management page
+            navigator.push(&Route::CommunityManage { id: community_id.0.to_string() });
+        })
+    };
+
+    // Format the creation date
+    let created_date = {
+        // For now, just show a placeholder
+        // TODO: Format the jiff::Timestamp properly
+        "Recently created".to_string()
+    };
+
+    let first_letter = community.name.chars().next().unwrap_or('C').to_uppercase().to_string();
+
+    html! {
+        <div 
+            onclick={on_click}
+            class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-200"
+        >
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="flex-shrink-0">
+                        <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white font-medium text-lg">
+                                {first_letter}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            {&community.name}
+                        </h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                            {created_date}
+                        </p>
+                    </div>
+                </div>
+                
+                // Role badge placeholder - we'll add this when we have role information
+                <div class="flex-shrink-0">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
+                        {"Member"} // Placeholder - will be dynamic when we have role data
+                    </span>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                    <span>
+                        {"New members: "}
+                        if community.new_members_default_active {
+                            <span class="text-green-600 dark:text-green-400">{"Active by default"}</span>
+                        } else {
+                            <span class="text-yellow-600 dark:text-yellow-400">{"Inactive by default"}</span>
+                        }
+                    </span>
+                </div>
+            </div>
+
+            // Hover overlay with action hint
+            <div class="absolute inset-0 bg-blue-50 dark:bg-blue-900/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center">
+                <div class="text-blue-600 dark:text-blue-400 text-sm font-medium">
+                    {"Click to manage"}
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// Create Community Form State
+#[derive(Default, Clone, PartialEq)]
+struct CreateCommunityForm {
+    name: String,
+    new_members_default_active: bool,
+    is_loading: bool,
+    error: Option<String>,
+}
+
+#[function_component]
+pub fn CreateCommunity() -> Html {
+    let (auth_state, _) = use_auth();
+    let navigator = use_navigator().unwrap();
+    let form = use_state(CreateCommunityForm::default);
+
+    // Redirect if not authenticated
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        use_effect_with(auth_state, move |auth_state| {
+            if !auth_state.is_loading && !auth_state.is_authenticated {
+                navigator.push(&Route::Login);
+            }
+            || ()
+        });
+    }
+
+    let on_name_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.name = input.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_default_active_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.new_members_default_active = input.checked();
+            form.set(form_data);
+        })
+    };
+
+    let on_cancel = {
+        let navigator = navigator.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::Communities);
+        })
+    };
+
+    let on_submit = {
+        let form = form.clone();
+        let navigator = navigator.clone();
+
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+
+            let form_data = (*form).clone();
+
+            // Validation
+            if form_data.name.trim().is_empty() {
+                let mut new_form = form_data;
+                new_form.error = Some("Community name is required".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            if form_data.name.trim().len() > 255 {
+                let mut new_form = form_data;
+                new_form.error = Some("Community name must be 255 characters or less".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            let form = form.clone();
+            let navigator = navigator.clone();
+            let name = form_data.name.trim().to_string();
+            let new_members_default_active = form_data.new_members_default_active;
+
+            yew::platform::spawn_local(async move {
+                // Set loading state
+                {
+                    let mut new_form = (*form).clone();
+                    new_form.is_loading = true;
+                    new_form.error = None;
+                    form.set(new_form);
+                }
+
+                let client = get_api_client();
+                let community_details = requests::CreateCommunity {
+                    name,
+                    new_members_default_active,
+                };
+
+                match client.create_community(&community_details).await {
+                    Ok(_community_id) => {
+                        // Community created successfully, navigate back to communities list
+                        navigator.push(&Route::Communities);
+                    }
+                    Err(e) => {
+                        let mut new_form = (*form).clone();
+                        new_form.is_loading = false;
+                        new_form.error = Some(format!("Failed to create community: {}", e));
+                        form.set(new_form);
+                    }
+                }
+            });
+        })
+    };
+
+    // Don't render anything if not authenticated
+    if !auth_state.is_authenticated {
+        return html! {};
+    }
+
+    html! {
+        <main class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="space-y-6">
+                // Header section
+                <div>
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol role="list" class="flex items-center space-x-4">
+                            <li>
+                                <div class="flex">
+                                    <Link<Route> 
+                                        to={Route::Communities}
+                                        classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                                    >
+                                        {"Communities"}
+                                    </Link<Route>>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Create Community"}</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+                    <h1 class="mt-4 text-3xl font-bold text-gray-900 dark:text-white">{"Create a New Community"}</h1>
+                    <p class="mt-2 text-gray-600 dark:text-gray-300">
+                        {"Set up your community to start managing shared spaces and resources."}
+                    </p>
+                </div>
+
+                // Form
+                <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg">
+                    <form onsubmit={on_submit} class="space-y-6 p-6">
+                        // Community Name
+                        <div>
+                            <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {"Community Name"}
+                                <span class="text-red-500 ml-1">{"*"}</span>
+                            </label>
+                            <div class="mt-1">
+                                <input
+                                    type="text"
+                                    id="name"
+                                    name="name"
+                                    required=true
+                                    maxlength="255"
+                                    class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                                    placeholder="Enter a name for your community"
+                                    value={form.name.clone()}
+                                    onchange={on_name_change}
+                                    disabled={form.is_loading}
+                                />
+                            </div>
+                            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                {"Choose a descriptive name that members will easily recognize."}
+                            </p>
+                        </div>
+
+                        // New Members Default Active
+                        <div>
+                            <div class="relative flex items-start">
+                                <div class="flex h-5 items-center">
+                                    <input
+                                        id="new_members_default_active"
+                                        name="new_members_default_active"
+                                        type="checkbox"
+                                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700"
+                                        checked={form.new_members_default_active}
+                                        onchange={on_default_active_change}
+                                        disabled={form.is_loading}
+                                    />
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="new_members_default_active" class="font-medium text-gray-700 dark:text-gray-300">
+                                        {"New members active by default"}
+                                    </label>
+                                    <p class="text-gray-500 dark:text-gray-400">
+                                        {"When enabled, new members will automatically be eligible for distributions and auctions. When disabled, you'll need to manually activate them."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        // Error message
+                        if let Some(error) = &form.error {
+                            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-md">
+                                {error}
+                            </div>
+                        }
+
+                        // Action buttons
+                        <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <button
+                                type="button"
+                                onclick={on_cancel}
+                                disabled={form.is_loading}
+                                class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {"Cancel"}
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={form.is_loading || form.name.trim().is_empty()}
+                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                if form.is_loading {
+                                    <span class="flex items-center">
+                                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        {"Creating..."}
+                                    </span>
+                                } else {
+                                    {"Create Community"}
+                                }
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                // Additional info card
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                                {"What happens next?"}
+                            </h3>
+                            <div class="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                                <ul class="list-disc list-inside space-y-1">
+                                    <li>{"You'll be assigned as the community leader"}</li>
+                                    <li>{"You can invite members and create sites"}</li>
+                                    <li>{"Start setting up spaces and auction schedules"}</li>
+                                    <li>{"Configure community settings and permissions"}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    }
+}
+
+// Community Invites State
+#[derive(Default, Clone, PartialEq)]
+struct CommunityInvitesState {
+    invites: Vec<responses::CommunityInvite>,
+    is_loading: bool,
+    error: Option<String>,
+    accepting_invite: Option<payloads::InviteId>,
+}
+
+#[function_component]
+pub fn CommunityInvites() -> Html {
+    let (auth_state, _) = use_auth();
+    let navigator = use_navigator().unwrap();
+    let invites_state = use_state(CommunityInvitesState::default);
+
+    // Redirect if not authenticated
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        use_effect_with(auth_state, move |auth_state| {
+            if !auth_state.is_loading && !auth_state.is_authenticated {
+                navigator.push(&Route::Login);
+            }
+            || ()
+        });
+    }
+
+    // Load invites when component mounts
+    {
+        let invites_state = invites_state.clone();
+        let auth_state = auth_state.clone();
+        
+        use_effect_with(auth_state.is_authenticated, move |is_authenticated| {
+            if *is_authenticated {
+                let invites_state = invites_state.clone();
+                
+                yew::platform::spawn_local(async move {
+                    let mut state = (*invites_state).clone();
+                    state.is_loading = true;
+                    state.error = None;
+                    invites_state.set(state);
+
+                    let client = get_api_client();
+                    match client.get_invites().await {
+                        Ok(invites) => {
+                            let mut state = (*invites_state).clone();
+                            state.invites = invites;
+                            state.is_loading = false;
+                            invites_state.set(state);
+                        }
+                        Err(e) => {
+                            let mut state = (*invites_state).clone();
+                            state.error = Some(format!("Failed to load invites: {}", e));
+                            state.is_loading = false;
+                            invites_state.set(state);
+                        }
+                    }
+                });
+            }
+            || ()
+        });
+    }
+
+    let on_accept_invite = {
+        let invites_state = invites_state.clone();
+        let navigator = navigator.clone();
+        
+        Callback::from(move |invite_id: payloads::InviteId| {
+            let invites_state = invites_state.clone();
+            let navigator = navigator.clone();
+            
+            yew::platform::spawn_local(async move {
+                // Set accepting state
+                {
+                    let mut state = (*invites_state).clone();
+                    state.accepting_invite = Some(invite_id);
+                    invites_state.set(state);
+                }
+
+                let client = get_api_client();
+                match client.accept_invite(&invite_id).await {
+                    Ok(()) => {
+                        // Successfully accepted, navigate to communities
+                        navigator.push(&Route::Communities);
+                    }
+                    Err(e) => {
+                        let mut state = (*invites_state).clone();
+                        state.accepting_invite = None;
+                        state.error = Some(format!("Failed to accept invite: {}", e));
+                        invites_state.set(state);
+                    }
+                }
+            });
+        })
+    };
+
+    let on_back_to_communities = {
+        let navigator = navigator.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::Communities);
+        })
+    };
+
+    // Don't render anything if not authenticated
+    if !auth_state.is_authenticated {
+        return html! {};
+    }
+
+    html! {
+        <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="space-y-6">
+                // Header section
+                <div>
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol role="list" class="flex items-center space-x-4">
+                            <li>
+                                <div class="flex">
+                                    <Link<Route> 
+                                        to={Route::Communities}
+                                        classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                                    >
+                                        {"Communities"}
+                                    </Link<Route>>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Community Invites"}</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+                    <div class="mt-4 flex justify-between items-center">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{"Community Invites"}</h1>
+                            <p class="mt-2 text-gray-600 dark:text-gray-300">
+                                {"Join communities by accepting invitations you've received."}
+                            </p>
+                        </div>
+                        <button
+                            onclick={on_back_to_communities.clone()}
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            {"Back to Communities"}
+                        </button>
+                    </div>
+                </div>
+
+                // Error message
+                if let Some(error) = &invites_state.error {
+                    <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded">
+                        {error}
+                    </div>
+                }
+
+                // Loading state
+                if invites_state.is_loading {
+                    <div class="text-center py-12">
+                        <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p class="mt-2 text-gray-600 dark:text-gray-400">{"Loading invites..."}</p>
+                    </div>
+                } else if invites_state.invites.is_empty() {
+                    // Empty state
+                    <div class="text-center py-12">
+                        <div class="mx-auto h-12 w-12 text-gray-400">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="mt-2 text-lg font-medium text-gray-900 dark:text-white">{"No pending invites"}</h3>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            {"You don't have any pending community invitations at the moment."}
+                        </p>
+                        <div class="mt-6">
+                            <button
+                                onclick={on_back_to_communities.clone()}
+                                class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                {"View My Communities"}
+                            </button>
+                        </div>
+                    </div>
+                } else {
+                    // Invites list
+                    <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
+                        <ul role="list" class="divide-y divide-gray-200 dark:divide-gray-700">
+                            {for invites_state.invites.iter().map(|invite| {
+                                let invite_id = invite.id;
+                                let is_accepting = invites_state.accepting_invite == Some(invite_id);
+                                
+                                html! {
+                                    <InviteItem 
+                                        key={format!("{}", invite.id.0)}
+                                        invite={invite.clone()}
+                                        is_accepting={is_accepting}
+                                        on_accept={on_accept_invite.clone()}
+                                    />
+                                }
+                            })}
+                        </ul>
+                    </div>
+                }
+
+                // Help card
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                                {"About Community Invites"}
+                            </h3>
+                            <div class="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                                <ul class="list-disc list-inside space-y-1">
+                                    <li>{"Invites are sent to your verified email address"}</li>
+                                    <li>{"You can only see invites for your current email"}</li>
+                                    <li>{"Accepting an invite makes you a member of that community"}</li>
+                                    <li>{"You'll start with the 'Member' role in new communities"}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct InviteItemProps {
+    pub invite: responses::CommunityInvite,
+    pub is_accepting: bool,
+    pub on_accept: Callback<payloads::InviteId>,
+}
+
+#[function_component]
+pub fn InviteItem(props: &InviteItemProps) -> Html {
+    let invite = &props.invite;
+    let is_accepting = props.is_accepting;
+
+    let on_accept = {
+        let invite_id = invite.id;
+        let on_accept = props.on_accept.clone();
+        
+        Callback::from(move |_: MouseEvent| {
+            on_accept.emit(invite_id);
+        })
+    };
+
+    // Format the creation date
+    let created_date = {
+        // For now, just show a placeholder
+        // TODO: Format the jiff::Timestamp properly
+        "Recently".to_string()
+    };
+
+    let first_letter = invite.community_name.chars().next().unwrap_or('C').to_uppercase().to_string();
+
+    html! {
+        <li class="px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 h-10 w-10">
+                        <div class="h-10 w-10 bg-green-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white font-medium text-sm">
+                                {first_letter}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm font-medium text-gray-900 dark:text-white">
+                            {&invite.community_name}
+                        </div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">
+                            {"Invited "}{created_date}
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                            <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8">
+                                <circle cx="4" cy="4" r="3" />
+                            </svg>
+                            {"Pending"}
+                        </span>
+                    </div>
+                    <button
+                        onclick={on_accept}
+                        disabled={is_accepting}
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        if is_accepting {
+                            <span class="flex items-center">
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                {"Accepting..."}
+                            </span>
+                        } else {
+                            <>
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                                {"Accept Invite"}
+                            </>
+                        }
+                    </button>
+                </div>
+            </div>
+        </li>
+    }
+}
+
+// Community Management State
+#[derive(Default, Clone, PartialEq)]
+struct CommunityManageState {
+    community: Option<responses::Community>,
+    members: Vec<responses::CommunityMember>,
+    pending_invites: Vec<responses::CommunityInvite>,
+    is_loading: bool,
+    error: Option<String>,
+}
+
+#[derive(Default, Clone, PartialEq)]
+struct InviteForm {
+    email: String,
+    is_loading: bool,
+    error: Option<String>,
+    success_message: Option<String>,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct CommunityManageProps {
+    pub community_id: String,
+}
+
+#[function_component]
+pub fn CommunityManage(props: &CommunityManageProps) -> Html {
+    let (auth_state, _) = use_auth();
+    let navigator = use_navigator().unwrap();
+    let community_state = use_state(CommunityManageState::default);
+    let invite_form = use_state(InviteForm::default);
+
+    // Parse community ID
+    let community_id = match props.community_id.parse::<uuid::Uuid>() {
+        Ok(id) => payloads::CommunityId(id),
+        Err(_) => {
+            // Invalid UUID, navigate back to communities
+            navigator.push(&Route::Communities);
+            return html! {};
+        }
+    };
+
+    // Redirect if not authenticated
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        use_effect_with(auth_state, move |auth_state| {
+            if !auth_state.is_loading && !auth_state.is_authenticated {
+                navigator.push(&Route::Login);
+            }
+            || ()
+        });
+    }
+
+    // Load community data when component mounts
+    {
+        let community_state = community_state.clone();
+        let auth_state = auth_state.clone();
+        let community_id = community_id.clone();
+        
+        use_effect_with((auth_state.is_authenticated, props.community_id.clone()), move |(is_authenticated, _)| {
+            web_sys::console::log_1(&format!("Effect triggered: authenticated={}", is_authenticated).into());
+            if *is_authenticated {
+                let community_state = community_state.clone();
+                let community_id = community_id.clone();
+                
+                yew::platform::spawn_local(async move {
+                    web_sys::console::log_1(&"Starting community data load".into());
+                    let mut state = (*community_state).clone();
+                    state.is_loading = true;
+                    state.error = None;
+                    community_state.set(state);
+
+                    let client = get_api_client();
+                    
+                    // First get all communities to find this one
+                    web_sys::console::log_1(&"Fetching communities...".into());
+                    match client.get_communities().await {
+                        Ok(communities) => {
+                            web_sys::console::log_1(&format!("Got {} communities", communities.len()).into());
+                            // Find the community we're managing
+                            let community = communities.into_iter()
+                                .find(|c| c.id == community_id);
+                            
+                            if let Some(community) = community {
+                                web_sys::console::log_1(&format!("Found community: {}", community.name).into());
+                                // Set the community data first, so we can show the page even if members fail
+                                {
+                                    let mut state = (*community_state).clone();
+                                    state.community = Some(community.clone());
+                                    community_state.set(state);
+                                }
+                                
+                                // Now try to get the members
+                                web_sys::console::log_1(&"Fetching members...".into());
+                                match client.get_members(&community_id).await {
+                                    Ok(members) => {
+                                        web_sys::console::log_1(&format!("Got {} members", members.len()).into());
+                                        let mut state = (*community_state).clone();
+                                        state.community = Some(community);
+                                        state.members = members;
+                                        state.is_loading = false;
+                                        community_state.set(state);
+                                    }
+                                    Err(e) => {
+                                        web_sys::console::log_1(&format!("Members error: {}", e).into());
+                                        let mut state = (*community_state).clone();
+                                        state.community = Some(community);
+                                        state.members = Vec::new(); // Empty members list
+                                        state.is_loading = false;
+                                        state.error = Some(format!("Failed to load members: {}. You may not have permission to view members.", e));
+                                        community_state.set(state);
+                                    }
+                                }
+                            } else {
+                                web_sys::console::log_1(&"Community not found in user's communities".into());
+                                let mut state = (*community_state).clone();
+                                state.error = Some("Community not found or you don't have access".to_string());
+                                state.is_loading = false;
+                                community_state.set(state);
+                            }
+                        }
+                        Err(e) => {
+                            web_sys::console::log_1(&format!("Communities error: {}", e).into());
+                            let mut state = (*community_state).clone();
+                            state.error = Some(format!("Failed to load communities: {} (API Error)", e));
+                            state.is_loading = false;
+                            community_state.set(state);
+                        }
+                    }
+                });
+            } else {
+                web_sys::console::log_1(&"User not authenticated".into());
+            }
+            || ()
+        });
+    }
+
+    let on_email_change = {
+        let invite_form = invite_form.clone();
+        Callback::from(move |e: Event| {
+            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*invite_form).clone();
+            form_data.email = input.value();
+            invite_form.set(form_data);
+        })
+    };
+
+    let on_invite_submit = {
+        let invite_form = invite_form.clone();
+        let community_id = community_id.clone();
+
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+
+            let form_data = (*invite_form).clone();
+
+            // Validation
+            if form_data.email.trim().is_empty() {
+                let mut new_form = form_data;
+                new_form.error = Some("Email address is required".to_string());
+                invite_form.set(new_form);
+                return;
+            }
+
+            // Basic email validation
+            if !form_data.email.contains('@') {
+                let mut new_form = form_data;
+                new_form.error = Some("Please enter a valid email address".to_string());
+                invite_form.set(new_form);
+                return;
+            }
+
+            let invite_form = invite_form.clone();
+            let community_id = community_id.clone();
+            let email = form_data.email.trim().to_string();
+
+            yew::platform::spawn_local(async move {
+                // Set loading state
+                {
+                    let mut new_form = (*invite_form).clone();
+                    new_form.is_loading = true;
+                    new_form.error = None;
+                    new_form.success_message = None;
+                    invite_form.set(new_form);
+                }
+
+                let client = get_api_client();
+                let invite_request = requests::InviteCommunityMember {
+                    community_id,
+                    new_member_email: Some(email.clone()),
+                };
+
+                match client.invite_member(&invite_request).await {
+                    Ok(_invite_path) => {
+                        // Successfully sent invite
+                        let mut new_form = InviteForm::default(); // Reset form
+                        new_form.success_message = Some(format!("Invitation sent to {}", email));
+                        invite_form.set(new_form);
+                    }
+                    Err(e) => {
+                        let mut new_form = (*invite_form).clone();
+                        new_form.is_loading = false;
+                        new_form.error = Some(format!("Failed to send invite: {}", e));
+                        invite_form.set(new_form);
+                    }
+                }
+            });
+        })
+    };
+
+    let on_back_to_communities = {
+        let navigator = navigator.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::Communities);
+        })
+    };
+
+    // Don't render anything if not authenticated
+    if !auth_state.is_authenticated {
+        return html! {};
+    }
+
+    // Loading state
+    if community_state.is_loading {
+        return html! {
+            <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div class="text-center py-12">
+                    <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="mt-2 text-gray-600 dark:text-gray-400">{"Loading community..."}</p>
+                </div>
+            </main>
+        };
+    }
+
+    // Error state
+    if let Some(error) = &community_state.error {
+        return html! {
+            <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div class="text-center py-12">
+                    <div class="mx-auto h-12 w-12 text-red-400">
+                        <svg fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                    <h3 class="mt-2 text-lg font-medium text-gray-900 dark:text-white">{"Error loading community"}</h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
+                    <div class="mt-6">
+                        <button
+                            onclick={on_back_to_communities}
+                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            {"Back to Communities"}
+                        </button>
+                    </div>
+                </div>
+            </main>
+        };
+    }
+
+    // Get community data
+    let community = match &community_state.community {
+        Some(community) => community,
+        None => return html! {}, // This shouldn't happen but just in case
+    };
+
+    let first_letter = community.name.chars().next().unwrap_or('C').to_uppercase().to_string();
+
+    html! {
+        <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="space-y-8">
+                // Header section
+                <div>
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol role="list" class="flex items-center space-x-4">
+                            <li>
+                                <div class="flex">
+                                    <Link<Route> 
+                                        to={Route::Communities}
+                                        classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                                    >
+                                        {"Communities"}
+                                    </Link<Route>>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{&community.name}</span>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Manage"}</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+                    
+                    <div class="mt-4 flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="flex-shrink-0">
+                                <div class="w-16 h-16 bg-blue-500 rounded-xl flex items-center justify-center">
+                                    <span class="text-white font-bold text-2xl">
+                                        {first_letter}
+                                    </span>
+                                </div>
+                            </div>
+                            <div>
+                                <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{&community.name}</h1>
+                                <p class="mt-2 text-gray-600 dark:text-gray-300">
+                                    {"Manage members and community settings"}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onclick={on_back_to_communities}
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            {"Back to Communities"}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    // Main content area
+                    <div class="lg:col-span-2 space-y-6">
+                        // Error message for members loading
+                        if let Some(error) = &community_state.error {
+                            <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                            {"Warning"}
+                                        </h3>
+                                        <div class="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                                            {error}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        
+                        // Invite new members section
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
+                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                                <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Invite New Members"}</h2>
+                                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    {"Send invitations to new members via email."}
+                                </p>
+                            </div>
+                            <div class="px-6 py-4">
+                                <form onsubmit={on_invite_submit} class="space-y-4">
+                                    <div>
+                                        <label for="invite-email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                            {"Email Address"}
+                                        </label>
+                                        <div class="mt-1">
+                                            <input
+                                                type="email"
+                                                id="invite-email"
+                                                name="invite-email"
+                                                required=true
+                                                class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                                                placeholder="Enter email address to invite"
+                                                value={invite_form.email.clone()}
+                                                onchange={on_email_change}
+                                                disabled={invite_form.is_loading}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    if let Some(error) = &invite_form.error {
+                                        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-md">
+                                            {error}
+                                        </div>
+                                    }
+
+                                    if let Some(success) = &invite_form.success_message {
+                                        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 px-4 py-3 rounded-md">
+                                            {success}
+                                        </div>
+                                    }
+
+                                    <div class="flex justify-end">
+                                        <button
+                                            type="submit"
+                                            disabled={invite_form.is_loading || invite_form.email.trim().is_empty()}
+                                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            if invite_form.is_loading {
+                                                <span class="flex items-center">
+                                                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    {"Sending Invite..."}
+                                                </span>
+                                            } else {
+                                                <>
+                                                    <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                                    </svg>
+                                                    {"Send Invitation"}
+                                                </>
+                                            }
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        // Members list section
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
+                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                                <h2 class="text-lg font-medium text-gray-900 dark:text-white">
+                                    {"Members "}
+                                    <span class="text-sm font-normal text-gray-500 dark:text-gray-400">
+                                        {"("}{community_state.members.len()}{")"}
+                                    </span>
+                                </h2>
+                            </div>
+                            <div class="divide-y divide-gray-200 dark:divide-gray-700">
+                                {for community_state.members.iter().map(|member| {
+                                    html! {
+                                        <MemberItem 
+                                            key={member.username.clone()}
+                                            member={member.clone()}
+                                        />
+                                    }
+                                })}
+                                
+                                if community_state.members.is_empty() {
+                                    <div class="px-6 py-8 text-center">
+                                        <div class="mx-auto h-12 w-12 text-gray-400">
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No members yet"}</h3>
+                                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                            {"Start by inviting your first member."}
+                                        </p>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    // Sidebar
+                    <div class="space-y-6">
+                        // Community info card
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Settings"}</h3>
+                            <dl class="space-y-3">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"New members"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">
+                                        if community.new_members_default_active {
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                                                {"Active by default"}
+                                            </span>
+                                        } else {
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                                                {"Inactive by default"}
+                                            </span>
+                                        }
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Created"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"Recently"}</dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        // Help card
+                        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                                        {"Managing Your Community"}
+                                    </h3>
+                                    <div class="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                                        <ul class="list-disc list-inside space-y-1">
+                                            <li>{"Invite members by email"}</li>
+                                            <li>{"View member status and roles"}</li>
+                                            <li>{"Manage community settings"}</li>
+                                            <li>{"Create sites and auctions"}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct MemberItemProps {
+    pub member: responses::CommunityMember,
+}
+
+#[function_component]
+pub fn MemberItem(props: &MemberItemProps) -> Html {
+    let member = &props.member;
+
+    // Get role color and text
+    let (role_bg, role_text, role_display) = match member.role {
+        payloads::Role::Leader => ("bg-purple-100 dark:bg-purple-900/30", "text-purple-800 dark:text-purple-300", "Leader"),
+        payloads::Role::Coleader => ("bg-purple-100 dark:bg-purple-900/30", "text-purple-800 dark:text-purple-300", "Co-leader"),
+        payloads::Role::Moderator => ("bg-blue-100 dark:bg-blue-900/30", "text-blue-800 dark:text-blue-300", "Moderator"),
+        payloads::Role::Member => ("bg-gray-100 dark:bg-gray-700", "text-gray-800 dark:text-gray-300", "Member"),
+    };
+
+    let first_letter = member.username.chars().next().unwrap_or('U').to_uppercase().to_string();
+
+    html! {
+        <div class="px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 h-10 w-10">
+                        <div class="h-10 w-10 bg-gray-500 rounded-full flex items-center justify-center">
+                            <span class="text-white font-medium text-sm">
+                                {first_letter}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm font-medium text-gray-900 dark:text-white">
+                            {&member.username}
+                        </div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">
+                            {if member.is_active { "Active member" } else { "Inactive member" }}
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    if !member.is_active {
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                            {"Inactive"}
+                        </span>
+                    }
+                    <span class={format!("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {} {}", role_bg, role_text)}>
+                        {role_display}
+                    </span>
+                </div>
+            </div>
+        </div>
+    }
+} 

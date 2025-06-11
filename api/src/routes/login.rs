@@ -17,6 +17,7 @@ use super::{APIError, get_user_id};
 #[tracing::instrument(
     skip(credentials, pool),
     fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
+    ret,
 )]
 #[post("/login")]
 pub async fn login(
@@ -377,22 +378,20 @@ pub async fn update_profile(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    
+
     // Validate display_name length if provided
     if let Some(ref display_name) = request.display_name {
         if display_name.len() > payloads::requests::DISPLAY_NAME_MAX_LEN {
             return Err(APIError::BadRequest(anyhow::anyhow!(
-                "Display name must not exceed {} characters", 
+                "Display name must not exceed {} characters",
                 payloads::requests::DISPLAY_NAME_MAX_LEN
             )));
         }
     }
-    
-    let updated_user = store::update_user_profile(
-        &user_id,
-        &request.display_name,
-        &pool,
-    ).await?;
+
+    let updated_user =
+        store::update_user_profile(&user_id, &request.display_name, &pool)
+            .await?;
 
     let profile = payloads::responses::UserProfile {
         username: updated_user.username,

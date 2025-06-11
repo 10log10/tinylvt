@@ -9,7 +9,7 @@ use tracing_log::LogTracer;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
-static MIGRATOR: Migrator = sqlx::migrate!();
+static MIGRATOR: Migrator = sqlx::migrate!("../api/migrations");
 const DATABASE_URL: &str = "postgresql://user:password@localhost:5432";
 const DEFAULT_DB: &str = "tinylvt";
 
@@ -416,7 +416,7 @@ impl TestApp {
     }
 }
 
-fn alice_credentials() -> requests::CreateAccount {
+pub fn alice_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "alice".into(),
         password: "supersecret".into(),
@@ -596,7 +596,7 @@ pub fn assert_space_equal(
 }
 
 pub async fn spawn_app() -> TestApp {
-    let subscriber = telemetry::get_subscriber("error".into());
+    let subscriber = telemetry::get_subscriber("warn".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
     let time_source = TimeSource::new("2025-01-01T00:00:00Z".parse().unwrap());

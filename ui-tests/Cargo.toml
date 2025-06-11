@@ -1,0 +1,15 @@
+[package]
+name = "ui-tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+api = { path = "../api" }
+test-helpers = { path = "../test-helpers" }
+anyhow = { workspace = true }
+fantoccini = "0.21"
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+rand = "0.8"

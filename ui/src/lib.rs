@@ -1,5 +1,6 @@
 mod auth;
 mod theme;
+mod communities;
 
 use payloads::APIClient;
 use yew::prelude::*;
@@ -8,6 +9,7 @@ use yewdux::prelude::*;
 
 use auth::{AuthState, ForgotPassword, Login, Register, ResetPassword, VerifyEmailPrompt, use_auth};
 use theme::ThemeToggle;
+use communities::{Communities, CreateCommunity as CreateCommunityComponent, CommunityInvites, CommunityManage};
 
 #[derive(Default, Clone, PartialEq, Store)]
 struct State {
@@ -95,10 +97,21 @@ fn Header() -> Html {
         <header class="bg-gray-100 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between items-center h-16">
-                    <div class="flex items-center">
+                    <div class="flex items-center space-x-8">
                         <Link<Route> to={Route::Home} classes="text-xl font-bold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300">
                             {"TinyLVT"}
                         </Link<Route>>
+                        
+                        if auth_state.is_authenticated {
+                            <nav class="flex space-x-4">
+                                <Link<Route> 
+                                    to={Route::Communities} 
+                                    classes="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm font-medium transition-colors"
+                                >
+                                    {"Communities"}
+                                </Link<Route>>
+                            </nav>
+                        }
                     </div>
                     <div class="flex items-center space-x-4">
                         if auth_state.is_authenticated {
@@ -166,6 +179,14 @@ enum Route {
     ForgotPassword,
     #[at("/reset-password")]
     ResetPassword,
+    #[at("/communities")]
+    Communities,
+    #[at("/communities/create")]
+    CreateCommunity,
+    #[at("/communities/invites")]
+    CommunityInvites,
+    #[at("/communities/:id/manage")]
+    CommunityManage { id: String },
     // #[at("/profile")]
     // Profile,
     // #[at("/bids")]
@@ -243,6 +264,10 @@ fn switch(routes: Route) -> Html {
         Route::VerifyEmail => html! { <VerifyEmailPrompt /> },
         Route::ForgotPassword => html! { <ForgotPassword /> },
         Route::ResetPassword => html! { <ResetPassword /> },
+        Route::Communities => html! { <Communities /> },
+        Route::CreateCommunity => html! { <CreateCommunityComponent /> },
+        Route::CommunityInvites => html! { <CommunityInvites /> },
+        Route::CommunityManage { id } => html! { <CommunityManage community_id={id.clone()} /> },
         // Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
         Route::NotFound => html! {

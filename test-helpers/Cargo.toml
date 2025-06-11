@@ -1,0 +1,20 @@
+[package]
+name = "test-helpers"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+api = { path = "../api", features = ["test-utils"] }
+payloads = { path = "../payloads" }
+anyhow = { workspace = true }
+jiff = { workspace = true }
+jiff-sqlx = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }
+rust_decimal = { workspace = true }
+secrecy = { workspace = true }
+sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal", "time" ] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
