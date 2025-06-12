@@ -325,4 +325,25 @@ cargo test --package ui-tests test_user_account_creation -- --nocapture
 - Parallel execution across multiple test runners
 - Automatic retry for infrastructure-related failures
 
-This comprehensive test plan ensures that all critical user journeys are validated through automated UI testing, providing confidence in the system's functionality from the user's perspective. 
+This comprehensive test plan ensures that all critical user journeys are validated through automated UI testing, providing confidence in the system's functionality from the user's perspective.
+
+## Test Implementation Notes
+
+When writing and maintaining UI integration tests, keep these principles in mind:
+
+- **Match the Current Frontend Structure:**
+  - Always ensure tests use the correct field IDs, selectors, and validation logic as implemented in the frontend. If the UI changes, update the tests accordingly.
+
+- **Simulate Real User Interactions:**
+  - Trigger all relevant frontend events (e.g., blur, change) as a user would. This ensures that validation and state updates occur as expected.
+
+- **Check Actual UI Feedback:**
+  - Assert for the specific user-facing messages, headings, or elements that indicate success or failure, not just generic alerts or backend responses.
+
+- **Be Strict About Required Elements:**
+  - If a field or UI element is required in the flow, the test should fail if it is missing. Do not silently skip or warn for missing required elements.
+
+- **Read the Component Code When in Doubt:**
+  - If unsure about the UI structure, consult the actual frontend component code to confirm field names, IDs, and flow before writing or updating tests.
+
+These notes help ensure our UI tests remain robust, accurate, and maintainable as the application evolves. 

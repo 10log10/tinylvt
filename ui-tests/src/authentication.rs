@@ -6,6 +6,16 @@ use tracing::{debug, info};
 
 use crate::framework::TestEnvironment;
 
+/// UI integration test for US-001: Create new account with email verification.
+///
+/// This test covers the user story:
+///   As a user, I want to create and manage my account so I can participate in the system.
+///
+/// Steps:
+/// - Navigate to the registration page
+/// - Fill out the registration form (email, username, password, confirm password)
+/// - Submit the form
+/// - Verify that the 'Check your email' heading is shown, indicating the verification prompt
 #[tokio::test]
 async fn test_account_registration_flow() -> Result<()> {
     let env = TestEnvironment::setup().await?;
@@ -86,4 +96,3 @@ async fn test_account_registration_flow() -> Result<()> {
     info!("✅ Registration test completed successfully");
     Ok(())
 }
-
