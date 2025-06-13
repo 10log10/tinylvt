@@ -79,7 +79,7 @@ pub async fn accept_invite(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/members")]
+#[post("/members")]
 pub async fn get_members(
     user: Identity,
     community_id: web::Json<CommunityId>,
@@ -109,7 +109,7 @@ pub async fn set_membership_schedule(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/membership_schedule")]
+#[post("/get_membership_schedule")]
 pub async fn get_membership_schedule(
     user: Identity,
     community_id: web::Json<CommunityId>,

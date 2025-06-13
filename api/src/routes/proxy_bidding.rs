@@ -1,5 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{HttpResponse, get, post, web};
+use actix_web::{HttpResponse, post, web};
 use payloads::{AuctionId, SpaceId};
 use sqlx::PgPool;
 
@@ -19,7 +19,7 @@ pub async fn create_or_update_user_value(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/user_value")]
+#[post("/get_user_value")]
 pub async fn get_user_value(
     user: Identity,
     space_id: web::Json<SpaceId>,
@@ -43,7 +43,7 @@ pub async fn delete_user_value(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/user_values")]
+#[post("/user_values")]
 pub async fn list_user_values(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
@@ -67,7 +67,7 @@ pub async fn create_or_update_proxy_bidding(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/proxy_bidding")]
+#[post("/get_proxy_bidding")]
 pub async fn get_proxy_bidding(
     user: Identity,
     auction_id: web::Json<AuctionId>,

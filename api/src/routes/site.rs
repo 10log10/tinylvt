@@ -1,5 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{HttpResponse, get, post, web};
+use actix_web::{HttpResponse, post, web};
 use sqlx::PgPool;
 
 use crate::store;
@@ -22,7 +22,7 @@ pub async fn create_site(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/site")]
+#[post("/get_site")]
 pub async fn get_site(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
@@ -78,7 +78,7 @@ pub async fn create_space(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/space")]
+#[post("/get_space")]
 pub async fn get_space(
     user: Identity,
     space_id: web::Json<payloads::SpaceId>,
@@ -120,7 +120,7 @@ pub async fn delete_space(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/spaces")]
+#[post("/spaces")]
 pub async fn list_spaces(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,

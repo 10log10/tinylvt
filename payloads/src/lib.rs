@@ -449,15 +449,6 @@ impl APIClient {
         request.send().await
     }
 
-    async fn get(&self, path: &str, body: &impl Serialize) -> ReqwestResult {
-        let request = self.inner_client.get(self.format_url(path)).json(body);
-
-        #[cfg(target_arch = "wasm32")]
-        let request = request.fetch_credentials_include();
-
-        request.send().await
-    }
-
     async fn empty_get(&self, path: &str) -> ReqwestResult {
         let request = self.inner_client.get(self.format_url(path));
 
@@ -600,7 +591,7 @@ impl APIClient {
         &self,
         community_id: &CommunityId,
     ) -> Result<Vec<responses::CommunityMember>, ClientError> {
-        let response = self.get("members", community_id).await?;
+        let response = self.post("members", community_id).await?;
         ok_body(response).await
     }
 
@@ -618,7 +609,7 @@ impl APIClient {
         &self,
         community_id: &CommunityId,
     ) -> Result<Vec<MembershipSchedule>, ClientError> {
-        let response = self.get("membership_schedule", &community_id).await?;
+        let response = self.post("get_membership_schedule", &community_id).await?;
         ok_body(response).await
     }
 
@@ -634,7 +625,7 @@ impl APIClient {
         &self,
         site_id: &SiteId,
     ) -> Result<responses::Site, ClientError> {
-        let response = self.get("site", &site_id).await?;
+        let response = self.post("get_site", &site_id).await?;
         ok_body(response).await
     }
 
@@ -666,7 +657,7 @@ impl APIClient {
         &self,
         space_id: &SpaceId,
     ) -> Result<responses::Space, ClientError> {
-        let response = self.get("space", &space_id).await?;
+        let response = self.post("get_space", &space_id).await?;
         ok_body(response).await
     }
 
@@ -690,7 +681,7 @@ impl APIClient {
         &self,
         site_id: &SiteId,
     ) -> Result<Vec<responses::Space>, ClientError> {
-        let response = self.get("spaces", &site_id).await?;
+        let response = self.post("spaces", &site_id).await?;
         ok_body(response).await
     }
 
@@ -706,7 +697,7 @@ impl APIClient {
         &self,
         auction_id: &AuctionId,
     ) -> Result<responses::Auction, ClientError> {
-        let response = self.get("auction", &auction_id).await?;
+        let response = self.post("auction", &auction_id).await?;
         ok_body(response).await
     }
 
@@ -722,7 +713,7 @@ impl APIClient {
         &self,
         site_id: &SiteId,
     ) -> Result<Vec<responses::Auction>, ClientError> {
-        let response = self.get("auctions", &site_id).await?;
+        let response = self.post("auctions", &site_id).await?;
         ok_body(response).await
     }
 
@@ -730,7 +721,7 @@ impl APIClient {
         &self,
         round_id: &AuctionRoundId,
     ) -> Result<responses::AuctionRound, ClientError> {
-        let response = self.get("auction_round", &round_id).await?;
+        let response = self.post("auction_round", &round_id).await?;
         ok_body(response).await
     }
 
@@ -738,7 +729,7 @@ impl APIClient {
         &self,
         auction_id: &AuctionId,
     ) -> Result<Vec<responses::AuctionRound>, ClientError> {
-        let response = self.get("auction_rounds", &auction_id).await?;
+        let response = self.post("auction_rounds", &auction_id).await?;
         ok_body(response).await
     }
 
@@ -758,7 +749,7 @@ impl APIClient {
         round_id: &AuctionRoundId,
     ) -> Result<Vec<RoundSpaceResult>, ClientError> {
         let response =
-            self.get("round_space_results_for_round", &round_id).await?;
+            self.post("round_space_results_for_round", &round_id).await?;
         ok_body(response).await
     }
 
@@ -776,7 +767,7 @@ impl APIClient {
         space_id: &SpaceId,
         round_id: &AuctionRoundId,
     ) -> Result<Bid, ClientError> {
-        let response = self.get("bid", &(space_id, round_id)).await?;
+        let response = self.post("bid", &(space_id, round_id)).await?;
         ok_body(response).await
     }
 
@@ -785,7 +776,7 @@ impl APIClient {
         space_id: &SpaceId,
         round_id: &AuctionRoundId,
     ) -> Result<Vec<Bid>, ClientError> {
-        let response = self.get("bids", &(space_id, round_id)).await?;
+        let response = self.post("bids", &(space_id, round_id)).await?;
         ok_body(response).await
     }
 
@@ -802,7 +793,7 @@ impl APIClient {
         &self,
         round_id: &AuctionRoundId,
     ) -> Result<f64, ClientError> {
-        let response = self.get("get_eligibility", &round_id).await?;
+        let response = self.post("get_eligibility", &round_id).await?;
         ok_body(response).await
     }
 
@@ -810,7 +801,7 @@ impl APIClient {
         &self,
         auction_id: &AuctionId,
     ) -> Result<Vec<f64>, ClientError> {
-        let response = self.get("list_eligibility", &auction_id).await?;
+        let response = self.post("list_eligibility", &auction_id).await?;
         ok_body(response).await
     }
 
@@ -827,7 +818,7 @@ impl APIClient {
         &self,
         space_id: &SpaceId,
     ) -> Result<responses::UserValue, ClientError> {
-        let response = self.get("user_value", space_id).await?;
+        let response = self.post("get_user_value", space_id).await?;
         ok_body(response).await
     }
 
@@ -843,7 +834,7 @@ impl APIClient {
         &self,
         site_id: &SiteId,
     ) -> Result<Vec<responses::UserValue>, ClientError> {
-        let response = self.get("user_values", site_id).await?;
+        let response = self.post("user_values", site_id).await?;
         ok_body(response).await
     }
 
@@ -860,7 +851,7 @@ impl APIClient {
         &self,
         auction_id: &AuctionId,
     ) -> Result<Option<responses::UseProxyBidding>, ClientError> {
-        let response = self.get("proxy_bidding", auction_id).await?;
+        let response = self.post("get_proxy_bidding", auction_id).await?;
         ok_body(response).await
     }
 

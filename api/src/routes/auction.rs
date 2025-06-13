@@ -1,5 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{HttpResponse, get, post, web};
+use actix_web::{HttpResponse, post, web};
 use payloads::{AuctionId, AuctionRoundId, SpaceId};
 use sqlx::PgPool;
 
@@ -19,7 +19,7 @@ pub async fn create_auction(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/auction")]
+#[post("/auction")]
 pub async fn get_auction(
     user: Identity,
     auction_id: web::Json<payloads::AuctionId>,
@@ -43,7 +43,7 @@ pub async fn delete_auction(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/auctions")]
+#[post("/auctions")]
 pub async fn list_auctions(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
@@ -55,7 +55,7 @@ pub async fn list_auctions(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/auction_round")]
+#[post("/auction_round")]
 pub async fn get_auction_round(
     user: Identity,
     round_id: web::Json<payloads::AuctionRoundId>,
@@ -67,7 +67,7 @@ pub async fn get_auction_round(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/auction_rounds")]
+#[post("/auction_rounds")]
 pub async fn list_auction_rounds(
     user: Identity,
     auction_id: web::Json<AuctionId>,
@@ -95,7 +95,7 @@ pub async fn get_round_space_result(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/round_space_results_for_round")]
+#[post("/round_space_results_for_round")]
 pub async fn list_round_space_results_for_round(
     user: Identity,
     round_id: web::Json<AuctionRoundId>,
@@ -109,7 +109,7 @@ pub async fn list_round_space_results_for_round(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/get_eligibility")]
+#[post("/get_eligibility")]
 pub async fn get_eligibility(
     user: Identity,
     round_id: web::Json<AuctionRoundId>,
@@ -122,7 +122,7 @@ pub async fn get_eligibility(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/list_eligibility")]
+#[post("/list_eligibility")]
 pub async fn list_eligibility(
     user: Identity,
     auction_id: web::Json<AuctionId>,
@@ -150,7 +150,7 @@ pub async fn create_bid(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/bid")]
+#[post("/bid")]
 pub async fn get_bid(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
@@ -163,7 +163,7 @@ pub async fn get_bid(
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/bids")]
+#[post("/bids")]
 pub async fn list_bids(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
