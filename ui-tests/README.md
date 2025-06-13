@@ -363,4 +363,48 @@ When writing and maintaining UI integration tests, keep these principles in mind
 - **Read the Component Code When in Doubt:**
   - If unsure about the UI structure, consult the actual frontend component code to confirm field names, IDs, and flow before writing or updating tests.
 
-These notes help ensure our UI tests remain robust, accurate, and maintainable as the application evolves. 
+These notes help ensure our UI tests remain robust, accurate, and maintainable as the application evolves.
+
+# UI Tests
+
+This crate contains UI integration tests for the application.
+
+## Running Tests
+
+Run the automated tests with:
+```bash
+cargo test
+```
+
+## Manual UI Testing
+
+For manual testing and debugging, you can run the main function which will:
+1. Set up the test environment (API server, frontend, and browser)
+2. Create the Alice test user
+3. Log Alice in automatically
+4. Keep the browser open for manual inspection
+
+To run the manual testing environment:
+```bash
+cargo run
+```
+
+The browser will open in **headed mode** (visible window) and stay open until you press Ctrl+C in the terminal. This allows you to interact with the browser and inspect the UI manually.
+
+### Requirements
+
+- Firefox browser installed (for geckodriver)
+- geckodriver installed and in PATH
+- trunk installed (`cargo install trunk`)
+
+### Debug Output
+
+The tracing setup uses the same configuration as the API server. For more verbose logging:
+```bash
+RUST_LOG=ui_tests=debug,api=info cargo run
+```
+
+Or for even more detailed output:
+```bash
+RUST_LOG=debug cargo run
+``` 

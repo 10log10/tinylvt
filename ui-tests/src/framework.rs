@@ -22,7 +22,16 @@ pub struct TestEnvironment {
 }
 
 impl TestEnvironment {
+    #[cfg(test)]
     pub async fn setup() -> Result<Self> {
+        Self::setup_with_options(false).await
+    }
+
+    pub async fn setup_headed() -> Result<Self> {
+        Self::setup_with_options(true).await
+    }
+
+    async fn setup_with_options(headed: bool) -> Result<Self> {
         info!("🔧 Setting up test environment");
 
         // Step 1: Start API server (using test-helpers)
@@ -49,7 +58,7 @@ impl TestEnvironment {
 
         // Step 4: Connect to browser
         info!("🌐 Connecting to browser");
-        let browser = connect_to_browser(gecko_port).await?;
+        let browser = connect_to_browser(gecko_port, headed).await?;
         info!("✅ Browser connected");
 
         Ok(TestEnvironment {
@@ -233,15 +242,23 @@ async fn wait_for_frontend(url: &str) -> Result<()> {
     ))
 }
 
-async fn connect_to_browser(gecko_port: u16) -> Result<Client> {
+async fn connect_to_browser(gecko_port: u16, headed: bool) -> Result<Client> {
     let gecko_url = format!("http://localhost:{}", gecko_port);
 
-    // Configure for headless mode
+    // Configure browser options based on headed parameter
     let mut caps = serde_json::Map::new();
-    let firefox_opts = serde_json::json!({
-        "args": ["--headless"],
-        "log": {"level": "error"}
-    });
+    let firefox_opts = if headed {
+        info!("🖥️ Starting browser in headed mode");
+        serde_json::json!({
+            "log": {"level": "error"}
+        })
+    } else {
+        info!("👻 Starting browser in headless mode");
+        serde_json::json!({
+            "args": ["--headless"],
+            "log": {"level": "error"}
+        })
+    };
     caps.insert("moz:firefoxOptions".to_string(), firefox_opts);
 
     let client = ClientBuilder::native()
