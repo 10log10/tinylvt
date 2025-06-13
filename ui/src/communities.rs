@@ -90,31 +90,33 @@ pub fn Communities() -> Html {
         <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div class="space-y-6">
                 // Header section
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{"My Communities"}</h1>
-                        <p class="mt-2 text-gray-600 dark:text-gray-300">
+                <div class="space-y-4 sm:space-y-0 sm:flex sm:justify-between sm:items-start">
+                    <div class="min-w-0 flex-1">
+                        <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">{"My Communities"}</h1>
+                        <p class="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-300">
                             {"Manage your community memberships and create new communities"}
                         </p>
                     </div>
-                    <div class="flex space-x-3">
+                    <div class="flex flex-col sm:flex-row gap-3 sm:space-x-3 sm:gap-0 flex-shrink-0">
                         <button
                             onclick={on_join_community.clone()}
-                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >
                             <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                            {"Join Community"}
+                            <span class="sm:hidden">{"Join"}</span>
+                            <span class="hidden sm:inline">{"Join Community"}</span>
                         </button>
                         <button
                             onclick={on_create_community.clone()}
-                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            class="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >
                             <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                            {"Create Community"}
+                            <span class="sm:hidden">{"Create"}</span>
+                            <span class="hidden sm:inline">{"Create Community"}</span>
                         </button>
                     </div>
                 </div>
@@ -147,16 +149,16 @@ pub fn Communities() -> Html {
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                             {"You're not a member of any communities yet. Create your first community or join an existing one."}
                         </p>
-                        <div class="mt-6 flex justify-center space-x-3">
+                        <div class="mt-6 flex flex-col sm:flex-row justify-center gap-3 sm:space-x-3 sm:gap-0">
                             <button
                                 onclick={on_create_community}
-                                class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                class="inline-flex items-center justify-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                             >
                                 {"Create your first community"}
                             </button>
                             <button
                                 onclick={on_join_community}
-                                class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                             >
                                 {"Join a community"}
                             </button>
@@ -478,22 +480,22 @@ pub fn CreateCommunity() -> Html {
                         }
 
                         // Action buttons
-                        <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <div class="flex flex-col sm:flex-row justify-end gap-3 sm:space-x-3 sm:gap-0 pt-4 border-t border-gray-200 dark:border-gray-700">
                             <button
                                 type="button"
                                 onclick={on_cancel}
                                 disabled={form.is_loading}
-                                class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="w-full sm:w-auto px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {"Cancel"}
                             </button>
                             <button
                                 type="submit"
                                 disabled={form.is_loading || form.name.trim().is_empty()}
-                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 if form.is_loading {
-                                    <span class="flex items-center">
+                                    <span class="flex items-center justify-center">
                                         <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1168,37 +1170,40 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                         </ol>
                     </nav>
                     
-                    <div class="mt-4 flex items-center justify-between">
-                        <div class="flex items-center space-x-4">
+                    <div class="mt-4 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+                        <div class="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                             <div class="flex-shrink-0">
-                                <div class="w-16 h-16 bg-blue-500 rounded-xl flex items-center justify-center">
-                                    <span class="text-white font-bold text-2xl">
+                                <div class="w-12 h-12 sm:w-16 sm:h-16 bg-blue-500 rounded-xl flex items-center justify-center">
+                                    <span class="text-white font-bold text-lg sm:text-2xl">
                                         {first_letter}
                                     </span>
                                 </div>
                             </div>
-                            <div>
-                                <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{&community.name}</h1>
-                                <p class="mt-2 text-gray-600 dark:text-gray-300">
+                            <div class="min-w-0 flex-1">
+                                <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white truncate">{&community.name}</h1>
+                                <p class="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-300">
                                     {"Manage members and community settings"}
                                 </p>
                             </div>
                         </div>
-                        <button
-                            onclick={on_back_to_communities}
-                            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            {"Back to Communities"}
-                        </button>
+                        <div class="flex-shrink-0">
+                            <button
+                                onclick={on_back_to_communities}
+                                class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                </svg>
+                                <span class="sm:hidden">{"Back"}</span>
+                                <span class="hidden sm:inline">{"Back to Communities"}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
                     // Main content area
-                    <div class="lg:col-span-2 space-y-6">
+                    <div class="lg:col-span-2 space-y-6 order-2 lg:order-1">
                         // Error message for members loading
                         if let Some(error) = &community_state.error {
                             <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -1327,7 +1332,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                     </div>
 
                     // Sidebar
-                    <div class="space-y-6">
+                    <div class="space-y-6 order-1 lg:order-2">
                         // Community info card
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Settings"}</h3>
