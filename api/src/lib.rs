@@ -93,6 +93,8 @@ pub async fn build_with_email_service(
 
         App::new()
             .wrap(cors)
+            // Add security headers middleware before authentication
+            .wrap(SecurityHeadersMiddleware)
             // Use signed cookie to track user id
             // Redis would be better (can invalidate sessions; persists between
             // deployments), but this is ok for now
@@ -159,5 +161,89 @@ impl Config {
             base_url: var("BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
         }
+    }
+}
+
+/// Middleware to add security headers to API responses
+use actix_web::{
+    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    Error,
+    http::header::{HeaderValue, CACHE_CONTROL, PRAGMA, EXPIRES},
+};
+use std::{
+    future::{ready, Ready},
+    pin::Pin,
+    rc::Rc,
+};
+
+type LocalBoxFuture<T> = Pin<Box<dyn std::future::Future<Output = T>>>;
+
+pub struct SecurityHeadersMiddleware;
+
+impl<S, B> Transform<S, ServiceRequest> for SecurityHeadersMiddleware
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = SecurityHeadersMiddlewareService<S>;
+    type InitError = ();
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(SecurityHeadersMiddlewareService {
+            service: Rc::new(service),
+        }))
+    }
+}
+
+pub struct SecurityHeadersMiddlewareService<S> {
+    service: Rc<S>,
+}
+
+impl<S, B> Service<ServiceRequest> for SecurityHeadersMiddlewareService<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let service = self.service.clone();
+        
+        Box::pin(async move {
+            let is_api_endpoint = req.path().starts_with("/api") && req.path() != "/api/health_check";
+            
+            let res = service.call(req).await?;
+            
+            if is_api_endpoint {
+                let (req, mut res) = res.into_parts();
+                
+                // Add security headers for API endpoints
+                res.headers_mut().insert(
+                    CACHE_CONTROL,
+                    HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
+                );
+                res.headers_mut().insert(
+                    PRAGMA,
+                    HeaderValue::from_static("no-cache"),
+                );
+                res.headers_mut().insert(
+                    EXPIRES,
+                    HeaderValue::from_static("0"),
+                );
+                
+                Ok(ServiceResponse::new(req, res))
+            } else {
+                Ok(res)
+            }
+        })
     }
 }
