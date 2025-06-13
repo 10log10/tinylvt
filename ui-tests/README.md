@@ -34,27 +34,27 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
 #### Story: User Account Management
 **As a user, I want to create and manage my account so I can participate in the system.**
 
-- [ ] **US-001**: Create new account with email verification
+- [x] **US-001**: Create new account with email verification
   - Navigate to registration page
   - Fill registration form with valid credentials
   - Verify account creation success message
   - Check email verification requirement
   - *API Coverage*: `create_account`, `verify_email`
 
-- [ ] **US-002**: Login with valid credentials
+- [x] **US-002**: Login with valid credentials
   - Navigate to login page
   - Enter valid username/password
   - Verify successful login and redirect
   - Verify session persistence across page reloads
   - *API Coverage*: `login`, `login_check`
 
-- [ ] **US-003**: Login failure with invalid credentials
+- [x] **US-003**: Login failure with invalid credentials
   - Attempt login with incorrect password
   - Verify error message display
   - Verify no redirect occurs
   - *API Coverage*: `login`
 
-- [ ] **US-004**: Password reset flow
+- [x] **US-004**: Password reset flow
   - Click forgot password link
   - Enter email address
   - Verify reset email sent message
@@ -62,13 +62,13 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Login with new password
   - *API Coverage*: `forgot_password`, `reset_password`
 
-- [ ] **US-005**: Email verification flow
+- [x] **US-005**: Email verification flow
   - Create account requiring verification
   - Access verification link
   - Verify account becomes verified
   - *API Coverage*: `verify_email`, `resend_verification_email`
 
-- [ ] **US-006**: View and edit profile
+- [x] **US-006**: View and edit profile
   - Access profile page when logged in
   - View current profile information
   - Edit display name

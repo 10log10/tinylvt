@@ -23,6 +23,7 @@ pub struct TestEnvironment {
 
 impl TestEnvironment {
     #[cfg(test)]
+    #[allow(dead_code)]
     pub async fn setup() -> Result<Self> {
         Self::setup_with_options(false).await
     }

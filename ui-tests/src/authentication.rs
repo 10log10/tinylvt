@@ -562,7 +562,8 @@ async fn test_email_verification_flow() -> Result<()> {
     password_field.clear().await?;
     password_field.send_keys(password).await?;
 
-    let confirm_field = env.browser.find(Locator::Id("confirm-password")).await?;
+    let confirm_field =
+        env.browser.find(Locator::Id("confirm-password")).await?;
     confirm_field.click().await?;
     confirm_field.clear().await?;
     confirm_field.send_keys(password).await?;
@@ -597,21 +598,28 @@ async fn test_email_verification_flow() -> Result<()> {
         .find(Locator::XPath("//p[contains(., 'Please check your inbox and click the link to verify your email.')]"))
         .await?;
     let prompt_text = prompt.text().await.unwrap_or_default();
-    assert!(prompt_text.contains("Please check your inbox and click the link to verify your email."), "Verification prompt not found, got: {}", prompt_text);
+    assert!(
+        prompt_text.contains(
+            "Please check your inbox and click the link to verify your email."
+        ),
+        "Verification prompt not found, got: {}",
+        prompt_text
+    );
     info!("Found verification prompt: {}", prompt_text);
 
     // Step 3: Retrieve the verification token from the database
     info!("🔑 Retrieving verification token from database");
-    let verification_token = env
-        .api
-        .get_verification_token_from_db(&email)
-        .await?;
+    let verification_token =
+        env.api.get_verification_token_from_db(&email).await?;
     info!("Got verification token: {}", verification_token);
 
     // Step 4: Visit the verification link in the browser
     info!("🔗 Navigating to verification link");
     env.browser
-        .goto(&format!("{}/verify-email?token={}", env.frontend_url, verification_token))
+        .goto(&format!(
+            "{}/verify-email?token={}",
+            env.frontend_url, verification_token
+        ))
         .await?;
     sleep(Duration::from_secs(1)).await;
 
@@ -619,10 +627,16 @@ async fn test_email_verification_flow() -> Result<()> {
     info!("✅ Verifying success message after email verification");
     let success_message = env
         .browser
-        .find(Locator::XPath("//*[contains(text(), 'Email verified successfully!')]"))
+        .find(Locator::XPath(
+            "//*[contains(text(), 'Email verified successfully!')]",
+        ))
         .await?;
     let success_text = success_message.text().await.unwrap_or_default();
-    assert!(success_text.contains("Email verified successfully!"), "Success message not found, got: {}", success_text);
+    assert!(
+        success_text.contains("Email verified successfully!"),
+        "Success message not found, got: {}",
+        success_text
+    );
     info!("Found email verified success message: {}", success_text);
 
     // Step 6: Attempt to log in with the verified user and confirm login works
@@ -657,5 +671,190 @@ async fn test_email_verification_flow() -> Result<()> {
     );
 
     info!("✅ Email verification flow test completed successfully");
+    Ok(())
+}
+
+/// UI integration test for US-006: View and edit profile.
+///
+/// This test covers the user story:
+///   As a user, I want to view and edit my profile so I can manage my account information.
+///
+/// Steps:
+/// - Ensure Alice user exists and is verified
+/// - Log in as Alice
+/// - Navigate to profile page
+/// - View current profile information
+/// - Edit display name
+/// - Save changes
+/// - Verify changes persist after page reload
+/// - Verify changes are reflected in the profile
+#[tokio::test]
+async fn test_view_and_edit_profile() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Ensure Alice user exists and is verified
+    info!("👤 Ensuring Alice user exists and is verified");
+    env.api.create_alice_user().await?;
+    let credentials = test_helpers::alice_credentials();
+
+    // Step 2: Log in as Alice
+    info!("🔑 Logging in as Alice");
+    env.browser
+        .goto(&format!("{}/login", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&credentials.username).await?;
+
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys(&credentials.password).await?;
+
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Verify login success
+    let current_url = env.browser.current_url().await?;
+    assert!(
+        !current_url.as_str().contains("/login"),
+        "Should not remain on login page after successful login"
+    );
+
+    // Step 3: Navigate to profile page
+    info!("👤 Navigating to profile page");
+    env.browser
+        .goto(&format!("{}/profile", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 4: View current profile information
+    info!("📋 Viewing current profile information");
+
+    // Check for profile page title
+    let page_title = env
+        .browser
+        .find(Locator::XPath("//h1[contains(text(), 'Profile Settings')]"))
+        .await?;
+    let title_text = page_title.text().await?;
+    assert!(
+        title_text.contains("Profile Settings"),
+        "Profile page title not found"
+    );
+    info!("Found profile page title: {}", title_text);
+
+    // Check username is displayed (read-only)
+    let username_display = env
+        .browser
+        .find(Locator::XPath(
+            "//label[contains(text(), 'Username')]/following-sibling::div",
+        ))
+        .await?;
+    let username_text = username_display.text().await?;
+    assert!(
+        username_text.contains(&credentials.username),
+        "Username not displayed correctly"
+    );
+    info!("Username displayed: {}", username_text);
+
+    // Check email is displayed (read-only)
+    let email_display = env
+        .browser
+        .find(Locator::XPath(
+            "//label[contains(text(), 'Email Address')]/following-sibling::div",
+        ))
+        .await?;
+    let email_text = email_display.text().await?;
+    assert!(
+        email_text.contains(&credentials.email),
+        "Email not displayed correctly"
+    );
+    info!("Email displayed: {}", email_text);
+
+    // Step 5: Edit display name
+    info!("✏️ Editing display name");
+    let new_display_name = format!("Alice Test User {}", rand::random::<u32>());
+
+    let display_name_field =
+        env.browser.find(Locator::Id("display-name")).await?;
+    display_name_field.click().await?;
+    display_name_field.clear().await?;
+    display_name_field.send_keys(&new_display_name).await?;
+
+    // Blur the field to trigger any validation
+    env.browser
+        .execute("document.getElementById('display-name')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    // Step 6: Save changes
+    info!("💾 Saving profile changes");
+    let save_button = env
+        .browser
+        .find(Locator::XPath("//button[contains(text(), 'Save Changes')]"))
+        .await?;
+    save_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Wait for and verify success message
+    let success_message = env
+        .browser
+        .find(Locator::XPath(
+            "//*[contains(text(), 'Profile updated successfully')]",
+        ))
+        .await?;
+    let success_text = success_message.text().await?;
+    assert!(
+        success_text.contains("Profile updated successfully"),
+        "Success message not found"
+    );
+    info!("Profile update success message: {}", success_text);
+
+    // Step 7: Verify changes persist after page reload
+    info!("🔄 Reloading page to verify changes persist");
+    env.browser.refresh().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 8: Verify changes are reflected in the profile
+    info!("✅ Verifying saved changes are reflected");
+
+    // Use JavaScript to get the actual input value instead of the HTML attribute
+    // because modern frameworks like Yew may not update the HTML attribute
+    let field_value: String = env
+        .browser
+        .execute(
+            "return document.getElementById('display-name')?.value || '';",
+            vec![],
+        )
+        .await?
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    assert_eq!(
+        field_value, new_display_name,
+        "Display name changes did not persist. Expected: '{}', Found: '{}'",
+        new_display_name, field_value
+    );
+    info!(
+        "Display name successfully updated and persisted: {}",
+        field_value
+    );
+
+    // Additional verification: field value is retrieved via JavaScript above
+
+    info!("✅ Profile view and edit test completed successfully");
     Ok(())
 }

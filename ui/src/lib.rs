@@ -1,6 +1,7 @@
 mod auth;
 mod theme;
 mod communities;
+mod profile;
 
 use payloads::APIClient;
 use yew::prelude::*;
@@ -115,6 +116,12 @@ fn Header() -> Html {
                     </div>
                     <div class="flex items-center space-x-4">
                         if auth_state.is_authenticated {
+                            <Link<Route> 
+                                to={Route::Profile} 
+                                classes="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm font-medium transition-colors"
+                            >
+                                {"Profile"}
+                            </Link<Route>>
                             if let Some(username) = &auth_state.username {
                                 <span class="text-sm text-gray-600 dark:text-gray-400">
                                     {"Welcome, "}{username}
@@ -187,8 +194,8 @@ enum Route {
     CommunityInvites,
     #[at("/communities/:id/manage")]
     CommunityManage { id: String },
-    // #[at("/profile")]
-    // Profile,
+    #[at("/profile")]
+    Profile,
     // #[at("/bids")]
     // Bids,
     #[not_found]
@@ -268,7 +275,7 @@ fn switch(routes: Route) -> Html {
         Route::CreateCommunity => html! { <CreateCommunityComponent /> },
         Route::CommunityInvites => html! { <CommunityInvites /> },
         Route::CommunityManage { id } => html! { <CommunityManage community_id={id.clone()} /> },
-        // Route::Profile => html! { <profile::Profile /> },
+        Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
         Route::NotFound => html! {
             <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

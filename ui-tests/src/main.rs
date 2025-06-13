@@ -10,8 +10,6 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-mod authentication;
-mod community_management;
 mod framework;
 
 use crate::framework::TestEnvironment;
@@ -23,7 +21,7 @@ async fn main() -> Result<()> {
     api::telemetry::init_subscriber(subscriber);
 
     info!("🚀 Starting UI test environment with Alice user login");
-    
+
     // Set up the test environment (API server, frontend, browser) in headed mode
     info!("🔧 Setting up test environment with headed browser");
     let env = TestEnvironment::setup_headed().await?;
@@ -95,4 +93,3 @@ async fn main() -> Result<()> {
     info!("🧹 Cleaning up and closing browser");
     Ok(())
 }
-
