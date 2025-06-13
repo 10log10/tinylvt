@@ -1,4 +1,4 @@
-use crate::helpers::{self, spawn_app};
+use test_helpers::{self, spawn_app};
 use api::scheduler;
 use jiff::Span;
 use payloads::requests;
@@ -15,14 +15,14 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
     let space_a = app.create_test_space(&site.site_id).await?;
     let space_b = app
         .client
-        .create_space(&helpers::space_details_b(site.site_id))
+        .create_space(&test_helpers::space_details_b(site.site_id))
         .await?;
     let space_b = app.client.get_space(&space_b).await?;
 
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -176,7 +176,7 @@ async fn test_proxy_bidding_basic() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -245,12 +245,12 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
     let space_a = app.create_test_space(&site.site_id).await?; // This will be "test space" (A)
     let space_b_id = app
         .client
-        .create_space(&helpers::space_details_b(site.site_id))
+        .create_space(&test_helpers::space_details_b(site.site_id))
         .await?;
     let space_b = app.client.get_space(&space_b_id).await?;
     let space_c_id = app
         .client
-        .create_space(&helpers::space_details_c(site.site_id))
+        .create_space(&test_helpers::space_details_c(site.site_id))
         .await?;
     let space_c = app.client.get_space(&space_c_id).await?;
 
@@ -271,7 +271,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 

@@ -138,7 +138,9 @@ impl TestApp {
             .await?;
 
         // 2. Test original login works
-        self.client.login(&original_credentials).await?;
+        self.client
+            .login(&to_login_credentials(&original_credentials))
+            .await?;
         self.client.logout().await?;
 
         // 3. Request password reset
@@ -164,16 +166,18 @@ impl TestApp {
         assert!(!self.is_token_valid(&reset_token).await?);
 
         // 7. Test old password no longer works
-        let old_login_result = self.client.login(&original_credentials).await;
+        let old_login_result = self
+            .client
+            .login(&to_login_credentials(&original_credentials))
+            .await;
         assert!(old_login_result.is_err());
 
         // 8. Test new password works
-        let new_credentials = payloads::requests::CreateAccount {
-            email: original_credentials.email,
+        let new_login_credentials = requests::LoginCredentials {
             username: original_credentials.username,
             password: new_password.to_string(),
         };
-        self.client.login(&new_credentials).await?;
+        self.client.login(&new_login_credentials).await?;
 
         Ok(())
     }
@@ -191,7 +195,7 @@ impl TestApp {
         self.mark_user_email_verified(&body.username).await?;
 
         // do login
-        self.client.login(&body).await?;
+        self.client.login(&alice_login_credentials()).await?;
         Ok(())
     }
 
@@ -211,19 +215,19 @@ impl TestApp {
 
     pub async fn login_alice(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
-        self.client.login(&alice_credentials()).await?;
+        self.client.login(&alice_login_credentials()).await?;
         Ok(())
     }
 
     pub async fn login_bob(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
-        self.client.login(&bob_credentials()).await?;
+        self.client.login(&bob_login_credentials()).await?;
         Ok(())
     }
 
     pub async fn login_charlie(&self) -> anyhow::Result<()> {
         self.client.logout().await?;
-        self.client.login(&charlie_credentials()).await?;
+        self.client.login(&charlie_login_credentials()).await?;
         Ok(())
     }
 
@@ -324,7 +328,7 @@ impl TestApp {
         &self,
         community_id: &CommunityId,
     ) -> anyhow::Result<()> {
-        self.client.login(&alice_credentials()).await?;
+        self.client.login(&alice_login_credentials()).await?;
         let schedule = vec![
             payloads::MembershipSchedule {
                 // alice is active
@@ -424,6 +428,10 @@ pub fn alice_credentials() -> requests::CreateAccount {
     }
 }
 
+pub fn alice_login_credentials() -> requests::LoginCredentials {
+    to_login_credentials(&alice_credentials())
+}
+
 fn bob_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "bob".into(),
@@ -432,11 +440,29 @@ fn bob_credentials() -> requests::CreateAccount {
     }
 }
 
+fn bob_login_credentials() -> requests::LoginCredentials {
+    to_login_credentials(&bob_credentials())
+}
+
 fn charlie_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "charlie".into(),
         password: "charliepw".into(),
         email: "charlie@example.com".into(),
+    }
+}
+
+fn charlie_login_credentials() -> requests::LoginCredentials {
+    to_login_credentials(&charlie_credentials())
+}
+
+// Helper function to convert CreateAccount to LoginCredentials
+pub fn to_login_credentials(
+    create_account: &requests::CreateAccount,
+) -> requests::LoginCredentials {
+    requests::LoginCredentials {
+        username: create_account.username.clone(),
+        password: create_account.password.clone(),
     }
 }
 
@@ -596,7 +622,7 @@ pub fn assert_space_equal(
 }
 
 pub async fn spawn_app() -> TestApp {
-    let subscriber = telemetry::get_subscriber("warn".into());
+    let subscriber = telemetry::get_subscriber("error".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
     let time_source = TimeSource::new("2025-01-01T00:00:00Z".parse().unwrap());

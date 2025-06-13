@@ -19,7 +19,7 @@ use api::store::{
 };
 use payloads::{CommunityId, SiteId, responses::Community};
 
-use crate::helpers::spawn_app;
+use test_helpers::spawn_app;
 
 const HOUR_MICROSECONDS: i64 = 60 * 60 * 1_000_000;
 

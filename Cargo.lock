@@ -385,6 +385,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "sqlx-postgres",
+ "test-helpers",
  "thiserror 2.0.12",
  "tokio",
  "tracing",

@@ -1,12 +1,12 @@
-use crate::helpers::{self, spawn_app};
 use api::scheduler;
 use api::time::TimeSource;
 use jiff::Timestamp;
 use jiff::{Span, Zoned};
 use payloads::requests;
 use reqwest::StatusCode;
+use test_helpers::{self, spawn_app};
 
-use crate::helpers::assert_status_code;
+use test_helpers::assert_status_code;
 
 #[tokio::test]
 async fn test_mock_time() -> anyhow::Result<()> {
@@ -59,7 +59,9 @@ async fn test_auction_unauthorized() -> anyhow::Result<()> {
         email: "charlie@example.com".into(),
     };
     app.client.create_account(&details).await?;
-    app.client.login(&details).await?;
+    app.client
+        .login(&test_helpers::to_login_credentials(&details))
+        .await?;
 
     assert_status_code(
         app.client.get_auction(&auction.auction_id).await,
@@ -126,7 +128,7 @@ async fn test_immediate_auction_round_creation() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -165,7 +167,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     // Create an auction starting March 8, 2024 at noon PST
     // This will span the DST transition on March 10 at 2am
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
 
     // Set start time just before DST transition (March 10, 2024 1:59 AM PST)
     let start_time: Zoned =
@@ -216,7 +218,7 @@ async fn test_round_space_result_creation() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -270,7 +272,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -332,7 +334,7 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -378,13 +380,13 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     // bidding for space a
     let space_b_id = app
         .client
-        .create_space(&helpers::space_details_b(site.site_id))
+        .create_space(&test_helpers::space_details_b(site.site_id))
         .await?;
 
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -504,7 +506,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -592,7 +594,7 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
@@ -644,7 +646,9 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
         email: "charlie@example.com".into(),
     };
     app.client.create_account(&details).await?;
-    app.client.login(&details).await?;
+    app.client
+        .login(&test_helpers::to_login_credentials(&details))
+        .await?;
 
     assert_status_code(
         app.client.get_eligibility(&round1.round_id).await,
@@ -665,14 +669,14 @@ async fn test_bid_unavailable_space() -> anyhow::Result<()> {
     let site = app.create_test_site(&community_id).await?;
 
     // Create a space but mark it as unavailable
-    let mut space_details = helpers::space_details_a(site.site_id);
+    let mut space_details = test_helpers::space_details_a(site.site_id);
     space_details.is_available = false;
     let space_id = app.client.create_space(&space_details).await?;
 
     // Create an auction that starts now
     let start_time = app.time_source.now();
     let mut auction_details =
-        helpers::auction_details_a(site.site_id, &app.time_source);
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 

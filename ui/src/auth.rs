@@ -4,7 +4,7 @@ use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 use crate::{Route, get_api_client};
-use payloads::requests::CreateAccount;
+use payloads::requests;
 
 // Authentication state management
 #[derive(Default, Clone, PartialEq, Store)]
@@ -145,7 +145,6 @@ pub fn Login() -> Html {
             let navigator = navigator.clone();
             let auth_dispatch = auth_dispatch.clone();
             let username_for_state = form_data.username.clone();
-            let password_for_login = form_data.password.clone();
 
             yew::platform::spawn_local(async move {
                 // Set loading state
@@ -157,16 +156,12 @@ pub fn Login() -> Html {
                 }
 
                 let client = get_api_client();
-
-                // Note: The API client has a bug - login() takes CreateAccount instead of LoginCredentials
-                // We'll use the create_account struct but call login
-                let login_details = CreateAccount {
-                    email: "".to_string(), // Not used for login
+                let login_credentials = requests::LoginCredentials {
                     username: username_for_state.clone(),
-                    password: password_for_login,
+                    password: (*form).password.clone(),
                 };
 
-                match client.login(&login_details).await {
+                match client.login(&login_credentials).await {
                     Ok(()) => {
                         // Update auth state
                         auth_dispatch.reduce_mut(|state| {
@@ -371,7 +366,7 @@ pub fn Register() -> Html {
                 }
 
                 let client = get_api_client();
-                let account_details = CreateAccount {
+                let account_details = requests::CreateAccount {
                     email: email.clone(),
                     username: username.clone(),
                     password: password.clone(),
@@ -380,8 +375,7 @@ pub fn Register() -> Html {
                 match client.create_account(&account_details).await {
                     Ok(()) => {
                         // Registration successful, now try to auto-login
-                        let login_details = CreateAccount {
-                            email: "".to_string(), // Not used for login
+                        let login_details = requests::LoginCredentials {
                             username: username.clone(),
                             password: password.clone(),
                         };
@@ -569,7 +563,7 @@ pub fn ForgotPassword() -> Html {
                 }
 
                 let client = get_api_client();
-                let forgot_request = payloads::requests::ForgotPassword { email };
+                let forgot_request = requests::ForgotPassword { email };
 
                 match client.forgot_password(&forgot_request).await {
                     Ok(response) => {
@@ -723,7 +717,7 @@ pub fn VerifyEmailPrompt() -> Html {
                     resend_message.set(None);
 
                     let client = get_api_client();
-                    let request = payloads::requests::ResendVerificationEmail {
+                    let request = requests::ResendVerificationEmail {
                         email: email_addr,
                     };
 
@@ -865,7 +859,7 @@ pub fn VerifyEmailWithToken(props: &VerifyEmailWithTokenProps) -> Html {
 
             yew::platform::spawn_local(async move {
                 let client = get_api_client();
-                let request = payloads::requests::VerifyEmail { token };
+                let request = requests::VerifyEmail { token };
 
                 match client.verify_email(&request).await {
                     Ok(_) => {
@@ -1112,7 +1106,7 @@ pub fn ResetPassword() -> Html {
                 }
 
                 let client = get_api_client();
-                let reset_request = payloads::requests::ResetPassword {
+                let reset_request = requests::ResetPassword {
                     token,
                     password,
                 };

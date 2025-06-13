@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 
 use payloads::requests;
 
-use crate::helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_status_code, spawn_app};
 
 #[tokio::test]
 async fn create_community() -> anyhow::Result<()> {

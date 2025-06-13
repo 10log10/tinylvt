@@ -1,4 +1,4 @@
-use crate::helpers::spawn_app;
+use test_helpers::spawn_app;
 
 #[tokio::test]
 async fn create_read_update_delete_site() -> anyhow::Result<()> {

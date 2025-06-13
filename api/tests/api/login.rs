@@ -1,17 +1,16 @@
 use payloads::requests;
 use reqwest::StatusCode;
 
-use crate::helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_status_code, spawn_app};
 
 #[tokio::test]
 async fn login_refused() -> anyhow::Result<()> {
     let app = spawn_app().await;
 
     // test a login with an invalid user
-    let body = requests::CreateAccount {
+    let body = requests::LoginCredentials {
         username: "random".into(),
         password: "random".into(),
-        email: "random@example.com".into(),
     };
     let result = app.client.login(&body).await;
 

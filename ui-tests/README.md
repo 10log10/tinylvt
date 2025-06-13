@@ -10,6 +10,23 @@ Our tests use:
 - **Browser**: Firefox via Selenium/fantoccini for UI automation
 - **Test Data**: Isolated test database with controlled test scenarios
 
+### Running Tests
+
+**Important**: UI integration tests must be run sequentially due to a known bug with parallel execution. Always use:
+
+```bash
+cargo test -- --test-threads=1 --nocapture
+```
+
+Or for specific test patterns:
+```bash
+cargo test authentication -- --test-threads=1 --nocapture
+```
+
+The project is configured with `test-threads = 1` in `.cargo/config.toml` to enforce this by default.
+
+> **Note**: The root cause of the parallel execution issue is unknown and debugging has been deferred. Tests pass reliably when run sequentially.
+
 ## User Stories & Test Cases
 
 ### Phase 1: Authentication & Basic Profile (MVP)

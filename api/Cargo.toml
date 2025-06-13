@@ -40,3 +40,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 api = { path = ".", features = ["test-utils"] }
+test-helpers = { path = "../test-helpers" }

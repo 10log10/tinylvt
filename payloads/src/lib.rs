@@ -485,7 +485,7 @@ impl APIClient {
 
     pub async fn login(
         &self,
-        details: &requests::CreateAccount,
+        details: &requests::LoginCredentials,
     ) -> Result<(), ClientError> {
         let response = self.post("login", &details).await?;
         ok_empty(response).await
