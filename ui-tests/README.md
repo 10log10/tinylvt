@@ -75,7 +75,7 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Verify changes persist
   - *API Coverage*: `user_profile`, `update_profile`
 
-- [ ] **US-007**: Logout functionality
+- [x] **US-007**: Logout functionality
   - Click logout from user menu
   - Verify session is terminated
   - Verify redirect to homepage

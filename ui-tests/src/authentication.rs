@@ -858,3 +858,157 @@ async fn test_view_and_edit_profile() -> Result<()> {
     info!("✅ Profile view and edit test completed successfully");
     Ok(())
 }
+
+/// UI integration test for US-007: Logout functionality.
+///
+/// This test covers the user story:
+///   As a user, I want to logout and have my session terminated properly.
+///
+/// Steps:
+/// - Ensure Alice user exists and is verified
+/// - Log in as Alice
+/// - Verify successful login
+/// - Click logout from user menu
+/// - Verify session is terminated and redirect to homepage
+/// - Verify protected pages require re-login
+#[tokio::test]
+async fn test_logout_functionality() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Ensure Alice user exists and is verified
+    info!("👤 Ensuring Alice user exists and is verified");
+    env.api.create_alice_user().await?;
+    let credentials = test_helpers::alice_credentials();
+
+    // Step 2: Log in as Alice
+    info!("🔑 Logging in as Alice");
+    env.browser
+        .goto(&format!("{}/login", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&credentials.username).await?;
+
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys(&credentials.password).await?;
+
+    // Blur password field to trigger onchange
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 3: Verify successful login
+    info!("🔍 Verifying successful login");
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL after login: {}", current_url);
+    assert!(
+        !current_url.as_str().contains("/login"),
+        "Should not remain on login page after successful login"
+    );
+
+    // Step 4: Click logout from user menu
+    info!("🔓 Clicking logout from user menu");
+    
+    // Try to find the logout button - it might be in desktop or mobile menu
+    let logout_button = env
+        .browser
+        .find(Locator::XPath("//button[contains(text(), 'Logout')]"))
+        .await;
+    
+    if logout_button.is_err() {
+        // If desktop logout button is not visible, try to find and click mobile menu toggle
+        info!("🔍 Desktop logout not visible, checking mobile menu");
+        let mobile_menu_button = env
+            .browser
+            .find(Locator::Css("button[aria-label='Toggle navigation menu']"))
+            .await;
+            
+        if let Ok(mobile_button) = mobile_menu_button {
+            mobile_button.click().await?;
+            sleep(Duration::from_millis(300)).await; // Wait for mobile menu to open
+        }
+    }
+    
+    // Now try to find the logout button again
+    let logout_button = env
+        .browser
+        .find(Locator::XPath("//button[contains(text(), 'Logout')]"))
+        .await?;
+    
+    logout_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 5: Verify session is terminated and redirect to homepage
+    info!("🔍 Verifying session termination and redirect to homepage");
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL after logout: {}", current_url);
+    
+    // Should be redirected to homepage
+    assert!(
+        current_url.as_str().ends_with("/") || current_url.as_str().contains("/#/"),
+        "Should be redirected to homepage after logout"
+    );
+
+    // Should not see logout button anymore (user is logged out)
+    let logout_button_after = env
+        .browser
+        .find(Locator::XPath("//button[contains(text(), 'Logout')]"))
+        .await;
+    assert!(
+        logout_button_after.is_err(),
+        "Logout button should not be visible after logout"
+    );
+
+    // Should see login button instead
+    let login_link = env
+        .browser
+        .find(Locator::XPath("//a[contains(text(), 'Login')]"))
+        .await;
+    assert!(
+        login_link.is_ok(),
+        "Login link should be visible after logout"
+    );
+
+    // Step 6: Verify protected pages require re-login
+    info!("🔒 Verifying protected pages require re-login");
+    
+    // Try to access a protected page (communities)
+    env.browser
+        .goto(&format!("{}/communities", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    let protected_url = env.browser.current_url().await?;
+    debug!("URL after accessing protected page: {}", protected_url);
+    
+    // Should be redirected to login or show login requirement
+    // The exact behavior depends on implementation - either redirect to login or show access denied
+    let is_redirected_to_login = protected_url.as_str().contains("/login");
+    let has_login_form = env.browser.find(Locator::Id("username")).await.is_ok();
+    let has_access_denied = env
+        .browser
+        .find(Locator::XPath("//*[contains(text(), 'login') or contains(text(), 'authenticated')]"))
+        .await
+        .is_ok();
+
+    assert!(
+        is_redirected_to_login || has_login_form || has_access_denied,
+        "Protected page should require authentication after logout"
+    );
+
+    info!("✅ Logout functionality test completed successfully");
+    Ok(())
+}
