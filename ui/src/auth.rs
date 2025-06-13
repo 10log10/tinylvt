@@ -388,15 +388,19 @@ pub fn Register() -> Html {
                                     state.username = Some(username);
                                 });
 
-                                // Navigate to home - the verification notice will show automatically 
+                                // Navigate to home - the verification notice will show automatically
                                 // based on the user's actual verification status
                                 navigator.push(&Route::Home);
                             }
                             Err(_) => {
                                 // Auto-login failed, fall back to verification prompt
                                 let window = web_sys::window().unwrap();
-                                let session_storage = window.session_storage().unwrap().unwrap();
-                                let _ = session_storage.set_item("pending_verification_email", &email);
+                                let session_storage =
+                                    window.session_storage().unwrap().unwrap();
+                                let _ = session_storage.set_item(
+                                    "pending_verification_email",
+                                    &email,
+                                );
                                 navigator.push(&Route::VerifyEmail);
                             }
                         }
@@ -665,7 +669,7 @@ pub fn VerifyEmailPrompt() -> Html {
         let token = token.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
-            
+
             // Check for token in URL
             let location = window.location();
             let mut found_token = false;
@@ -684,11 +688,13 @@ pub fn VerifyEmailPrompt() -> Html {
                     }
                 }
             }
-            
+
             // If no token, get email from session storage for regular prompt
             if !found_token {
                 if let Ok(Some(session_storage)) = window.session_storage() {
-                    if let Ok(stored_email) = session_storage.get_item("pending_verification_email") {
+                    if let Ok(stored_email) =
+                        session_storage.get_item("pending_verification_email")
+                    {
                         email.set(stored_email);
                     }
                 }
@@ -717,9 +723,8 @@ pub fn VerifyEmailPrompt() -> Html {
                     resend_message.set(None);
 
                     let client = get_api_client();
-                    let request = requests::ResendVerificationEmail {
-                        email: email_addr,
-                    };
+                    let request =
+                        requests::ResendVerificationEmail { email: email_addr };
 
                     match client.resend_verification_email(&request).await {
                         Ok(_) => {
@@ -742,7 +747,8 @@ pub fn VerifyEmailPrompt() -> Html {
             // Clear session storage
             let window = web_sys::window().unwrap();
             if let Ok(Some(session_storage)) = window.session_storage() {
-                let _ = session_storage.remove_item("pending_verification_email");
+                let _ =
+                    session_storage.remove_item("pending_verification_email");
             }
             navigator.push(&Route::Login);
         })
@@ -864,13 +870,18 @@ pub fn VerifyEmailWithToken(props: &VerifyEmailWithTokenProps) -> Html {
                 match client.verify_email(&request).await {
                     Ok(_) => {
                         verification_state.set("success".to_string());
-                        
+
                         // Clear any pending verification email from session
                         let window = web_sys::window().unwrap();
-                        if let Ok(Some(session_storage)) = window.session_storage() {
-                            let _ = session_storage.remove_item("pending_verification_email");
-                            let _ = session_storage.remove_item("show_verification_notice");
-                            let _ = session_storage.remove_item("verification_email");
+                        if let Ok(Some(session_storage)) =
+                            window.session_storage()
+                        {
+                            let _ = session_storage
+                                .remove_item("pending_verification_email");
+                            let _ = session_storage
+                                .remove_item("show_verification_notice");
+                            let _ = session_storage
+                                .remove_item("verification_email");
                         }
 
                         // Trigger a re-fetch of user profile to update verification status
@@ -985,7 +996,7 @@ pub fn VerifyEmailWithToken(props: &VerifyEmailWithTokenProps) -> Html {
                 </div>
             </main>
         },
-        _ => html! { <div>{"Unknown state"}</div> }
+        _ => html! { <div>{"Unknown state"}</div> },
     }
 }
 
@@ -1011,7 +1022,7 @@ pub fn ResetPassword() -> Html {
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let location = window.location();
-            
+
             if let Ok(search) = location.search() {
                 if !search.is_empty() {
                     // Parse query string (starts with '?')
@@ -1064,12 +1075,15 @@ pub fn ResetPassword() -> Html {
             // Validation
             if token_value.is_none() {
                 let mut new_form = form_data;
-                new_form.error = Some("Invalid or missing reset token".to_string());
+                new_form.error =
+                    Some("Invalid or missing reset token".to_string());
                 form.set(new_form);
                 return;
             }
 
-            if form_data.password.is_empty() || form_data.confirm_password.is_empty() {
+            if form_data.password.is_empty()
+                || form_data.confirm_password.is_empty()
+            {
                 let mut new_form = form_data;
                 new_form.error = Some("Please fill in all fields".to_string());
                 form.set(new_form);
@@ -1085,7 +1099,8 @@ pub fn ResetPassword() -> Html {
 
             if form_data.password.len() < 8 {
                 let mut new_form = form_data;
-                new_form.error = Some("Password must be at least 8 characters".to_string());
+                new_form.error =
+                    Some("Password must be at least 8 characters".to_string());
                 form.set(new_form);
                 return;
             }
@@ -1106,10 +1121,7 @@ pub fn ResetPassword() -> Html {
                 }
 
                 let client = get_api_client();
-                let reset_request = requests::ResetPassword {
-                    token,
-                    password,
-                };
+                let reset_request = requests::ResetPassword { token, password };
 
                 match client.reset_password(&reset_request).await {
                     Ok(response) => {
@@ -1120,14 +1132,18 @@ pub fn ResetPassword() -> Html {
 
                         // Navigate to login after a short delay
                         yew::platform::spawn_local(async move {
-                            yew::platform::time::sleep(std::time::Duration::from_secs(2)).await;
+                            yew::platform::time::sleep(
+                                std::time::Duration::from_secs(2),
+                            )
+                            .await;
                             navigator.push(&Route::Login);
                         });
                     }
                     Err(e) => {
                         let mut new_form = (*form).clone();
                         new_form.is_loading = false;
-                        new_form.error = Some(format!("Password reset failed: {}", e));
+                        new_form.error =
+                            Some(format!("Password reset failed: {}", e));
                         form.set(new_form);
                     }
                 }

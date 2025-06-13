@@ -1,9 +1,9 @@
+use payloads::{requests, responses};
+use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use payloads::{responses, requests};
-use web_sys::HtmlInputElement;
 
-use crate::{Route, get_api_client, auth::use_auth};
+use crate::{Route, auth::use_auth, get_api_client};
 
 #[derive(Default, Clone, PartialEq)]
 pub struct CommunitiesState {
@@ -34,11 +34,11 @@ pub fn Communities() -> Html {
     {
         let communities_state = communities_state.clone();
         let auth_state = auth_state.clone();
-        
+
         use_effect_with(auth_state.is_authenticated, move |is_authenticated| {
             if *is_authenticated {
                 let communities_state = communities_state.clone();
-                
+
                 yew::platform::spawn_local(async move {
                     let mut state = (*communities_state).clone();
                     state.is_loading = true;
@@ -55,7 +55,10 @@ pub fn Communities() -> Html {
                         }
                         Err(e) => {
                             let mut state = (*communities_state).clone();
-                            state.error = Some(format!("Failed to load communities: {}", e));
+                            state.error = Some(format!(
+                                "Failed to load communities: {}",
+                                e
+                            ));
                             state.is_loading = false;
                             communities_state.set(state);
                         }
@@ -68,7 +71,7 @@ pub fn Communities() -> Html {
 
     let on_create_community = {
         let navigator = navigator.clone();
-        
+
         Callback::from(move |_: MouseEvent| {
             navigator.push(&Route::CreateCommunity);
         })
@@ -170,7 +173,7 @@ pub fn Communities() -> Html {
                         {for communities_state.communities.iter().map(|community| {
                             let _community_id = community.id.clone();
                             html! {
-                                <CommunityCard 
+                                <CommunityCard
                                     key={format!("{}", community.id.0)}
                                     community={community.clone()}
                                 />
@@ -196,10 +199,12 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
     let on_click = {
         let navigator = navigator.clone();
         let community_id = community.id.clone();
-        
+
         Callback::from(move |_: MouseEvent| {
             // Navigate to community management page
-            navigator.push(&Route::CommunityManage { id: community_id.0.to_string() });
+            navigator.push(&Route::CommunityManage {
+                id: community_id.0.to_string(),
+            });
         })
     };
 
@@ -210,10 +215,16 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
         "Recently created".to_string()
     };
 
-    let first_letter = community.name.chars().next().unwrap_or('C').to_uppercase().to_string();
+    let first_letter = community
+        .name
+        .chars()
+        .next()
+        .unwrap_or('C')
+        .to_uppercase()
+        .to_string();
 
     html! {
-        <div 
+        <div
             onclick={on_click}
             class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-200"
         >
@@ -235,7 +246,7 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
                         </p>
                     </div>
                 </div>
-                
+
                 // Role badge placeholder - we'll add this when we have role information
                 <div class="flex-shrink-0">
                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
@@ -296,7 +307,7 @@ pub fn CreateCommunity() -> Html {
 
     let on_name_change = {
         let form = form.clone();
-        Callback::from(move |e: Event| {
+        Callback::from(move |e: InputEvent| {
             let input: HtmlInputElement = e.target_unchecked_into();
             let mut form_data = (*form).clone();
             form_data.name = input.value();
@@ -340,7 +351,9 @@ pub fn CreateCommunity() -> Html {
 
             if form_data.name.trim().len() > 255 {
                 let mut new_form = form_data;
-                new_form.error = Some("Community name must be 255 characters or less".to_string());
+                new_form.error = Some(
+                    "Community name must be 255 characters or less".to_string(),
+                );
                 form.set(new_form);
                 return;
             }
@@ -348,7 +361,8 @@ pub fn CreateCommunity() -> Html {
             let form = form.clone();
             let navigator = navigator.clone();
             let name = form_data.name.trim().to_string();
-            let new_members_default_active = form_data.new_members_default_active;
+            let new_members_default_active =
+                form_data.new_members_default_active;
 
             yew::platform::spawn_local(async move {
                 // Set loading state
@@ -373,7 +387,8 @@ pub fn CreateCommunity() -> Html {
                     Err(e) => {
                         let mut new_form = (*form).clone();
                         new_form.is_loading = false;
-                        new_form.error = Some(format!("Failed to create community: {}", e));
+                        new_form.error =
+                            Some(format!("Failed to create community: {}", e));
                         form.set(new_form);
                     }
                 }
@@ -395,7 +410,7 @@ pub fn CreateCommunity() -> Html {
                         <ol role="list" class="flex items-center space-x-4">
                             <li>
                                 <div class="flex">
-                                    <Link<Route> 
+                                    <Link<Route>
                                         to={Route::Communities}
                                         classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
                                     >
@@ -438,7 +453,7 @@ pub fn CreateCommunity() -> Html {
                                     class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
                                     placeholder="Enter a name for your community"
                                     value={form.name.clone()}
-                                    onchange={on_name_change}
+                                    oninput={on_name_change}
                                     disabled={form.is_loading}
                                 />
                             </div>
@@ -485,14 +500,26 @@ pub fn CreateCommunity() -> Html {
                                 type="button"
                                 onclick={on_cancel}
                                 disabled={form.is_loading}
-                                class="w-full sm:w-auto px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class={format!("w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border {}",
+                                    if form.is_loading {
+                                        "border-gray-300 bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
+                                    } else {
+                                        "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                                    }
+                                )}
                             >
                                 {"Cancel"}
                             </button>
                             <button
                                 type="submit"
                                 disabled={form.is_loading || form.name.trim().is_empty()}
-                                class="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class={format!("w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border {}",
+                                    if form.is_loading || form.name.trim().is_empty() {
+                                        "border-gray-300 bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
+                                    } else {
+                                        "border-transparent bg-blue-600 text-white hover:bg-blue-700"
+                                    }
+                                )}
                             >
                                 if form.is_loading {
                                     <span class="flex items-center justify-center">
@@ -569,11 +596,11 @@ pub fn CommunityInvites() -> Html {
     {
         let invites_state = invites_state.clone();
         let auth_state = auth_state.clone();
-        
+
         use_effect_with(auth_state.is_authenticated, move |is_authenticated| {
             if *is_authenticated {
                 let invites_state = invites_state.clone();
-                
+
                 yew::platform::spawn_local(async move {
                     let mut state = (*invites_state).clone();
                     state.is_loading = true;
@@ -590,7 +617,8 @@ pub fn CommunityInvites() -> Html {
                         }
                         Err(e) => {
                             let mut state = (*invites_state).clone();
-                            state.error = Some(format!("Failed to load invites: {}", e));
+                            state.error =
+                                Some(format!("Failed to load invites: {}", e));
                             state.is_loading = false;
                             invites_state.set(state);
                         }
@@ -604,11 +632,11 @@ pub fn CommunityInvites() -> Html {
     let on_accept_invite = {
         let invites_state = invites_state.clone();
         let navigator = navigator.clone();
-        
+
         Callback::from(move |invite_id: payloads::InviteId| {
             let invites_state = invites_state.clone();
             let navigator = navigator.clone();
-            
+
             yew::platform::spawn_local(async move {
                 // Set accepting state
                 {
@@ -626,7 +654,8 @@ pub fn CommunityInvites() -> Html {
                     Err(e) => {
                         let mut state = (*invites_state).clone();
                         state.accepting_invite = None;
-                        state.error = Some(format!("Failed to accept invite: {}", e));
+                        state.error =
+                            Some(format!("Failed to accept invite: {}", e));
                         invites_state.set(state);
                     }
                 }
@@ -655,7 +684,7 @@ pub fn CommunityInvites() -> Html {
                         <ol role="list" class="flex items-center space-x-4">
                             <li>
                                 <div class="flex">
-                                    <Link<Route> 
+                                    <Link<Route>
                                         to={Route::Communities}
                                         classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
                                     >
@@ -736,9 +765,9 @@ pub fn CommunityInvites() -> Html {
                             {for invites_state.invites.iter().map(|invite| {
                                 let invite_id = invite.id;
                                 let is_accepting = invites_state.accepting_invite == Some(invite_id);
-                                
+
                                 html! {
-                                    <InviteItem 
+                                    <InviteItem
                                         key={format!("{}", invite.id.0)}
                                         invite={invite.clone()}
                                         is_accepting={is_accepting}
@@ -793,7 +822,7 @@ pub fn InviteItem(props: &InviteItemProps) -> Html {
     let on_accept = {
         let invite_id = invite.id;
         let on_accept = props.on_accept.clone();
-        
+
         Callback::from(move |_: MouseEvent| {
             on_accept.emit(invite_id);
         })
@@ -806,7 +835,13 @@ pub fn InviteItem(props: &InviteItemProps) -> Html {
         "Recently".to_string()
     };
 
-    let first_letter = invite.community_name.chars().next().unwrap_or('C').to_uppercase().to_string();
+    let first_letter = invite
+        .community_name
+        .chars()
+        .next()
+        .unwrap_or('C')
+        .to_uppercase()
+        .to_string();
 
     html! {
         <li class="px-6 py-4">
@@ -922,89 +957,144 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
         let community_state = community_state.clone();
         let auth_state = auth_state.clone();
         let community_id = community_id.clone();
-        
-        use_effect_with((auth_state.is_authenticated, props.community_id.clone()), move |(is_authenticated, _)| {
-            web_sys::console::log_1(&format!("Effect triggered: authenticated={}", is_authenticated).into());
-            if *is_authenticated {
-                let community_state = community_state.clone();
-                let community_id = community_id.clone();
-                
-                yew::platform::spawn_local(async move {
-                    web_sys::console::log_1(&"Starting community data load".into());
-                    let mut state = (*community_state).clone();
-                    state.is_loading = true;
-                    state.error = None;
-                    community_state.set(state);
 
-                    let client = get_api_client();
-                    
-                    // First get all communities to find this one
-                    web_sys::console::log_1(&"Fetching communities...".into());
-                    match client.get_communities().await {
-                        Ok(communities) => {
-                            web_sys::console::log_1(&format!("Got {} communities", communities.len()).into());
-                            // Find the community we're managing
-                            let community = communities.into_iter()
-                                .find(|c| c.id == community_id);
-                            
-                            if let Some(community) = community {
-                                web_sys::console::log_1(&format!("Found community: {}", community.name).into());
-                                // Set the community data first, so we can show the page even if members fail
-                                {
+        use_effect_with(
+            (auth_state.is_authenticated, props.community_id.clone()),
+            move |(is_authenticated, _)| {
+                web_sys::console::log_1(
+                    &format!(
+                        "Effect triggered: authenticated={}",
+                        is_authenticated
+                    )
+                    .into(),
+                );
+                if *is_authenticated {
+                    let community_state = community_state.clone();
+                    let community_id = community_id.clone();
+
+                    yew::platform::spawn_local(async move {
+                        web_sys::console::log_1(
+                            &"Starting community data load".into(),
+                        );
+                        let mut state = (*community_state).clone();
+                        state.is_loading = true;
+                        state.error = None;
+                        community_state.set(state);
+
+                        let client = get_api_client();
+
+                        // First get all communities to find this one
+                        web_sys::console::log_1(
+                            &"Fetching communities...".into(),
+                        );
+                        match client.get_communities().await {
+                            Ok(communities) => {
+                                web_sys::console::log_1(
+                                    &format!(
+                                        "Got {} communities",
+                                        communities.len()
+                                    )
+                                    .into(),
+                                );
+                                // Find the community we're managing
+                                let community = communities
+                                    .into_iter()
+                                    .find(|c| c.id == community_id);
+
+                                if let Some(community) = community {
+                                    web_sys::console::log_1(
+                                        &format!(
+                                            "Found community: {}",
+                                            community.name
+                                        )
+                                        .into(),
+                                    );
+                                    // Set the community data first, so we can show the page even if members fail
+                                    {
+                                        let mut state =
+                                            (*community_state).clone();
+                                        state.community =
+                                            Some(community.clone());
+                                        community_state.set(state);
+                                    }
+
+                                    // Now try to get the members
+                                    web_sys::console::log_1(
+                                        &"Fetching members...".into(),
+                                    );
+                                    match client
+                                        .get_members(&community_id)
+                                        .await
+                                    {
+                                        Ok(members) => {
+                                            web_sys::console::log_1(
+                                                &format!(
+                                                    "Got {} members",
+                                                    members.len()
+                                                )
+                                                .into(),
+                                            );
+                                            let mut state =
+                                                (*community_state).clone();
+                                            state.community = Some(community);
+                                            state.members = members;
+                                            state.is_loading = false;
+                                            community_state.set(state);
+                                        }
+                                        Err(e) => {
+                                            web_sys::console::log_1(
+                                                &format!(
+                                                    "Members error: {}",
+                                                    e
+                                                )
+                                                .into(),
+                                            );
+                                            let mut state =
+                                                (*community_state).clone();
+                                            state.community = Some(community);
+                                            state.members = Vec::new(); // Empty members list
+                                            state.is_loading = false;
+                                            state.error = Some(format!(
+                                                "Failed to load members: {}. You may not have permission to view members.",
+                                                e
+                                            ));
+                                            community_state.set(state);
+                                        }
+                                    }
+                                } else {
+                                    web_sys::console::log_1(&"Community not found in user's communities".into());
                                     let mut state = (*community_state).clone();
-                                    state.community = Some(community.clone());
+                                    state.error = Some("Community not found or you don't have access".to_string());
+                                    state.is_loading = false;
                                     community_state.set(state);
                                 }
-                                
-                                // Now try to get the members
-                                web_sys::console::log_1(&"Fetching members...".into());
-                                match client.get_members(&community_id).await {
-                                    Ok(members) => {
-                                        web_sys::console::log_1(&format!("Got {} members", members.len()).into());
-                                        let mut state = (*community_state).clone();
-                                        state.community = Some(community);
-                                        state.members = members;
-                                        state.is_loading = false;
-                                        community_state.set(state);
-                                    }
-                                    Err(e) => {
-                                        web_sys::console::log_1(&format!("Members error: {}", e).into());
-                                        let mut state = (*community_state).clone();
-                                        state.community = Some(community);
-                                        state.members = Vec::new(); // Empty members list
-                                        state.is_loading = false;
-                                        state.error = Some(format!("Failed to load members: {}. You may not have permission to view members.", e));
-                                        community_state.set(state);
-                                    }
-                                }
-                            } else {
-                                web_sys::console::log_1(&"Community not found in user's communities".into());
+                            }
+                            Err(e) => {
+                                web_sys::console::log_1(
+                                    &format!("Communities error: {}", e).into(),
+                                );
                                 let mut state = (*community_state).clone();
-                                state.error = Some("Community not found or you don't have access".to_string());
+                                state.error = Some(format!(
+                                    "Failed to load communities: {} (API Error)",
+                                    e
+                                ));
                                 state.is_loading = false;
                                 community_state.set(state);
                             }
                         }
-                        Err(e) => {
-                            web_sys::console::log_1(&format!("Communities error: {}", e).into());
-                            let mut state = (*community_state).clone();
-                            state.error = Some(format!("Failed to load communities: {} (API Error)", e));
-                            state.is_loading = false;
-                            community_state.set(state);
-                        }
-                    }
-                });
-            } else {
-                web_sys::console::log_1(&"User not authenticated".into());
-            }
-            || ()
-        });
+                    });
+                } else {
+                    web_sys::console::log_1(&"User not authenticated".into());
+                }
+                || ()
+            },
+        );
     }
 
     let on_email_change = {
         let invite_form = invite_form.clone();
-        Callback::from(move |e: Event| {
-            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
             let mut form_data = (*invite_form).clone();
             form_data.email = input.value();
             invite_form.set(form_data);
@@ -1031,7 +1121,8 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
             // Basic email validation
             if !form_data.email.contains('@') {
                 let mut new_form = form_data;
-                new_form.error = Some("Please enter a valid email address".to_string());
+                new_form.error =
+                    Some("Please enter a valid email address".to_string());
                 invite_form.set(new_form);
                 return;
             }
@@ -1060,13 +1151,15 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                     Ok(_invite_path) => {
                         // Successfully sent invite
                         let mut new_form = InviteForm::default(); // Reset form
-                        new_form.success_message = Some(format!("Invitation sent to {}", email));
+                        new_form.success_message =
+                            Some(format!("Invitation sent to {}", email));
                         invite_form.set(new_form);
                     }
                     Err(e) => {
                         let mut new_form = (*invite_form).clone();
                         new_form.is_loading = false;
-                        new_form.error = Some(format!("Failed to send invite: {}", e));
+                        new_form.error =
+                            Some(format!("Failed to send invite: {}", e));
                         invite_form.set(new_form);
                     }
                 }
@@ -1132,7 +1225,13 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
         None => return html! {}, // This shouldn't happen but just in case
     };
 
-    let first_letter = community.name.chars().next().unwrap_or('C').to_uppercase().to_string();
+    let first_letter = community
+        .name
+        .chars()
+        .next()
+        .unwrap_or('C')
+        .to_uppercase()
+        .to_string();
 
     html! {
         <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1143,7 +1242,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                         <ol role="list" class="flex items-center space-x-4">
                             <li>
                                 <div class="flex">
-                                    <Link<Route> 
+                                    <Link<Route>
                                         to={Route::Communities}
                                         classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
                                     >
@@ -1169,7 +1268,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                             </li>
                         </ol>
                     </nav>
-                    
+
                     <div class="mt-4 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
                         <div class="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                             <div class="flex-shrink-0">
@@ -1210,7 +1309,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                 <div class="flex">
                                     <div class="flex-shrink-0">
                                         <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
                                         </svg>
                                     </div>
                                     <div class="ml-3">
@@ -1224,7 +1323,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                 </div>
                             </div>
                         }
-                        
+
                         // Invite new members section
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
                             <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -1248,7 +1347,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                                 class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
                                                 placeholder="Enter email address to invite"
                                                 value={invite_form.email.clone()}
-                                                onchange={on_email_change}
+                                                oninput={on_email_change}
                                                 disabled={invite_form.is_loading}
                                             />
                                         </div>
@@ -1270,7 +1369,13 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                         <button
                                             type="submit"
                                             disabled={invite_form.is_loading || invite_form.email.trim().is_empty()}
-                                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            class={format!("inline-flex items-center px-4 py-2 text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border {}",
+                                                if invite_form.is_loading || invite_form.email.trim().is_empty() {
+                                                    "border-gray-300 bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
+                                                } else {
+                                                    "border-transparent bg-blue-600 text-white hover:bg-blue-700"
+                                                }
+                                            )}
                                         >
                                             if invite_form.is_loading {
                                                 <span class="flex items-center">
@@ -1307,13 +1412,13 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                             <div class="divide-y divide-gray-200 dark:divide-gray-700">
                                 {for community_state.members.iter().map(|member| {
                                     html! {
-                                        <MemberItem 
+                                        <MemberItem
                                             key={member.username.clone()}
                                             member={member.clone()}
                                         />
                                     }
                                 })}
-                                
+
                                 if community_state.members.is_empty() {
                                     <div class="px-6 py-8 text-center">
                                         <div class="mx-auto h-12 w-12 text-gray-400">
@@ -1399,13 +1504,35 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
 
     // Get role color and text
     let (role_bg, role_text, role_display) = match member.role {
-        payloads::Role::Leader => ("bg-purple-100 dark:bg-purple-900/30", "text-purple-800 dark:text-purple-300", "Leader"),
-        payloads::Role::Coleader => ("bg-purple-100 dark:bg-purple-900/30", "text-purple-800 dark:text-purple-300", "Co-leader"),
-        payloads::Role::Moderator => ("bg-blue-100 dark:bg-blue-900/30", "text-blue-800 dark:text-blue-300", "Moderator"),
-        payloads::Role::Member => ("bg-gray-100 dark:bg-gray-700", "text-gray-800 dark:text-gray-300", "Member"),
+        payloads::Role::Leader => (
+            "bg-purple-100 dark:bg-purple-900/30",
+            "text-purple-800 dark:text-purple-300",
+            "Leader",
+        ),
+        payloads::Role::Coleader => (
+            "bg-purple-100 dark:bg-purple-900/30",
+            "text-purple-800 dark:text-purple-300",
+            "Co-leader",
+        ),
+        payloads::Role::Moderator => (
+            "bg-blue-100 dark:bg-blue-900/30",
+            "text-blue-800 dark:text-blue-300",
+            "Moderator",
+        ),
+        payloads::Role::Member => (
+            "bg-gray-100 dark:bg-gray-700",
+            "text-gray-800 dark:text-gray-300",
+            "Member",
+        ),
     };
 
-    let first_letter = member.username.chars().next().unwrap_or('U').to_uppercase().to_string();
+    let first_letter = member
+        .username
+        .chars()
+        .next()
+        .unwrap_or('U')
+        .to_uppercase()
+        .to_string();
 
     html! {
         <div class="px-6 py-4">
@@ -1440,4 +1567,4 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
             </div>
         </div>
     }
-} 
+}

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-api = { path = "../api" }
+api = { path = "../api", features = ["test-utils"] }
 test-helpers = { path = "../test-helpers" }
 anyhow = { workspace = true }
 fantoccini = "0.21"

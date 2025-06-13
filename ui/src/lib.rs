@@ -1,16 +1,22 @@
 mod auth;
-mod theme;
 mod communities;
 mod profile;
+mod theme;
 
 use payloads::APIClient;
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
-use auth::{AuthState, ForgotPassword, Login, Register, ResetPassword, VerifyEmailPrompt, use_auth};
+use auth::{
+    AuthState, ForgotPassword, Login, Register, ResetPassword,
+    VerifyEmailPrompt, use_auth,
+};
+use communities::{
+    Communities, CommunityInvites, CommunityManage,
+    CreateCommunity as CreateCommunityComponent,
+};
 use theme::ThemeToggle;
-use communities::{Communities, CreateCommunity as CreateCommunityComponent, CommunityInvites, CommunityManage};
 
 #[derive(Default, Clone, PartialEq, Store)]
 struct State {
@@ -119,12 +125,12 @@ fn Header() -> Html {
                         <Link<Route> to={Route::Home} classes="text-xl font-bold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0">
                             {"TinyLVT"}
                         </Link<Route>>
-                        
+
                         // Desktop navigation - hidden on mobile
                         if auth_state.is_authenticated {
                             <nav class="hidden md:flex ml-8 space-x-4">
-                                <Link<Route> 
-                                    to={Route::Communities} 
+                                <Link<Route>
+                                    to={Route::Communities}
                                     classes="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm font-medium transition-colors"
                                 >
                                     {"Communities"}
@@ -132,12 +138,12 @@ fn Header() -> Html {
                             </nav>
                         }
                     </div>
-                    
+
                     // Right side - Desktop menu items
                     <div class="hidden md:flex items-center space-x-4">
                         if auth_state.is_authenticated {
-                            <Link<Route> 
-                                to={Route::Profile} 
+                            <Link<Route>
+                                to={Route::Profile}
                                 classes="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm font-medium transition-colors"
                             >
                                 {"Profile"}
@@ -200,16 +206,16 @@ fn Header() -> Html {
                                 </div>
                             }
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Communities} 
+                                <Link<Route>
+                                    to={Route::Communities}
                                     classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     {"Communities"}
                                 </Link<Route>>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Profile} 
+                                <Link<Route>
+                                    to={Route::Profile}
                                     classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     {"Profile"}
@@ -223,16 +229,16 @@ fn Header() -> Html {
                             </button>
                         } else {
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Login} 
+                                <Link<Route>
+                                    to={Route::Login}
                                     classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     {"Login"}
                                 </Link<Route>>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Register} 
+                                <Link<Route>
+                                    to={Route::Register}
                                     classes="block px-3 py-2 rounded-md text-base font-medium text-white bg-blue-600 hover:bg-blue-700"
                                 >
                                     {"Sign Up"}
@@ -371,7 +377,9 @@ fn switch(routes: Route) -> Html {
         Route::Communities => html! { <Communities /> },
         Route::CreateCommunity => html! { <CreateCommunityComponent /> },
         Route::CommunityInvites => html! { <CommunityInvites /> },
-        Route::CommunityManage { id } => html! { <CommunityManage community_id={id.clone()} /> },
+        Route::CommunityManage { id } => {
+            html! { <CommunityManage community_id={id.clone()} /> }
+        }
         Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
         Route::NotFound => html! {
@@ -398,12 +406,12 @@ fn VerificationNotice() -> Html {
         let show_notice = show_notice.clone();
         let user_email = user_email.clone();
         let auth_state = auth_state.clone();
-        
+
         use_effect_with(auth_state.clone(), move |auth_state| {
             if auth_state.is_authenticated && !auth_state.is_loading {
                 let show_notice = show_notice.clone();
                 let user_email = user_email.clone();
-                
+
                 yew::platform::spawn_local(async move {
                     let client = get_api_client();
                     match client.user_profile().await {
@@ -415,9 +423,14 @@ fn VerificationNotice() -> Html {
                             } else {
                                 // Email is verified, clear any leftover session flags
                                 let window = web_sys::window().unwrap();
-                                if let Ok(Some(session_storage)) = window.session_storage() {
-                                    let _ = session_storage.remove_item("show_verification_notice");
-                                    let _ = session_storage.remove_item("verification_email");
+                                if let Ok(Some(session_storage)) =
+                                    window.session_storage()
+                                {
+                                    let _ = session_storage.remove_item(
+                                        "show_verification_notice",
+                                    );
+                                    let _ = session_storage
+                                        .remove_item("verification_email");
                                 }
                                 show_notice.set(false);
                             }
@@ -470,7 +483,9 @@ fn VerificationNotice() -> Html {
 
                     match client.resend_verification_email(&request).await {
                         Ok(_) => {
-                            resend_message.set(Some("Verification email sent!".to_string()));
+                            resend_message.set(Some(
+                                "Verification email sent!".to_string(),
+                            ));
                         }
                         Err(e) => {
                             resend_message.set(Some(format!("Error: {}", e)));

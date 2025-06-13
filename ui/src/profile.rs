@@ -1,6 +1,6 @@
-use yew::prelude::*;
 use crate::get_api_client;
 use payloads::{requests, responses};
+use yew::prelude::*;
 
 #[function_component]
 pub fn Profile() -> Html {
@@ -25,12 +25,16 @@ pub fn Profile() -> Html {
                 let client = get_api_client();
                 match client.user_profile().await {
                     Ok(p) => {
-                        edit_name.set(p.display_name.clone().unwrap_or_default());
+                        edit_name
+                            .set(p.display_name.clone().unwrap_or_default());
                         profile.set(Some(p));
                         loading.set(false);
                     }
                     Err(e) => {
-                        error.set(Some(format!("Failed to load profile: {}", e)));
+                        error.set(Some(format!(
+                            "Failed to load profile: {}",
+                            e
+                        )));
                         loading.set(false);
                     }
                 }
@@ -55,15 +59,24 @@ pub fn Profile() -> Html {
                 save_msg.set(None);
                 let client = get_api_client();
                 let req = requests::UpdateProfile {
-                    display_name: if edit_name.is_empty() { None } else { Some((*edit_name).clone()) },
+                    display_name: if edit_name.is_empty() {
+                        None
+                    } else {
+                        Some((*edit_name).clone())
+                    },
                 };
                 match client.update_profile(&req).await {
                     Ok(updated) => {
                         profile.set(Some(updated));
-                        save_msg.set(Some("Profile updated successfully!".to_string()));
+                        save_msg.set(Some(
+                            "Profile updated successfully!".to_string(),
+                        ));
                     }
                     Err(e) => {
-                        save_msg.set(Some(format!("Failed to update profile: {}", e)));
+                        save_msg.set(Some(format!(
+                            "Failed to update profile: {}",
+                            e
+                        )));
                     }
                 }
                 saving.set(false);
@@ -91,7 +104,10 @@ pub fn Profile() -> Html {
                             verification_msg.set(Some(response.message));
                         }
                         Err(e) => {
-                            verification_msg.set(Some(format!("Failed to resend verification: {}", e)));
+                            verification_msg.set(Some(format!(
+                                "Failed to resend verification: {}",
+                                e
+                            )));
                         }
                     }
                     resending_verification.set(false);
@@ -114,7 +130,7 @@ pub fn Profile() -> Html {
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
                         <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">{"Profile Settings"}</h1>
-                        
+
                         if *loading {
                             <div class="flex justify-center items-center py-12">
                                 <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -213,18 +229,24 @@ pub fn Profile() -> Html {
                                                 {"This name will be shown to other community members."}
                                             </p>
                                         </div>
-                                        
+
                                         if let Some(msg) = save_msg.as_ref() {
                                             <div class={format!("text-sm {}", if msg.contains("success") {"text-green-600 dark:text-green-400"} else {"text-red-600 dark:text-red-400"})}>
                                                 {msg}
                                             </div>
                                         }
-                                        
+
                                         <button
                                             type="button"
                                             onclick={on_save}
                                             disabled={*saving}
-                                            class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            class={format!("px-4 py-2 rounded-md shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border {}",
+                                                if *saving {
+                                                    "border-gray-300 bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
+                                                } else {
+                                                    "border-transparent bg-blue-600 text-white hover:bg-blue-700"
+                                                }
+                                            )}
                                         >
                                             if *saving {
                                                 <span class="flex items-center">
@@ -279,4 +301,4 @@ pub fn Profile() -> Html {
             </div>
         </main>
     }
-} 
+}
