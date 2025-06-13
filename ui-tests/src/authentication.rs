@@ -61,7 +61,6 @@ async fn test_account_registration_flow() -> Result<()> {
         )
         .await?;
     sleep(Duration::from_millis(100)).await;
-    info!("Filled confirm password field");
 
     // Blur password field to trigger onchange
     env.browser
@@ -518,5 +517,145 @@ async fn test_password_reset_flow() -> Result<()> {
     );
 
     info!("✅ Password reset flow test completed successfully");
+    Ok(())
+}
+
+/// UI integration test for US-005: Email verification flow.
+///
+/// This test covers the user story:
+///   As a user, I want to verify my email address so I can activate my account.
+///
+/// Steps:
+/// - Register a new user (unverified)
+/// - Confirm the 'Check your email' prompt is shown
+/// - Retrieve the verification token from the database
+/// - Visit the verification link in the browser
+/// - Confirm the UI shows a success message (e.g., 'Email verified successfully!')
+/// - Attempt to log in with the verified user and confirm login works
+#[tokio::test]
+async fn test_email_verification_flow() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Register a new user (unverified)
+    info!("📝 Registering new user");
+    let username = format!("testverify_{}", rand::random::<u32>());
+    let email = format!("{}@example.com", username);
+    let password = "TestPassword123!";
+
+    env.browser
+        .goto(&format!("{}/register", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    let email_field = env.browser.find(Locator::Id("email")).await?;
+    email_field.click().await?;
+    email_field.clear().await?;
+    email_field.send_keys(&email).await?;
+
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&username).await?;
+
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys(password).await?;
+
+    let confirm_field = env.browser.find(Locator::Id("confirm-password")).await?;
+    confirm_field.click().await?;
+    confirm_field.clear().await?;
+    confirm_field.send_keys(password).await?;
+    // Blur confirm password field to trigger onchange
+    env.browser
+        .execute(
+            "document.getElementById('confirm-password')?.blur();",
+            vec![],
+        )
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+    // Blur password field to trigger onchange
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    // Submit the registration form
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 2: Confirm the 'Check your email' prompt is shown
+    info!("🔍 Verifying email verification prompt");
+    let page_html = env.browser.source().await.unwrap_or_default();
+    debug!("Page HTML after registration: {}", page_html);
+    let prompt = env
+        .browser
+        .find(Locator::XPath("//p[contains(., 'Please check your inbox and click the link to verify your email.')]"))
+        .await?;
+    let prompt_text = prompt.text().await.unwrap_or_default();
+    assert!(prompt_text.contains("Please check your inbox and click the link to verify your email."), "Verification prompt not found, got: {}", prompt_text);
+    info!("Found verification prompt: {}", prompt_text);
+
+    // Step 3: Retrieve the verification token from the database
+    info!("🔑 Retrieving verification token from database");
+    let verification_token = env
+        .api
+        .get_verification_token_from_db(&email)
+        .await?;
+    info!("Got verification token: {}", verification_token);
+
+    // Step 4: Visit the verification link in the browser
+    info!("🔗 Navigating to verification link");
+    env.browser
+        .goto(&format!("{}/verify-email?token={}", env.frontend_url, verification_token))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 5: Confirm the UI shows a success message
+    info!("✅ Verifying success message after email verification");
+    let success_message = env
+        .browser
+        .find(Locator::XPath("//*[contains(text(), 'Email verified successfully!')]"))
+        .await?;
+    let success_text = success_message.text().await.unwrap_or_default();
+    assert!(success_text.contains("Email verified successfully!"), "Success message not found, got: {}", success_text);
+    info!("Found email verified success message: {}", success_text);
+
+    // Step 6: Attempt to log in with the verified user and confirm login works
+    info!("🔑 Logging in with verified user");
+    env.browser
+        .goto(&format!("{}/login", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&username).await?;
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys(password).await?;
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL after login: {}", current_url);
+    assert!(
+        !current_url.as_str().contains("/login"),
+        "Should not remain on login page after successful login"
+    );
+
+    info!("✅ Email verification flow test completed successfully");
     Ok(())
 }
