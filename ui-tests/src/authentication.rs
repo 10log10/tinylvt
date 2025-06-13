@@ -180,3 +180,126 @@ async fn test_login_with_valid_credentials() -> Result<()> {
     info!("✅ Login test completed successfully");
     Ok(())
 }
+
+/// UI integration test for US-003: Login failure with invalid credentials.
+///
+/// This test covers the user story:
+///   As a user, I want to see an error when I try to log in with invalid credentials, and not be redirected.
+///
+/// Steps:
+/// - Ensure Alice user exists and is verified
+/// - Navigate to the login page
+/// - Fill out the login form with a valid username and wrong password
+/// - Submit the form
+/// - Verify error message is displayed and no redirect occurs
+/// - Fill out the login form with a non-existent username
+/// - Submit the form
+/// - Verify error message is displayed and no redirect occurs
+#[tokio::test]
+async fn test_login_failure_with_invalid_credentials() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Ensure Alice user exists and is verified
+    info!("👤 Ensuring Alice user exists and is verified");
+    env.api.create_alice_user().await?;
+    let credentials = test_helpers::alice_credentials();
+
+    // Step 2: Navigate to login page
+    info!("🔑 Navigating to login page");
+    env.browser
+        .goto(&format!("{}/login", env.frontend_url))
+        .await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 3: Attempt login with valid username and wrong password
+    info!("❌ Attempting login with valid username and wrong password");
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&credentials.username).await?;
+
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys("wrongpassword").await?;
+
+    // Blur password field to trigger onchange
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    // Submit the form
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 4: Verify error message and no redirect
+    info!("🔍 Verifying error message and no redirect");
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL after failed login: {}", current_url);
+    assert!(
+        current_url.as_str().contains("/login"),
+        "Should remain on login page after failed login"
+    );
+
+    // Look for error message (by class or role)
+    let error_element = env
+        .browser
+        .find(Locator::Css(".bg-red-50, .bg-red-900, [role='alert']"))
+        .await;
+    assert!(
+        error_element.is_ok(),
+        "Error message should be displayed for invalid login"
+    );
+
+    // Step 5: Attempt login with non-existent username
+    info!("❌ Attempting login with non-existent username");
+    let username_field = env.browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys("notarealuser").await?;
+
+    let password_field = env.browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys("somepassword").await?;
+
+    // Blur password field to trigger onchange
+    env.browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    // Submit the form
+    let submit_button = env
+        .browser
+        .find(Locator::Css("button[type='submit']"))
+        .await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Step 6: Verify error message and no redirect
+    info!("🔍 Verifying error message and no redirect for non-existent user");
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL after failed login: {}", current_url);
+    assert!(
+        current_url.as_str().contains("/login"),
+        "Should remain on login page after failed login"
+    );
+
+    let error_element = env
+        .browser
+        .find(Locator::Css(".bg-red-50, .bg-red-900, [role='alert']"))
+        .await;
+    assert!(
+        error_element.is_ok(),
+        "Error message should be displayed for invalid login"
+    );
+
+    info!("✅ Login failure test completed successfully");
+    Ok(())
+}
