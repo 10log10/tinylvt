@@ -94,17 +94,35 @@ fn Header() -> Html {
         })
     };
 
+    let mobile_menu_open = use_state(|| false);
+
+    let toggle_mobile_menu = {
+        let mobile_menu_open = mobile_menu_open.clone();
+        Callback::from(move |_: MouseEvent| {
+            mobile_menu_open.set(!*mobile_menu_open);
+        })
+    };
+
+    let close_mobile_menu = {
+        let mobile_menu_open = mobile_menu_open.clone();
+        Callback::from(move |_: MouseEvent| {
+            mobile_menu_open.set(false);
+        })
+    };
+
     html! {
         <header class="bg-gray-100 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between items-center h-16">
-                    <div class="flex items-center space-x-8">
-                        <Link<Route> to={Route::Home} classes="text-xl font-bold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300">
+                    // Left side - Logo and desktop nav
+                    <div class="flex items-center">
+                        <Link<Route> to={Route::Home} classes="text-xl font-bold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0">
                             {"TinyLVT"}
                         </Link<Route>>
                         
+                        // Desktop navigation - hidden on mobile
                         if auth_state.is_authenticated {
-                            <nav class="flex space-x-4">
+                            <nav class="hidden md:flex ml-8 space-x-4">
                                 <Link<Route> 
                                     to={Route::Communities} 
                                     classes="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm font-medium transition-colors"
@@ -114,7 +132,9 @@ fn Header() -> Html {
                             </nav>
                         }
                     </div>
-                    <div class="flex items-center space-x-4">
+                    
+                    // Right side - Desktop menu items
+                    <div class="hidden md:flex items-center space-x-4">
                         if auth_state.is_authenticated {
                             <Link<Route> 
                                 to={Route::Profile} 
@@ -123,12 +143,12 @@ fn Header() -> Html {
                                 {"Profile"}
                             </Link<Route>>
                             if let Some(username) = &auth_state.username {
-                                <span class="text-sm text-gray-600 dark:text-gray-400">
+                                <span class="hidden lg:inline text-sm text-gray-600 dark:text-gray-400">
                                     {"Welcome, "}{username}
                                 </span>
                             }
                             <button
-                                onclick={on_logout}
+                                onclick={on_logout.clone()}
                                 class="text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                             >
                                 {"Logout"}
@@ -143,8 +163,85 @@ fn Header() -> Html {
                         }
                         <ThemeToggle />
                     </div>
+
+                    // Mobile menu button and theme toggle
+                    <div class="md:hidden flex items-center space-x-2">
+                        <ThemeToggle />
+                        <button
+                            onclick={toggle_mobile_menu}
+                            class="inline-flex items-center justify-center p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                            aria-expanded={(*mobile_menu_open).to_string()}
+                            aria-label="Toggle navigation menu"
+                        >
+                            if *mobile_menu_open {
+                                // X icon when menu is open
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            } else {
+                                // Hamburger icon when menu is closed
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                                </svg>
+                            }
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            // Mobile menu - shown/hidden based on state
+            if *mobile_menu_open {
+                <div class="md:hidden">
+                    <div class="px-2 pt-2 pb-3 space-y-1 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                        if auth_state.is_authenticated {
+                            if let Some(username) = &auth_state.username {
+                                <div class="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
+                                    {"Welcome, "}{username}
+                                </div>
+                            }
+                            <div onclick={close_mobile_menu.clone()}>
+                                <Link<Route> 
+                                    to={Route::Communities} 
+                                    classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+                                >
+                                    {"Communities"}
+                                </Link<Route>>
+                            </div>
+                            <div onclick={close_mobile_menu.clone()}>
+                                <Link<Route> 
+                                    to={Route::Profile} 
+                                    classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+                                >
+                                    {"Profile"}
+                                </Link<Route>>
+                            </div>
+                            <button
+                                onclick={on_logout}
+                                class="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                                {"Logout"}
+                            </button>
+                        } else {
+                            <div onclick={close_mobile_menu.clone()}>
+                                <Link<Route> 
+                                    to={Route::Login} 
+                                    classes="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+                                >
+                                    {"Login"}
+                                </Link<Route>>
+                            </div>
+                            <div onclick={close_mobile_menu.clone()}>
+                                <Link<Route> 
+                                    to={Route::Register} 
+                                    classes="block px-3 py-2 rounded-md text-base font-medium text-white bg-blue-600 hover:bg-blue-700"
+                                >
+                                    {"Sign Up"}
+                                </Link<Route>>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
         </header>
     }
 }
