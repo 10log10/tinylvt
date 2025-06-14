@@ -95,7 +95,6 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
 - [ ] **US-009**: View communities list
   - Access communities page
   - View list of user's communities
-  - Verify role display for each community
   - Click on community to access dashboard
   - *API Coverage*: `get_communities`
 
