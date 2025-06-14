@@ -267,13 +267,6 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
                     </span>
                 </div>
             </div>
-
-            // Hover overlay with action hint
-            <div class="absolute inset-0 bg-blue-50 dark:bg-blue-900/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center">
-                <div class="text-blue-600 dark:text-blue-400 text-sm font-medium">
-                    {"Click to manage"}
-                </div>
-            </div>
         </div>
     }
 }

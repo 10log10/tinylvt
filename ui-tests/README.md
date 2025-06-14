@@ -85,7 +85,7 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
 #### Story: Basic Community Creation & Joining
 **As a user, I want to create or join communities so I can participate in shared space allocation.**
 
-- [ ] **US-008**: Create new community
+- [x] **US-008**: Create new community
   - Navigate to communities page
   - Click create community button
   - Fill community creation form
