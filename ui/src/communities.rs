@@ -201,8 +201,8 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
         let community_id = community.id.clone();
 
         Callback::from(move |_: MouseEvent| {
-            // Navigate to community management page
-            navigator.push(&Route::CommunityManage {
+            // Navigate to community dashboard page
+            navigator.push(&Route::CommunityDashboard {
                 id: community_id.0.to_string(),
             });
         })
@@ -895,7 +895,7 @@ pub fn InviteItem(props: &InviteItemProps) -> Html {
 
 // Community Management State
 #[derive(Default, Clone, PartialEq)]
-struct CommunityManageState {
+struct CommunitySettingsState {
     community: Option<responses::Community>,
     members: Vec<responses::CommunityMember>,
     pending_invites: Vec<responses::CommunityInvite>,
@@ -912,15 +912,15 @@ struct InviteForm {
 }
 
 #[derive(Properties, PartialEq)]
-pub struct CommunityManageProps {
+pub struct CommunitySettingsProps {
     pub community_id: String,
 }
 
 #[function_component]
-pub fn CommunityManage(props: &CommunityManageProps) -> Html {
+pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
     let (auth_state, _) = use_auth();
     let navigator = use_navigator().unwrap();
-    let community_state = use_state(CommunityManageState::default);
+    let community_state = use_state(CommunitySettingsState::default);
     let invite_form = use_state(InviteForm::default);
 
     // Parse community ID
@@ -1248,7 +1248,12 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                     <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                         <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
                                     </svg>
-                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{&community.name}</span>
+                                    <Link<Route>
+                                        to={Route::CommunityDashboard { id: props.community_id.clone() }}
+                                        classes="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                                    >
+                                        {&community.name}
+                                    </Link<Route>>
                                 </div>
                             </li>
                             <li>
@@ -1256,7 +1261,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                     <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                         <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
                                     </svg>
-                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Manage"}</span>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Settings"}</span>
                                 </div>
                             </li>
                         </ol>
@@ -1274,7 +1279,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                             <div class="min-w-0 flex-1">
                                 <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white truncate">{&community.name}</h1>
                                 <p class="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-300">
-                                    {"Manage members and community settings"}
+                                    {"Community settings and member management"}
                                 </p>
                             </div>
                         </div>
@@ -1433,7 +1438,7 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                     <div class="space-y-6 order-1 lg:order-2">
                         // Community info card
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Settings"}</h3>
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Info"}</h3>
                             <dl class="space-y-3">
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"New members"}</dt>
@@ -1448,6 +1453,14 @@ pub fn CommunityManage(props: &CommunityManageProps) -> Html {
                                             </span>
                                         }
                                     </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Sites"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"0 sites"}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Members"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"View in settings"}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Created"}</dt>
@@ -1559,5 +1572,382 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
                 </div>
             </div>
         </div>
+    }
+}
+
+// Community Dashboard State
+#[derive(Default, Clone, PartialEq)]
+pub struct CommunityDashboardState {
+    pub community: Option<responses::Community>,
+    pub is_loading: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct CommunityDashboardProps {
+    pub community_id: String,
+}
+
+#[function_component]
+pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
+    let (auth_state, _) = use_auth();
+    let navigator = use_navigator().unwrap();
+    let community_state = use_state(CommunityDashboardState::default);
+
+    // Parse community ID
+    let community_id = match props.community_id.parse::<uuid::Uuid>() {
+        Ok(id) => payloads::CommunityId(id),
+        Err(_) => {
+            // Invalid UUID, navigate back to communities
+            navigator.push(&Route::Communities);
+            return html! {};
+        }
+    };
+
+    // Redirect if not authenticated
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        use_effect_with(auth_state, move |auth_state| {
+            if !auth_state.is_loading && !auth_state.is_authenticated {
+                navigator.push(&Route::Login);
+            }
+            || ()
+        });
+    }
+
+    // Load community data when component mounts
+    {
+        let community_state = community_state.clone();
+        let auth_state = auth_state.clone();
+        let community_id = community_id.clone();
+
+        use_effect_with(
+            (auth_state.is_authenticated, props.community_id.clone()),
+            move |(is_authenticated, _)| {
+                if *is_authenticated {
+                    let community_state = community_state.clone();
+                    let community_id = community_id.clone();
+
+                    yew::platform::spawn_local(async move {
+                        let mut state = (*community_state).clone();
+                        state.is_loading = true;
+                        state.error = None;
+                        community_state.set(state);
+
+                        let client = get_api_client();
+
+                        // Get all communities to find this one
+                        match client.get_communities().await {
+                            Ok(communities) => {
+                                // Find the community we're viewing
+                                let community = communities
+                                    .into_iter()
+                                    .find(|c| c.id == community_id);
+
+                                if let Some(community) = community {
+                                    let mut state = (*community_state).clone();
+                                    state.community = Some(community);
+                                    state.is_loading = false;
+                                    community_state.set(state);
+                                } else {
+                                    let mut state = (*community_state).clone();
+                                    state.error = Some("Community not found or you don't have access".to_string());
+                                    state.is_loading = false;
+                                    community_state.set(state);
+                                }
+                            }
+                            Err(e) => {
+                                let mut state = (*community_state).clone();
+                                state.error = Some(format!("Failed to load community: {}", e));
+                                state.is_loading = false;
+                                community_state.set(state);
+                            }
+                        }
+                    });
+                }
+                || ()
+            },
+        );
+    }
+
+    let on_back_to_communities = {
+        let navigator = navigator.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::Communities);
+        })
+    };
+
+    let on_settings = {
+        let navigator = navigator.clone();
+        let community_id = props.community_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::CommunitySettings {
+                id: community_id.clone(),
+            });
+        })
+    };
+
+    // Don't render anything if not authenticated
+    if !auth_state.is_authenticated {
+        return html! {};
+    }
+
+    // Loading state
+    if community_state.is_loading {
+        return html! {
+            <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div class="text-center py-12">
+                    <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="mt-2 text-gray-600 dark:text-gray-400">{"Loading community..."}</p>
+                </div>
+            </main>
+        };
+    }
+
+    // Error state
+    if let Some(error) = &community_state.error {
+        return html! {
+            <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div class="text-center py-12">
+                    <div class="mx-auto h-12 w-12 text-red-400">
+                        <svg fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                    <h3 class="mt-2 text-lg font-medium text-gray-900 dark:text-white">{"Error loading community"}</h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
+                    <div class="mt-6">
+                        <button
+                            onclick={on_back_to_communities}
+                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                            {"Back to Communities"}
+                        </button>
+                    </div>
+                </div>
+            </main>
+        };
+    }
+
+    // Get community data
+    let community = match &community_state.community {
+        Some(community) => community,
+        None => return html! {}, // This shouldn't happen but just in case
+    };
+
+    let first_letter = community
+        .name
+        .chars()
+        .next()
+        .unwrap_or('C')
+        .to_uppercase()
+        .to_string();
+
+    html! {
+        <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="space-y-8">
+                // Header section
+                <div>
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol role="list" class="flex items-center space-x-4">
+                            <li>
+                                <div class="flex">
+                                    <Link<Route>
+                                        to={Route::Communities}
+                                        classes="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                                    >
+                                        {"Communities"}
+                                    </Link<Route>>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{&community.name}</span>
+                                </div>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M5.555 17.776l8-16 .894.448-8 16-.894-.448z" />
+                                    </svg>
+                                    <span class="ml-4 text-sm font-medium text-gray-500 dark:text-gray-400">{"Community Dashboard"}</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+
+                    <div class="mt-4 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+                        <div class="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
+                            <div class="flex-shrink-0">
+                                <div class="w-12 h-12 sm:w-16 sm:h-16 bg-blue-500 rounded-xl flex items-center justify-center">
+                                    <span class="text-white font-bold text-lg sm:text-2xl">
+                                        {first_letter}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white truncate">{&community.name}</h1>
+                                <p class="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-300">
+                                    {"Community overview and statistics"}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button
+                                onclick={on_settings.clone()}
+                                class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                {"Settings"}
+                            </button>
+                            <button
+                                onclick={on_back_to_communities}
+                                class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                {"Back to Communities"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                // Main dashboard content
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+                    // Main content area - Sites and Statistics
+                    <div class="lg:col-span-2 space-y-6">
+                        // Sites section
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
+                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                                <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Sites"}</h2>
+                                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    {"Spaces and auctions in this community"}
+                                </p>
+                            </div>
+                            <div class="p-6">
+                                <div class="text-center py-8">
+                                    <div class="mx-auto h-12 w-12 text-gray-400">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 11V9a1 1 0 011-1h2a1 1 0 011 1v11M7 21h4"></path>
+                                        </svg>
+                                    </div>
+                                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No sites yet"}</h3>
+                                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                        {"Create your first site to start hosting auctions."}
+                                    </p>
+                                    <div class="mt-6">
+                                        <button
+                                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                        >
+                                            {"Create Site"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        // Statistics section
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
+                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                                <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Recent Activity"}</h2>
+                                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    {"Community activity and updates"}
+                                </p>
+                            </div>
+                            <div class="p-6">
+                                <div class="text-center py-8">
+                                    <div class="mx-auto h-12 w-12 text-gray-400">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                    </div>
+                                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No activity yet"}</h3>
+                                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                        {"Activity will appear here as members join and sites are created."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    // Sidebar - Quick Links and Community Info
+                    <div class="space-y-6">
+                        // Quick actions
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Quick Actions"}</h3>
+                            <div class="space-y-3">
+                                <button
+                                    onclick={on_settings}
+                                    class="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors"
+                                >
+                                    <svg class="mr-3 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    {"Community Settings"}
+                                </button>
+                                <button
+                                    class="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors"
+                                >
+                                    <svg class="mr-3 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 11V9a1 1 0 011-1h2a1 1 0 011 1v11M7 21h4"></path>
+                                    </svg>
+                                    {"Manage Sites"}
+                                </button>
+                                <button
+                                    class="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors"
+                                >
+                                    <svg class="mr-3 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                                    </svg>
+                                    {"View Members"}
+                                </button>
+                            </div>
+                        </div>
+
+                        // Community info card
+                        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Info"}</h3>
+                            <dl class="space-y-3">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"New members"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">
+                                        if community.new_members_default_active {
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                                                {"Active by default"}
+                                            </span>
+                                        } else {
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                                                {"Inactive by default"}
+                                            </span>
+                                        }
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Sites"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"0 sites"}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Members"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"View in settings"}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Created"}</dt>
+                                    <dd class="text-sm text-gray-900 dark:text-white">{"Recently"}</dd>
+                                </div>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
     }
 }

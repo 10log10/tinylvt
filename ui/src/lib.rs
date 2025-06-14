@@ -13,7 +13,7 @@ use auth::{
     VerifyEmailPrompt, use_auth,
 };
 use communities::{
-    Communities, CommunityInvites, CommunityManage,
+    Communities, CommunityInvites, CommunityDashboard, CommunitySettings,
     CreateCommunity as CreateCommunityComponent,
 };
 use theme::ThemeToggle;
@@ -295,8 +295,10 @@ enum Route {
     CreateCommunity,
     #[at("/communities/invites")]
     CommunityInvites,
-    #[at("/communities/:id/manage")]
-    CommunityManage { id: String },
+    #[at("/community/:id")]
+    CommunityDashboard { id: String },
+    #[at("/community/:id/settings")]
+    CommunitySettings { id: String },
     #[at("/profile")]
     Profile,
     // #[at("/bids")]
@@ -377,8 +379,11 @@ fn switch(routes: Route) -> Html {
         Route::Communities => html! { <Communities /> },
         Route::CreateCommunity => html! { <CreateCommunityComponent /> },
         Route::CommunityInvites => html! { <CommunityInvites /> },
-        Route::CommunityManage { id } => {
-            html! { <CommunityManage community_id={id.clone()} /> }
+        Route::CommunityDashboard { id } => {
+            html! { <CommunityDashboard community_id={id.clone()} /> }
+        }
+        Route::CommunitySettings { id } => {
+            html! { <CommunitySettings community_id={id.clone()} /> }
         }
         Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
