@@ -23,7 +23,8 @@ pub async fn create_community(
     Ok(HttpResponse::Ok().json(community.id))
 }
 
-/// Get the communities the user is a part of.
+/// Get the communities the user is a part of, including their role in each community.
+/// This provides the frontend with role information to show/hide controls based on permissions.
 #[tracing::instrument(skip(user, pool), ret)]
 #[get("/communities")]
 pub async fn get_communities(

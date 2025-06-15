@@ -1,13 +1,33 @@
-use payloads::{requests, responses};
+use payloads::{requests, responses, Role};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::{Route, auth::use_auth, get_api_client};
 
+/// Helper function to format role for display
+fn format_role(role: &Role) -> &'static str {
+    match role {
+        Role::Member => "Member",
+        Role::Moderator => "Moderator", 
+        Role::Coleader => "Co-leader",
+        Role::Leader => "Leader",
+    }
+}
+
+/// Helper function to get role badge color classes
+fn get_role_badge_classes(role: &Role) -> &'static str {
+    match role {
+        Role::Member => "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300",
+        Role::Moderator => "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+        Role::Coleader => "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+        Role::Leader => "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    }
+}
+
 #[derive(Default, Clone, PartialEq)]
 pub struct CommunitiesState {
-    pub communities: Vec<responses::Community>,
+    pub communities: Vec<responses::CommunityWithRole>,
     pub is_loading: bool,
     pub error: Option<String>,
 }
@@ -188,7 +208,7 @@ pub fn Communities() -> Html {
 
 #[derive(Properties, PartialEq)]
 pub struct CommunityCardProps {
-    pub community: responses::Community,
+    pub community: responses::CommunityWithRole,
 }
 
 #[function_component]
@@ -238,16 +258,19 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
                         </div>
                     </div>
                     <div class="min-w-0 flex-1">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                            {&community.name}
-                        </h3>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                {&community.name}
+                            </h3>
+                            <span class={format!("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {}", get_role_badge_classes(&community.user_role))}>
+                                {format_role(&community.user_role)}
+                            </span>
+                        </div>
                         <p class="text-sm text-gray-500 dark:text-gray-400">
                             {created_date}
                         </p>
                     </div>
                 </div>
-
-                // Remove role badge for MVP - users can check roles in the member list
             </div>
 
             // Remove active/inactive status display for MVP
@@ -944,7 +967,7 @@ pub fn InviteItem(props: &InviteItemProps) -> Html {
 // Community Management State
 #[derive(Default, Clone, PartialEq)]
 struct CommunitySettingsState {
-    community: Option<responses::Community>,
+    community: Option<responses::CommunityWithRole>,
     members: Vec<responses::CommunityMember>,
     pending_invites: Vec<responses::CommunityInvite>,
     is_loading: bool,
@@ -1747,7 +1770,7 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
 // Community Dashboard State
 #[derive(Default, Clone, PartialEq)]
 pub struct CommunityDashboardState {
-    pub community: Option<responses::Community>,
+    pub community: Option<responses::CommunityWithRole>,
     pub is_loading: bool,
     pub error: Option<String>,
 }

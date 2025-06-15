@@ -321,6 +321,25 @@ pub mod responses {
         pub is_active: bool,
     }
 
+    /// Community information with the current user's role in that community.
+    /// This is used by the get_communities endpoint to provide role information
+    /// so the frontend can show/hide controls based on permissions.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+    pub struct CommunityWithRole {
+        pub id: CommunityId,
+        pub name: String,
+        pub new_members_default_active: bool,
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+        pub created_at: Timestamp,
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+        pub updated_at: Timestamp,
+        /// The current user's role in this community
+        pub user_role: super::Role,
+        /// Whether the current user is active in this community
+        pub user_is_active: bool,
+    }
+
     /// Details about a community member for a community one is a part of.
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Site {
@@ -590,7 +609,7 @@ impl APIClient {
     /// Get the communities for the currently logged in user.
     pub async fn get_communities(
         &self,
-    ) -> Result<Vec<responses::Community>, ClientError> {
+    ) -> Result<Vec<responses::CommunityWithRole>, ClientError> {
         let response = self.empty_get("communities").await?;
         ok_body(response).await
     }

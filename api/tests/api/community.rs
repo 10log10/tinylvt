@@ -71,3 +71,43 @@ async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn community_role_information_returned() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    // Create Alice and her community (Alice will be the leader)
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    // Create Bob and invite him to Alice's community
+    app.create_bob_user().await?;
+    app.login_alice().await?;
+    let _invite_id = app.invite_bob().await?;
+
+    // Bob accepts the invite (Bob will be a member)
+    app.login_bob().await?;
+    app.accept_invite().await?;
+
+    // Test Alice's perspective (should be leader)
+    app.login_alice().await?;
+    let alice_communities = app.client.get_communities().await?;
+    assert_eq!(alice_communities.len(), 1);
+    let alice_community = &alice_communities[0];
+    assert_eq!(alice_community.id, community_id);
+    assert_eq!(alice_community.name, "Test community");
+    assert_eq!(alice_community.user_role, payloads::Role::Leader);
+    assert!(alice_community.user_is_active);
+
+    // Test Bob's perspective (should be member)
+    app.login_bob().await?;
+    let bob_communities = app.client.get_communities().await?;
+    assert_eq!(bob_communities.len(), 1);
+    let bob_community = &bob_communities[0];
+    assert_eq!(bob_community.id, community_id);
+    assert_eq!(bob_community.name, "Test community");
+    assert_eq!(bob_community.user_role, payloads::Role::Member);
+    assert!(bob_community.user_is_active);
+
+    Ok(())
+}

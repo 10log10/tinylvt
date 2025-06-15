@@ -1060,9 +1060,16 @@ pub async fn accept_invite(
 pub async fn get_communities(
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<Community>, StoreError> {
-    Ok(sqlx::query_as::<_, Community>(
-        "SELECT b.*
+) -> Result<Vec<payloads::responses::CommunityWithRole>, StoreError> {
+    Ok(sqlx::query_as::<_, payloads::responses::CommunityWithRole>(
+        "SELECT 
+            b.id,
+            b.name,
+            b.new_members_default_active,
+            b.created_at,
+            b.updated_at,
+            a.role as user_role,
+            a.is_active as user_is_active
         FROM community_members a
         JOIN communities b ON a.community_id = b.id
         WHERE a.user_id = $1",
