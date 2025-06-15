@@ -39,6 +39,11 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::get_site)
         .service(site::update_site)
         .service(site::delete_site)
+        .service(site::create_site_image)
+        .service(site::get_site_image)
+        .service(site::update_site_image)
+        .service(site::delete_site_image)
+        .service(site::list_site_images)
         .service(site::create_space)
         .service(site::get_space)
         .service(site::update_space)
@@ -113,6 +118,7 @@ impl From<StoreError> for APIError {
             StoreError::CommunityNotFound => APIError::NotFound(e.into()),
             StoreError::SiteNotFound => APIError::NotFound(e.into()),
             StoreError::SpaceNotFound => APIError::NotFound(e.into()),
+            StoreError::SiteImageNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionRoundNotFound => APIError::NotFound(e.into()),
             StoreError::RoundSpaceResultNotFound => {

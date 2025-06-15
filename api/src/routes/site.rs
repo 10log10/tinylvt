@@ -65,6 +65,70 @@ pub async fn delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
+// Site Image Routes
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/create_site_image")]
+pub async fn create_site_image(
+    user: Identity,
+    details: web::Json<payloads::requests::CreateSiteImage>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let site_image_id = store::create_site_image(&details, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(site_image_id))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/get_site_image")]
+pub async fn get_site_image(
+    user: Identity,
+    site_image_id: web::Json<payloads::SiteImageId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let site_image = store::get_site_image(&site_image_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(site_image))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/update_site_image")]
+pub async fn update_site_image(
+    user: Identity,
+    details: web::Json<payloads::requests::UpdateSiteImage>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let site_image = store::update_site_image(&details, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(site_image))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/delete_site_image")]
+pub async fn delete_site_image(
+    user: Identity,
+    site_image_id: web::Json<payloads::SiteImageId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::delete_site_image(&site_image_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/list_site_images")]
+pub async fn list_site_images(
+    user: Identity,
+    community_id: web::Json<payloads::CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let site_images = store::list_site_images(&community_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(site_images))
+}
+
+// Space Routes
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/create_space")]
 pub async fn create_space(

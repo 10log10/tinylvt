@@ -263,6 +263,20 @@ pub mod requests {
     pub struct UpdateProfile {
         pub display_name: Option<String>,
     }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct CreateSiteImage {
+        pub community_id: CommunityId,
+        pub name: String,
+        pub image_data: Vec<u8>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateSiteImage {
+        pub id: super::SiteImageId,
+        pub name: Option<String>,
+        pub image_data: Option<Vec<u8>>,
+    }
 }
 
 pub mod responses {
@@ -367,6 +381,19 @@ pub mod responses {
     pub struct SuccessMessage {
         pub message: String,
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+    pub struct SiteImage {
+        pub id: super::SiteImageId,
+        pub community_id: super::CommunityId,
+        pub name: String,
+        pub image_data: Vec<u8>,
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+        pub created_at: Timestamp,
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+        pub updated_at: Timestamp,
+    }
 }
 
 use derive_more::Display;
@@ -416,6 +443,12 @@ pub struct SpaceId(pub Uuid);
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct AuctionId(pub Uuid);
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct SiteImageId(pub Uuid);
 
 type ReqwestResult = Result<reqwest::Response, reqwest::Error>;
 
@@ -872,8 +905,47 @@ impl APIClient {
         let response = self.post("update_profile", details).await?;
         ok_body(response).await
     }
-}
 
+    pub async fn create_site_image(
+        &self,
+        details: &requests::CreateSiteImage,
+    ) -> Result<SiteImageId, ClientError> {
+        let response = self.post("create_site_image", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_site_image(
+        &self,
+        site_image_id: &SiteImageId,
+    ) -> Result<responses::SiteImage, ClientError> {
+        let response = self.post("get_site_image", site_image_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn update_site_image(
+        &self,
+        details: &requests::UpdateSiteImage,
+    ) -> Result<responses::SiteImage, ClientError> {
+        let response = self.post("update_site_image", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_site_image(
+        &self,
+        site_image_id: &SiteImageId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_site_image", site_image_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn list_site_images(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::SiteImage>, ClientError> {
+        let response = self.post("list_site_images", community_id).await?;
+        ok_body(response).await
+    }
+}
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// An unhandled API error to display, containing response text.

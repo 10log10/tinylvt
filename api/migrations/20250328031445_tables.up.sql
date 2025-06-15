@@ -124,6 +124,17 @@ CREATE TABLE open_hours_weekday (
     PRIMARY KEY (open_hours_id, day_of_week)
 );
 
+-- Images for sites or spaces.
+CREATE TABLE site_images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    image_data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    UNIQUE (community_id, name)
+);
+
 -- A location consisting of indivisible spaces available for rent, and for
 -- which auctions take place.
 CREATE TABLE sites (
@@ -152,7 +163,7 @@ CREATE TABLE sites (
     timezone TEXT NOT NULL, -- IANA time zone, e.g. 'America/Los_Angeles'
 
     -- Image is optional if the location is otherwise well-described.
-    site_image_id UUID,
+    site_image_id UUID REFERENCES site_images (id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     UNIQUE (community_id, name)
@@ -169,30 +180,12 @@ CREATE TABLE spaces (
     -- on bundling.
     is_available BOOLEAN NOT NULL DEFAULT true,
     -- Image is optional if the location is otherwise well-described.
-    site_image_id UUID,
+    site_image_id UUID REFERENCES site_images (id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     UNIQUE (site_id, name),
     CHECK (eligibility_points >= 0.0)
 );
-
--- Images for sites or spaces.
-CREATE TABLE site_images (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    site_id UUID NOT NULL REFERENCES sites (id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    image_data BYTEA NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    UNIQUE (site_id, name)
-);
-
--- Get around circular dependency for foreign key constraint.
-ALTER TABLE sites ADD CONSTRAINT fk_sites_site_images FOREIGN KEY
-(site_image_id) REFERENCES site_images (id) ON DELETE SET NULL;
-ALTER TABLE spaces ADD CONSTRAINT fk_spaces_site_images FOREIGN KEY
-(site_image_id) REFERENCES site_images (id) ON DELETE SET NULL;
-
 
 CREATE TABLE auctions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -243,7 +236,9 @@ CREATE TABLE round_space_results (
 );
 CREATE INDEX idx_round_space_results_space_id ON round_space_results (space_id);
 CREATE INDEX idx_round_space_results_round_id ON round_space_results (round_id);
-CREATE INDEX idx_round_space_results_round_space ON round_space_results (round_id, space_id);
+CREATE INDEX idx_round_space_results_round_space ON round_space_results (
+    round_id, space_id
+);
 
 -- All bids for spaces in an auction round that meet (are) the minimum bid
 -- increment.

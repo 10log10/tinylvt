@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 use payloads::{
     AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, SiteId, SpaceId, UserId, requests,
+    Role, SiteId, SpaceId, UserId, requests, SiteImageId,
     responses::{self, Community},
 };
 
@@ -246,22 +246,6 @@ pub struct Space {
     pub eligibility_points: f64,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
-    #[sqlx(try_from = "SqlxTs")]
-    pub created_at: Timestamp,
-    #[sqlx(try_from = "SqlxTs")]
-    pub updated_at: Timestamp,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct SiteImageId(pub Uuid);
-
-#[derive(Debug, Clone, FromRow)]
-pub struct SiteImage {
-    pub id: SiteImageId,
-    pub site_id: SiteId,
-    pub name: String,
-    pub image_data: Vec<u8>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -2240,6 +2224,147 @@ pub async fn delete_bid(
     Ok(())
 }
 
+// Site Image CRUD Operations
+
+pub async fn create_site_image(
+    details: &payloads::requests::CreateSiteImage,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::SiteImageId, StoreError> {
+    // Validate user is a member of the community
+    let actor = get_validated_member(user_id, &details.community_id, pool).await?;
+    
+    // Check if user has at least coleader permissions
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "INSERT INTO site_images (community_id, name, image_data) 
+         VALUES ($1, $2, $3) 
+         RETURNING *",
+    )
+    .bind(details.community_id)
+    .bind(&details.name)
+    .bind(&details.image_data)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(site_image.id)
+}
+
+pub async fn get_site_image(
+    site_image_id: &payloads::SiteImageId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::SiteImage, StoreError> {
+    let site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "SELECT * FROM site_images WHERE id = $1",
+    )
+    .bind(site_image_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    // Validate user is a member of the community
+    let _ = get_validated_member(user_id, &site_image.community_id, pool).await?;
+
+    Ok(site_image)
+}
+
+pub async fn update_site_image(
+    details: &payloads::requests::UpdateSiteImage,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::SiteImage, StoreError> {
+    // First, get the existing site image to check permissions
+    let existing_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "SELECT * FROM site_images WHERE id = $1",
+    )
+    .bind(details.id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    // Validate user is a member of the community with coleader permissions
+    let actor = get_validated_member(user_id, &existing_site_image.community_id, pool).await?;
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Update the site image
+    let updated_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "UPDATE site_images 
+         SET name = COALESCE($2, name), 
+             image_data = COALESCE($3, image_data)
+         WHERE id = $1 
+         RETURNING *",
+    )
+    .bind(details.id)
+    .bind(&details.name)
+    .bind(&details.image_data)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(updated_site_image)
+}
+
+pub async fn delete_site_image(
+    site_image_id: &payloads::SiteImageId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // First, get the existing site image to check permissions
+    let existing_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "SELECT * FROM site_images WHERE id = $1",
+    )
+    .bind(site_image_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+        e => StoreError::Database(e),
+    })?;
+
+    // Validate user is a member of the community with coleader permissions
+    let actor = get_validated_member(user_id, &existing_site_image.community_id, pool).await?;
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Delete the site image
+    sqlx::query("DELETE FROM site_images WHERE id = $1")
+        .bind(site_image_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn list_site_images(
+    community_id: &payloads::CommunityId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::SiteImage>, StoreError> {
+    // Validate user is a member of the community
+    let _ = get_validated_member(user_id, community_id, pool).await?;
+
+    let site_images = sqlx::query_as::<_, payloads::responses::SiteImage>(
+        "SELECT * FROM site_images WHERE community_id = $1 ORDER BY name",
+    )
+    .bind(community_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(site_images)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Email not yet verified")]
@@ -2286,6 +2411,8 @@ pub enum StoreError {
     SiteNotFound,
     #[error("Space not found")]
     SpaceNotFound,
+    #[error("Site image not found")]
+    SiteImageNotFound,
     #[error("Community invite not found")]
     CommunityInviteNotFound,
     #[error("Open hours not found")]
