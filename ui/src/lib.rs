@@ -13,7 +13,7 @@ use auth::{
     VerifyEmailPrompt, use_auth,
 };
 use communities::{
-    Communities, CommunityInvites, CommunityDashboard, CommunitySettings,
+    Communities, CommunityDashboard, CommunityInvites, CommunitySettings,
     CreateCommunity as CreateCommunityComponent,
 };
 use theme::ThemeToggle;

@@ -1,9 +1,9 @@
-use test_helpers::{self, spawn_app};
 use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use rust_decimal::Decimal;
 use sqlx::Row;
+use test_helpers::{self, spawn_app};
 
 #[tokio::test]
 async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {

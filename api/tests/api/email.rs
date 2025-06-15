@@ -1,7 +1,7 @@
-use test_helpers::{assert_status_code, spawn_app};
 use jiff_sqlx::ToSqlx;
 use payloads::requests;
 use reqwest::StatusCode;
+use test_helpers::{assert_status_code, spawn_app};
 
 #[tokio::test]
 async fn test_email_verification_flow() {

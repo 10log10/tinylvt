@@ -166,12 +166,12 @@ impl Config {
 
 /// Middleware to add security headers to API responses
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error,
-    http::header::{HeaderValue, CACHE_CONTROL, PRAGMA, EXPIRES},
+    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
+    http::header::{CACHE_CONTROL, EXPIRES, HeaderValue, PRAGMA},
 };
 use std::{
-    future::{ready, Ready},
+    future::{Ready, ready},
     pin::Pin,
     rc::Rc,
 };
@@ -182,7 +182,8 @@ pub struct SecurityHeadersMiddleware;
 
 impl<S, B> Transform<S, ServiceRequest> for SecurityHeadersMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>
+        + 'static,
     S::Future: 'static,
     B: 'static,
 {
@@ -205,7 +206,8 @@ pub struct SecurityHeadersMiddlewareService<S> {
 
 impl<S, B> Service<ServiceRequest> for SecurityHeadersMiddlewareService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>
+        + 'static,
     S::Future: 'static,
     B: 'static,
 {
@@ -217,29 +219,28 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let service = self.service.clone();
-        
+
         Box::pin(async move {
-            let is_api_endpoint = req.path().starts_with("/api") && req.path() != "/api/health_check";
-            
+            let is_api_endpoint = req.path().starts_with("/api")
+                && req.path() != "/api/health_check";
+
             let res = service.call(req).await?;
-            
+
             if is_api_endpoint {
                 let (req, mut res) = res.into_parts();
-                
+
                 // Add security headers for API endpoints
                 res.headers_mut().insert(
                     CACHE_CONTROL,
-                    HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
+                    HeaderValue::from_static(
+                        "no-store, no-cache, must-revalidate, private",
+                    ),
                 );
-                res.headers_mut().insert(
-                    PRAGMA,
-                    HeaderValue::from_static("no-cache"),
-                );
-                res.headers_mut().insert(
-                    EXPIRES,
-                    HeaderValue::from_static("0"),
-                );
-                
+                res.headers_mut()
+                    .insert(PRAGMA, HeaderValue::from_static("no-cache"));
+                res.headers_mut()
+                    .insert(EXPIRES, HeaderValue::from_static("0"));
+
                 Ok(ServiceResponse::new(req, res))
             } else {
                 Ok(res)

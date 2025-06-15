@@ -1659,7 +1659,10 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                             }
                             Err(e) => {
                                 let mut state = (*community_state).clone();
-                                state.error = Some(format!("Failed to load community: {}", e));
+                                state.error = Some(format!(
+                                    "Failed to load community: {}",
+                                    e
+                                ));
                                 state.is_loading = false;
                                 community_state.set(state);
                             }

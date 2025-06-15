@@ -168,4 +168,49 @@ If you didn't request this password reset, you can safely ignore this email. You
 
         self.send_email(to_email, template).await
     }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn send_community_invite_email(
+        &self,
+        to_email: &str,
+        community_name: &str,
+        base_url: &str,
+    ) -> Result<()> {
+        let invite_link = format!("{}/communities", base_url);
+
+        let template = EmailTemplate {
+            subject: format!("You've been invited to join {}", community_name),
+            html_body: format!(
+                r#"
+                <h2>You've been invited to join "{}"!</h2>
+                <p>You've been invited to become a member of the <strong>{}</strong> community on TinyLVT.</p>
+                <p>To accept your invitation, please sign up or log in to your TinyLVT account:</p>
+                <p><a href="{}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Accept Invitation</a></p>
+                <p>Or copy and paste this link in your browser:</p>
+                <p>{}</p>
+                <p>Once you're logged in, you'll be able to see and accept your invitation in the Communities section.</p>
+                <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+                "#,
+                community_name, community_name, invite_link, invite_link
+            ),
+            text_body: format!(
+                r#"
+You've been invited to join "{}"!
+
+You've been invited to become a member of the {} community on TinyLVT.
+
+To accept your invitation, please sign up or log in to your TinyLVT account:
+
+{}
+
+Once you're logged in, you'll be able to see and accept your invitation in the Communities section.
+
+If you didn't expect this invitation, you can safely ignore this email.
+                "#,
+                community_name, community_name, invite_link
+            ),
+        };
+
+        self.send_email(to_email, template).await
+    }
 }

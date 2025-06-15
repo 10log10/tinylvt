@@ -5,7 +5,7 @@ use test_helpers::alice_login_credentials;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use crate::framework::{login_user, TestEnvironment};
+use crate::framework::{TestEnvironment, login_user};
 
 /// UI integration test for US-001: Create new account with email verification.
 ///
@@ -118,7 +118,8 @@ async fn test_login_with_valid_credentials() -> Result<()> {
     env.api.create_alice_user().await?;
 
     // Step 2: Log in as Alice
-    login_user(&env.browser, &env.frontend_url, &alice_login_credentials()).await?;
+    login_user(&env.browser, &env.frontend_url, &alice_login_credentials())
+        .await?;
 
     // Step 3: Verify successful login and redirect
     info!("🔍 Verifying successful login and redirect");
@@ -667,7 +668,8 @@ async fn test_view_and_edit_profile() -> Result<()> {
     let credentials = test_helpers::alice_credentials();
 
     // Step 2: Log in as Alice
-    login_user(&env.browser, &env.frontend_url, &alice_login_credentials()).await?;
+    login_user(&env.browser, &env.frontend_url, &alice_login_credentials())
+        .await?;
 
     // Step 3: Navigate to profile page
     info!("👤 Navigating to profile page");
@@ -816,17 +818,18 @@ async fn test_logout_functionality() -> Result<()> {
     env.api.create_alice_user().await?;
 
     // Step 2: Log in as Alice
-    login_user(&env.browser, &env.frontend_url, &alice_login_credentials()).await?;
+    login_user(&env.browser, &env.frontend_url, &alice_login_credentials())
+        .await?;
 
     // Step 3: Click logout from user menu
     info!("🔓 Clicking logout from user menu");
-    
+
     // Try to find the logout button - it might be in desktop or mobile menu
     let logout_button = env
         .browser
         .find(Locator::XPath("//button[contains(text(), 'Logout')]"))
         .await;
-    
+
     if logout_button.is_err() {
         // If desktop logout button is not visible, try to find and click mobile menu toggle
         info!("🔍 Desktop logout not visible, checking mobile menu");
@@ -834,19 +837,19 @@ async fn test_logout_functionality() -> Result<()> {
             .browser
             .find(Locator::Css("button[aria-label='Toggle navigation menu']"))
             .await;
-            
+
         if let Ok(mobile_button) = mobile_menu_button {
             mobile_button.click().await?;
             sleep(Duration::from_millis(300)).await; // Wait for mobile menu to open
         }
     }
-    
+
     // Now try to find the logout button again
     let logout_button = env
         .browser
         .find(Locator::XPath("//button[contains(text(), 'Logout')]"))
         .await?;
-    
+
     logout_button.click().await?;
     sleep(Duration::from_secs(1)).await;
 
@@ -854,10 +857,11 @@ async fn test_logout_functionality() -> Result<()> {
     info!("🔍 Verifying session termination and redirect to homepage");
     let current_url = env.browser.current_url().await?;
     debug!("Current URL after logout: {}", current_url);
-    
+
     // Should be redirected to homepage
     assert!(
-        current_url.as_str().ends_with("/") || current_url.as_str().contains("/#/"),
+        current_url.as_str().ends_with("/")
+            || current_url.as_str().contains("/#/"),
         "Should be redirected to homepage after logout"
     );
 
@@ -883,7 +887,7 @@ async fn test_logout_functionality() -> Result<()> {
 
     // Step 5: Verify protected pages require re-login
     info!("🔒 Verifying protected pages require re-login");
-    
+
     // Try to access a protected page (communities)
     env.browser
         .goto(&format!("{}/communities", env.frontend_url))
@@ -892,11 +896,12 @@ async fn test_logout_functionality() -> Result<()> {
 
     let protected_url = env.browser.current_url().await?;
     debug!("URL after accessing protected page: {}", protected_url);
-    
+
     // Should be redirected to login or show login requirement
     // The exact behavior depends on implementation - either redirect to login or show access denied
     let is_redirected_to_login = protected_url.as_str().contains("/login");
-    let has_login_form = env.browser.find(Locator::Id("username")).await.is_ok();
+    let has_login_form =
+        env.browser.find(Locator::Id("username")).await.is_ok();
     let has_access_denied = env
         .browser
         .find(Locator::XPath("//*[contains(text(), 'login') or contains(text(), 'authenticated')]"))

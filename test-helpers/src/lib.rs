@@ -232,7 +232,7 @@ impl TestApp {
     }
 
     /// Returns the path component for the invite
-    pub async fn invite_bob(&self) -> anyhow::Result<String> {
+    pub async fn invite_bob(&self) -> anyhow::Result<payloads::InviteId> {
         let communities = self.client.get_communities().await?;
         let community_id = communities.first().unwrap().id;
         let details = requests::InviteCommunityMember {

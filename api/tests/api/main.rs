@@ -4,8 +4,8 @@ mod database;
 mod email;
 mod login;
 mod proxy_bidding;
-mod site;
 mod security_headers;
+mod site;
 
 use test_helpers::spawn_app;
 

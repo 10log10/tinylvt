@@ -571,7 +571,7 @@ impl APIClient {
     pub async fn invite_member(
         &self,
         details: &requests::InviteCommunityMember,
-    ) -> Result<String, ClientError> {
+    ) -> Result<InviteId, ClientError> {
         let response = self.post("invite_member", details).await?;
         ok_body(response).await
     }
@@ -609,7 +609,8 @@ impl APIClient {
         &self,
         community_id: &CommunityId,
     ) -> Result<Vec<MembershipSchedule>, ClientError> {
-        let response = self.post("get_membership_schedule", &community_id).await?;
+        let response =
+            self.post("get_membership_schedule", &community_id).await?;
         ok_body(response).await
     }
 
@@ -748,8 +749,9 @@ impl APIClient {
         &self,
         round_id: &AuctionRoundId,
     ) -> Result<Vec<RoundSpaceResult>, ClientError> {
-        let response =
-            self.post("round_space_results_for_round", &round_id).await?;
+        let response = self
+            .post("round_space_results_for_round", &round_id)
+            .await?;
         ok_body(response).await
     }
 

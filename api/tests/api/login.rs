@@ -85,7 +85,10 @@ async fn update_profile_success() -> anyhow::Result<()> {
     println!("Sending update request: {:?}", update_request);
     let updated_profile = app.client.update_profile(&update_request).await?;
     println!("Updated profile: {:?}", updated_profile);
-    assert_eq!(updated_profile.display_name, Some("Alice Smith".to_string()));
+    assert_eq!(
+        updated_profile.display_name,
+        Some("Alice Smith".to_string())
+    );
     assert_eq!(updated_profile.username, "alice"); // Username should remain unchanged
 
     // Verify the change persists
@@ -110,9 +113,7 @@ async fn update_profile_clear_display_name() -> anyhow::Result<()> {
     app.client.update_profile(&update_request).await?;
 
     // Clear the display name
-    let update_request = requests::UpdateProfile {
-        display_name: None,
-    };
+    let update_request = requests::UpdateProfile { display_name: None };
     let updated_profile = app.client.update_profile(&update_request).await?;
     assert_eq!(updated_profile.display_name, None);
 
@@ -131,7 +132,7 @@ async fn update_profile_display_name_too_long() -> anyhow::Result<()> {
     let update_request = requests::UpdateProfile {
         display_name: Some(long_display_name),
     };
-    
+
     let result = app.client.update_profile(&update_request).await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
 
@@ -146,7 +147,7 @@ async fn update_profile_requires_authentication() -> anyhow::Result<()> {
     let update_request = requests::UpdateProfile {
         display_name: Some("Alice Smith".to_string()),
     };
-    
+
     let result = app.client.update_profile(&update_request).await;
     assert_status_code(result, StatusCode::UNAUTHORIZED);
 

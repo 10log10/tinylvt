@@ -35,12 +35,14 @@ pub async fn get_communities(
     Ok(HttpResponse::Ok().json(communities))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, email_service, config), ret)]
 #[post("/invite_member")]
 pub async fn invite_community_member(
     user: Identity,
     details: web::Json<requests::InviteCommunityMember>,
     pool: web::Data<PgPool>,
+    email_service: web::Data<crate::email::EmailService>,
+    config: web::Data<crate::Config>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
@@ -51,7 +53,27 @@ pub async fn invite_community_member(
         &pool,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(format!("/api/invite/{invite_id}")))
+
+    // Send email invitation if email address is provided
+    if let Some(ref email) = details.0.new_member_email {
+        // Get community information for the email
+        let community =
+            store::get_community_by_id(&details.0.community_id, &pool).await?;
+
+        if let Err(e) = email_service
+            .send_community_invite_email(
+                email,
+                &community.name,
+                &config.base_url,
+            )
+            .await
+        {
+            tracing::error!("Failed to send community invite email: {}", e);
+            // Don't fail the invitation creation, but log the error
+        }
+    }
+
+    Ok(HttpResponse::Ok().json(invite_id))
 }
 
 /// Get the invites the user has received

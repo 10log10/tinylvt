@@ -1087,6 +1087,20 @@ pub async fn get_communities(
     .await?)
 }
 
+pub async fn get_community_by_id(
+    community_id: &CommunityId,
+    pool: &PgPool,
+) -> Result<Community, StoreError> {
+    let community = sqlx::query_as::<_, Community>(
+        "SELECT * FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_optional(pool)
+    .await?;
+
+    community.ok_or(StoreError::CommunityNotFound)
+}
+
 pub async fn get_invites(
     user_id: &UserId,
     pool: &PgPool,
