@@ -37,20 +37,24 @@ async fn main() -> Result<()> {
     env.api.create_alice_user().await?;
     info!("🏘️ Creating Alice's community (Alice as leader)");
     let alice_community_id = env.api.create_test_community().await?;
-    info!("✅ Alice's community created with ID: {}", alice_community_id.0);
+    info!(
+        "✅ Alice's community created with ID: {}",
+        alice_community_id.0
+    );
 
     // Step 2: Create Bob user and his community
     info!("👤 Creating Bob user");
     env.api.create_bob_user().await?;
     info!("🔑 Logging in as Bob");
     env.api.login_bob().await?;
-    
+
     info!("🏘️ Creating Bob's community (Bob as leader)");
     let bob_community_body = requests::CreateCommunity {
         name: "Bob's Community".into(),
         new_members_default_active: true,
     };
-    let bob_community_id = env.api.client.create_community(&bob_community_body).await?;
+    let bob_community_id =
+        env.api.client.create_community(&bob_community_body).await?;
     info!("✅ Bob's community created with ID: {}", bob_community_id.0);
 
     // Step 3: Create invite from Bob to Alice
@@ -61,7 +65,10 @@ async fn main() -> Result<()> {
         new_member_email: Some(alice_credentials.email.clone()),
     };
     let invite_id = env.api.client.invite_member(&invite_details).await?;
-    info!("✅ Invite created with ID: {} for Alice to join Bob's community", invite_id.0);
+    info!(
+        "✅ Invite created with ID: {} for Alice to join Bob's community",
+        invite_id.0
+    );
 
     // Step 4: Log back in as Alice for the UI session
     info!("🔑 Logging back in as Alice for UI session");
@@ -72,13 +79,23 @@ async fn main() -> Result<()> {
 
     // Use the login helper function
     let alice_login_creds = test_helpers::alice_login_credentials();
-    framework::login_user(&env.browser, &env.frontend_url, &alice_login_creds).await?;
+    framework::login_user(&env.browser, &env.frontend_url, &alice_login_creds)
+        .await?;
 
     // === DISPLAY TEST DATA SUMMARY ===
     info!("📋 Test Environment Summary:");
-    info!("   🏘️ Alice's Community (ID: {}) - Alice is LEADER", alice_community_id.0);
-    info!("   🏘️ Bob's Community (ID: {}) - Bob is LEADER", bob_community_id.0);
-    info!("   📧 Pending invite (ID: {}) - Alice invited to Bob's community", invite_id.0);
+    info!(
+        "   🏘️ Alice's Community (ID: {}) - Alice is LEADER",
+        alice_community_id.0
+    );
+    info!(
+        "   🏘️ Bob's Community (ID: {}) - Bob is LEADER",
+        bob_community_id.0
+    );
+    info!(
+        "   📧 Pending invite (ID: {}) - Alice invited to Bob's community",
+        invite_id.0
+    );
     info!("   👤 Logged in as: Alice (can see her community + pending invite)");
     info!("");
     info!("🎯 You can now test:");

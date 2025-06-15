@@ -431,6 +431,29 @@ impl TestApp {
         assert_auction_equal(&auction, retrieved)?;
         Ok(auction_response)
     }
+
+    pub async fn create_test_site_image(
+        &self,
+        community_id: &CommunityId,
+    ) -> anyhow::Result<payloads::responses::SiteImage> {
+        let body = site_image_details_a(*community_id);
+        let site_image_id = self.client.create_site_image(&body).await?;
+        let site_image = self.client.get_site_image(&site_image_id).await?;
+        Ok(site_image)
+    }
+
+    pub async fn update_site_image_details(
+        &self,
+        prev: payloads::responses::SiteImage,
+    ) -> anyhow::Result<()> {
+        let update_body = site_image_details_a_update(prev.id);
+        let updated = self.client.update_site_image(&update_body).await?;
+        assert_site_image_equal(
+            &site_image_details_a_update_expected(prev.id, prev.community_id),
+            &updated,
+        )?;
+        Ok(())
+    }
 }
 
 pub fn alice_credentials() -> requests::CreateAccount {
@@ -631,6 +654,66 @@ pub fn assert_space_equal(
     assert_eq!(space.description, retrieved.description);
     assert_eq!(space.eligibility_points, retrieved.eligibility_points);
     assert_eq!(space.is_available, retrieved.is_available);
+    Ok(())
+}
+
+pub fn site_image_details_a(
+    community_id: CommunityId,
+) -> payloads::requests::CreateSiteImage {
+    payloads::requests::CreateSiteImage {
+        community_id,
+        name: "test image".into(),
+        image_data: vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], // PNG header
+    }
+}
+
+pub fn site_image_details_b(
+    community_id: CommunityId,
+) -> payloads::requests::CreateSiteImage {
+    payloads::requests::CreateSiteImage {
+        community_id,
+        name: "test image b".into(),
+        image_data: vec![0xFF, 0xD8, 0xFF, 0xE0], // JPEG header
+    }
+}
+
+fn site_image_details_a_update(
+    id: payloads::SiteImageId,
+) -> payloads::requests::UpdateSiteImage {
+    payloads::requests::UpdateSiteImage {
+        id,
+        name: Some("test image updated".into()),
+        image_data: Some(vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00,
+        ]), // Updated PNG
+    }
+}
+
+fn site_image_details_a_update_expected(
+    id: payloads::SiteImageId,
+    community_id: CommunityId,
+) -> payloads::responses::SiteImage {
+    payloads::responses::SiteImage {
+        id,
+        community_id,
+        name: "test image updated".into(),
+        image_data: vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00,
+        ],
+        created_at: jiff::Timestamp::now(), // This will be overridden in the test
+        updated_at: jiff::Timestamp::now(), // This will be overridden in the test
+    }
+}
+
+pub fn assert_site_image_equal(
+    expected: &payloads::responses::SiteImage,
+    retrieved: &payloads::responses::SiteImage,
+) -> anyhow::Result<()> {
+    assert_eq!(expected.id, retrieved.id);
+    assert_eq!(expected.community_id, retrieved.community_id);
+    assert_eq!(expected.name, retrieved.name);
+    assert_eq!(expected.image_data, retrieved.image_data);
+    // We don't check timestamps as they are set by the database
     Ok(())
 }
 

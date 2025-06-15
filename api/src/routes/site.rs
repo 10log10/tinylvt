@@ -75,7 +75,8 @@ pub async fn create_site_image(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let site_image_id = store::create_site_image(&details, &user_id, &pool).await?;
+    let site_image_id =
+        store::create_site_image(&details, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(site_image_id))
 }
 
@@ -87,7 +88,8 @@ pub async fn get_site_image(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let site_image = store::get_site_image(&site_image_id, &user_id, &pool).await?;
+    let site_image =
+        store::get_site_image(&site_image_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(site_image))
 }
 
@@ -99,7 +101,8 @@ pub async fn update_site_image(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let site_image = store::update_site_image(&details, &user_id, &pool).await?;
+    let site_image =
+        store::update_site_image(&details, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(site_image))
 }
 
@@ -123,7 +126,8 @@ pub async fn list_site_images(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let site_images = store::list_site_images(&community_id, &user_id, &pool).await?;
+    let site_images =
+        store::list_site_images(&community_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(site_images))
 }
 

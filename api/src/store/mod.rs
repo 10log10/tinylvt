@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 use payloads::{
     AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, SiteId, SpaceId, UserId, requests, SiteImageId,
+    Role, SiteId, SiteImageId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
@@ -2232,8 +2232,9 @@ pub async fn create_site_image(
     pool: &PgPool,
 ) -> Result<payloads::SiteImageId, StoreError> {
     // Validate user is a member of the community
-    let actor = get_validated_member(user_id, &details.community_id, pool).await?;
-    
+    let actor =
+        get_validated_member(user_id, &details.community_id, pool).await?;
+
     // Check if user has at least coleader permissions
     if !actor.0.role.is_ge_coleader() {
         return Err(StoreError::RequiresColeaderPermissions);
@@ -2270,7 +2271,8 @@ pub async fn get_site_image(
     })?;
 
     // Validate user is a member of the community
-    let _ = get_validated_member(user_id, &site_image.community_id, pool).await?;
+    let _ =
+        get_validated_member(user_id, &site_image.community_id, pool).await?;
 
     Ok(site_image)
 }
@@ -2281,36 +2283,40 @@ pub async fn update_site_image(
     pool: &PgPool,
 ) -> Result<payloads::responses::SiteImage, StoreError> {
     // First, get the existing site image to check permissions
-    let existing_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "SELECT * FROM site_images WHERE id = $1",
-    )
-    .bind(details.id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
-        e => StoreError::Database(e),
-    })?;
+    let existing_site_image =
+        sqlx::query_as::<_, payloads::responses::SiteImage>(
+            "SELECT * FROM site_images WHERE id = $1",
+        )
+        .bind(details.id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+            e => StoreError::Database(e),
+        })?;
 
     // Validate user is a member of the community with coleader permissions
-    let actor = get_validated_member(user_id, &existing_site_image.community_id, pool).await?;
+    let actor =
+        get_validated_member(user_id, &existing_site_image.community_id, pool)
+            .await?;
     if !actor.0.role.is_ge_coleader() {
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
     // Update the site image
-    let updated_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "UPDATE site_images 
+    let updated_site_image =
+        sqlx::query_as::<_, payloads::responses::SiteImage>(
+            "UPDATE site_images 
          SET name = COALESCE($2, name), 
              image_data = COALESCE($3, image_data)
          WHERE id = $1 
          RETURNING *",
-    )
-    .bind(details.id)
-    .bind(&details.name)
-    .bind(&details.image_data)
-    .fetch_one(pool)
-    .await?;
+        )
+        .bind(details.id)
+        .bind(&details.name)
+        .bind(&details.image_data)
+        .fetch_one(pool)
+        .await?;
 
     Ok(updated_site_image)
 }
@@ -2321,19 +2327,22 @@ pub async fn delete_site_image(
     pool: &PgPool,
 ) -> Result<(), StoreError> {
     // First, get the existing site image to check permissions
-    let existing_site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "SELECT * FROM site_images WHERE id = $1",
-    )
-    .bind(site_image_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
-        e => StoreError::Database(e),
-    })?;
+    let existing_site_image =
+        sqlx::query_as::<_, payloads::responses::SiteImage>(
+            "SELECT * FROM site_images WHERE id = $1",
+        )
+        .bind(site_image_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+            e => StoreError::Database(e),
+        })?;
 
     // Validate user is a member of the community with coleader permissions
-    let actor = get_validated_member(user_id, &existing_site_image.community_id, pool).await?;
+    let actor =
+        get_validated_member(user_id, &existing_site_image.community_id, pool)
+            .await?;
     if !actor.0.role.is_ge_coleader() {
         return Err(StoreError::RequiresColeaderPermissions);
     }
