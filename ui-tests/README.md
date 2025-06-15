@@ -131,7 +131,7 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Verify invite appears in pending list
   - *API Coverage*: `invite_member`
 
-- [ ] **US-013**: Manage member roles and status
+- [ ] **US-013**: Manage member roles and status (not planned for MVP)
   - View community members list
   - Edit member roles (within permission limits)
   - Toggle member active status

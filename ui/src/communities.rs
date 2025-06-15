@@ -255,29 +255,29 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
                 </div>
             </div>
 
-            <div class="mt-4">
-                <div class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
-                    <span>
-                        {"New members: "}
-                        if community.new_members_default_active {
-                            <span class="text-green-600 dark:text-green-400">{"Active by default"}</span>
-                        } else {
-                            <span class="text-yellow-600 dark:text-yellow-400">{"Inactive by default"}</span>
-                        }
-                    </span>
-                </div>
-            </div>
+            // Remove active/inactive status display for MVP
         </div>
     }
 }
 
 // Create Community Form State
-#[derive(Default, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct CreateCommunityForm {
     name: String,
     new_members_default_active: bool,
     is_loading: bool,
     error: Option<String>,
+}
+
+impl Default for CreateCommunityForm {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            new_members_default_active: true, // Always default to true for MVP
+            is_loading: false,
+            error: None,
+        }
+    }
 }
 
 #[function_component]
@@ -304,16 +304,6 @@ pub fn CreateCommunity() -> Html {
             let input: HtmlInputElement = e.target_unchecked_into();
             let mut form_data = (*form).clone();
             form_data.name = input.value();
-            form.set(form_data);
-        })
-    };
-
-    let on_default_active_change = {
-        let form = form.clone();
-        Callback::from(move |e: Event| {
-            let input: HtmlInputElement = e.target_unchecked_into();
-            let mut form_data = (*form).clone();
-            form_data.new_members_default_active = input.checked();
             form.set(form_data);
         })
     };
@@ -354,8 +344,7 @@ pub fn CreateCommunity() -> Html {
             let form = form.clone();
             let navigator = navigator.clone();
             let name = form_data.name.trim().to_string();
-            let new_members_default_active =
-                form_data.new_members_default_active;
+            let new_members_default_active = true; // Always true for MVP
 
             yew::platform::spawn_local(async move {
                 // Set loading state
@@ -453,31 +442,6 @@ pub fn CreateCommunity() -> Html {
                             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
                                 {"Choose a descriptive name that members will easily recognize."}
                             </p>
-                        </div>
-
-                        // New Members Default Active
-                        <div>
-                            <div class="relative flex items-start">
-                                <div class="flex h-5 items-center">
-                                    <input
-                                        id="new_members_default_active"
-                                        name="new_members_default_active"
-                                        type="checkbox"
-                                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700"
-                                        checked={form.new_members_default_active}
-                                        onchange={on_default_active_change}
-                                        disabled={form.is_loading}
-                                    />
-                                </div>
-                                <div class="ml-3 text-sm">
-                                    <label for="new_members_default_active" class="font-medium text-gray-700 dark:text-gray-300">
-                                        {"New members active by default"}
-                                    </label>
-                                    <p class="text-gray-500 dark:text-gray-400">
-                                        {"When enabled, new members will automatically be eligible for distributions and auctions. When disabled, you'll need to manually activate them."}
-                                    </p>
-                                </div>
-                            </div>
                         </div>
 
                         // Error message
@@ -1667,20 +1631,7 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Info"}</h3>
                             <dl class="space-y-3">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"New members"}</dt>
-                                    <dd class="text-sm text-gray-900 dark:text-white">
-                                        if community.new_members_default_active {
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
-                                                {"Active by default"}
-                                            </span>
-                                        } else {
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-                                                {"Inactive by default"}
-                                            </span>
-                                        }
-                                    </dd>
-                                </div>
+                                // Remove new members status display for MVP
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Sites"}</dt>
                                     <dd class="text-sm text-gray-900 dark:text-white">{"0 sites"}</dd>
@@ -1711,7 +1662,7 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                                     <div class="mt-2 text-sm text-blue-700 dark:text-blue-300">
                                         <ul class="list-disc list-inside space-y-1">
                                             <li>{"Invite members by email"}</li>
-                                            <li>{"View member status and roles"}</li>
+                                            <li>{"View member roles and permissions"}</li>
                                             <li>{"Manage community settings"}</li>
                                             <li>{"Create sites and auctions"}</li>
                                         </ul>
@@ -1782,17 +1733,13 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
                         <div class="text-sm font-medium text-gray-900 dark:text-white">
                             {&member.username}
                         </div>
-                        <div class="text-sm text-gray-500 dark:text-gray-400">
-                            {if member.is_active { "Active member" } else { "Inactive member" }}
-                        </div>
+                        // <div class="text-sm text-gray-500 dark:text-gray-400">
+                            // {"Member"} // Remove active/inactive status for MVP
+                        // </div>
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
-                    if !member.is_active {
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-                            {"Inactive"}
-                        </span>
-                    }
+                    // Remove inactive status badge for MVP
                     <span class={format!("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {} {}", role_bg, role_text)}>
                         {role_display}
                     </span>
@@ -2147,20 +2094,7 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Community Info"}</h3>
                             <dl class="space-y-3">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"New members"}</dt>
-                                    <dd class="text-sm text-gray-900 dark:text-white">
-                                        if community.new_members_default_active {
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
-                                                {"Active by default"}
-                                            </span>
-                                        } else {
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-                                                {"Inactive by default"}
-                                            </span>
-                                        }
-                                    </dd>
-                                </div>
+                                // Remove new members status display for MVP
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Sites"}</dt>
                                     <dd class="text-sm text-gray-900 dark:text-white">{"0 sites"}</dd>

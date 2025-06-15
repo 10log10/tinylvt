@@ -2,6 +2,10 @@
 
 This document defines the complete frontend interface for TinyLVT, a community-based land value tax auction system. The UI enables communities to manage shared spaces through automated auction mechanisms.
 
+## MVP Plan
+
+Certain features are not immediately planned for implementation. These include the member active/inactive status, setting the membership schedule, the editing of user roles.
+
 ## System Overview
 
 TinyLVT is a space allocation system using continuous auctions with activity rules. Communities create sites with spaces that are regularly auctioned to members. The system uses eligibility points, proxy bidding, and scheduled membership to fairly distribute access to shared resources.
