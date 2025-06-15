@@ -247,12 +247,7 @@ pub fn CommunityCard(props: &CommunityCardProps) -> Html {
                     </div>
                 </div>
 
-                // Role badge placeholder - we'll add this when we have role information
-                <div class="flex-shrink-0">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
-                        {"Member"} // Placeholder - will be dynamic when we have role data
-                    </span>
-                </div>
+                // Remove role badge for MVP - users can check roles in the member list
             </div>
 
             // Remove active/inactive status display for MVP
