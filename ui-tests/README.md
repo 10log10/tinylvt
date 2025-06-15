@@ -105,6 +105,14 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Verify default active status
   - *API Coverage*: `accept_invite`, `get_invites`
 
+- [x] **US-010b**: Accept community invite via direct link
+  - Generate shareable invite link from community settings
+  - Navigate directly to invite acceptance URL with query parameter
+  - Verify automatic invite acceptance when authenticated
+  - Verify redirect to communities page after successful acceptance
+  - Verify community membership is established
+  - *API Coverage*: `accept_invite`
+
 ### Phase 2: Core Community & Site Management
 
 #### Story: Community Administration

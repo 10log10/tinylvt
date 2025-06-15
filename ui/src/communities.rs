@@ -622,6 +622,95 @@ pub fn CommunityInvites() -> Html {
         });
     }
 
+    // Check for accept query parameter and auto-accept invite
+    {
+        let navigator = navigator.clone();
+        let auth_state = auth_state.clone();
+        let invites_state = invites_state.clone();
+
+        use_effect_with(auth_state.is_authenticated, move |is_authenticated| {
+            if *is_authenticated {
+                let navigator = navigator.clone();
+                let invites_state = invites_state.clone();
+
+                yew::platform::spawn_local(async move {
+                    let window = web_sys::window().unwrap();
+                    let location = window.location();
+
+                    // Parse query parameters
+                    if let Ok(search) = location.search() {
+                        if !search.is_empty() {
+                            // Parse query string (starts with '?')
+                            let query_string = &search[1..]; // Remove the '?' prefix
+                            for param in query_string.split('&') {
+                                if let Some((key, value)) =
+                                    param.split_once('=')
+                                {
+                                    if key == "accept" {
+                                        // Try to parse the invite ID
+                                        if let Ok(uuid) =
+                                            value.parse::<uuid::Uuid>()
+                                        {
+                                            let invite_id =
+                                                payloads::InviteId(uuid);
+
+                                            // Set accepting state
+                                            {
+                                                let mut state =
+                                                    (*invites_state).clone();
+                                                state.accepting_invite =
+                                                    Some(invite_id);
+                                                invites_state.set(state);
+                                            }
+
+                                            let client = get_api_client();
+                                            match client
+                                                .accept_invite(&invite_id)
+                                                .await
+                                            {
+                                                Ok(()) => {
+                                                    // Successfully accepted, navigate to communities
+                                                    navigator.push(
+                                                        &Route::Communities,
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    let mut state =
+                                                        (*invites_state)
+                                                            .clone();
+                                                    state.accepting_invite =
+                                                        None;
+                                                    state.error = Some(
+                                                        format!(
+                                                            "Failed to accept invite: {}",
+                                                            e
+                                                        ),
+                                                    );
+                                                    invites_state.set(state);
+                                                }
+                                            }
+                                        } else {
+                                            // Invalid invite ID format
+                                            let mut state =
+                                                (*invites_state).clone();
+                                            state.error = Some(
+                                                "Invalid invite link format"
+                                                    .to_string(),
+                                            );
+                                            invites_state.set(state);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            || ()
+        });
+    }
+
     let on_accept_invite = {
         let invites_state = invites_state.clone();
         let navigator = navigator.clone();
@@ -905,10 +994,24 @@ struct CommunitySettingsState {
 
 #[derive(Default, Clone, PartialEq)]
 struct InviteForm {
+    invitation_type: InvitationType,
     email: String,
     is_loading: bool,
     error: Option<String>,
     success_message: Option<String>,
+    generated_invite_link: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+enum InvitationType {
+    Email,
+    Link,
+}
+
+impl Default for InvitationType {
+    fn default() -> Self {
+        Self::Email
+    }
 }
 
 #[derive(Properties, PartialEq)]
@@ -1094,6 +1197,22 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
         })
     };
 
+    let on_invitation_type_change = {
+        let invite_form = invite_form.clone();
+        Callback::from(move |invitation_type: InvitationType| {
+            let mut form_data = (*invite_form).clone();
+            form_data.invitation_type = invitation_type;
+            // Clear any previous state when switching types
+            form_data.error = None;
+            form_data.success_message = None;
+            form_data.generated_invite_link = None;
+            if matches!(form_data.invitation_type, InvitationType::Link) {
+                form_data.email.clear();
+            }
+            invite_form.set(form_data);
+        })
+    };
+
     let on_invite_submit = {
         let invite_form = invite_form.clone();
         let community_id = community_id.clone();
@@ -1103,26 +1222,40 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
 
             let form_data = (*invite_form).clone();
 
-            // Validation
-            if form_data.email.trim().is_empty() {
-                let mut new_form = form_data;
-                new_form.error = Some("Email address is required".to_string());
-                invite_form.set(new_form);
-                return;
-            }
+            // Validation based on invitation type
+            match form_data.invitation_type {
+                InvitationType::Email => {
+                    if form_data.email.trim().is_empty() {
+                        let mut new_form = form_data;
+                        new_form.error =
+                            Some("Email address is required".to_string());
+                        invite_form.set(new_form);
+                        return;
+                    }
 
-            // Basic email validation
-            if !form_data.email.contains('@') {
-                let mut new_form = form_data;
-                new_form.error =
-                    Some("Please enter a valid email address".to_string());
-                invite_form.set(new_form);
-                return;
+                    // Basic email validation
+                    if !form_data.email.contains('@') {
+                        let mut new_form = form_data;
+                        new_form.error = Some(
+                            "Please enter a valid email address".to_string(),
+                        );
+                        invite_form.set(new_form);
+                        return;
+                    }
+                }
+                InvitationType::Link => {
+                    // No validation needed for link type
+                }
             }
 
             let invite_form = invite_form.clone();
             let community_id = community_id.clone();
-            let email = form_data.email.trim().to_string();
+            let email =
+                if matches!(form_data.invitation_type, InvitationType::Email) {
+                    Some(form_data.email.trim().to_string())
+                } else {
+                    None
+                };
 
             yew::platform::spawn_local(async move {
                 // Set loading state
@@ -1131,28 +1264,54 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                     new_form.is_loading = true;
                     new_form.error = None;
                     new_form.success_message = None;
+                    new_form.generated_invite_link = None;
                     invite_form.set(new_form);
                 }
 
                 let client = get_api_client();
                 let invite_request = requests::InviteCommunityMember {
                     community_id,
-                    new_member_email: Some(email.clone()),
+                    new_member_email: email.clone(),
                 };
 
                 match client.invite_member(&invite_request).await {
-                    Ok(_invite_path) => {
-                        // Successfully sent invite
-                        let mut new_form = InviteForm::default(); // Reset form
-                        new_form.success_message =
-                            Some(format!("Invitation sent to {}", email));
+                    Ok(invite_id) => {
+                        let mut new_form = (*invite_form).clone();
+                        new_form.is_loading = false;
+
+                        match email {
+                            Some(email_addr) => {
+                                // Email invitation - show success message
+                                new_form.success_message = Some(format!(
+                                    "Invitation sent to {}",
+                                    email_addr
+                                ));
+                                // Reset form for next invitation
+                                new_form.email.clear();
+                            }
+                            None => {
+                                // Link invitation - generate the link
+                                let window = web_sys::window().unwrap();
+                                let location = window.location();
+                                let origin = location.origin().unwrap();
+                                let invite_link = format!(
+                                    "{}/communities/invites?accept={}",
+                                    origin, invite_id.0
+                                );
+
+                                new_form.generated_invite_link =
+                                    Some(invite_link.clone());
+                                new_form.success_message = Some("Invite link generated! Share this link with the person you want to invite.".to_string());
+                            }
+                        }
+
                         invite_form.set(new_form);
                     }
                     Err(e) => {
                         let mut new_form = (*invite_form).clone();
                         new_form.is_loading = false;
                         new_form.error =
-                            Some(format!("Failed to send invite: {}", e));
+                            Some(format!("Failed to create invite: {}", e));
                         invite_form.set(new_form);
                     }
                 }
@@ -1327,29 +1486,87 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                             <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                                 <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Invite New Members"}</h2>
                                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                    {"Send invitations to new members via email."}
+                                    {"Send email invitations or create shareable invite links."}
                                 </p>
                             </div>
                             <div class="px-6 py-4">
                                 <form onsubmit={on_invite_submit} class="space-y-4">
+                                    // Invitation type selector
                                     <div>
-                                        <label for="invite-email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                            {"Email Address"}
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                            {"Invitation Type"}
                                         </label>
-                                        <div class="mt-1">
-                                            <input
-                                                type="email"
-                                                id="invite-email"
-                                                name="invite-email"
-                                                required=true
-                                                class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
+                                        <div class="flex space-x-4">
+                                            <label class="flex items-center">
+                                                <input
+                                                    type="radio"
+                                                    name="invitation-type"
+                                                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                                                    checked={matches!(invite_form.invitation_type, InvitationType::Email)}
+                                                    onchange={on_invitation_type_change.reform(|_| InvitationType::Email)}
+                                                />
+                                                <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">{"Email Invitation"}</span>
+                                            </label>
+                                            <label class="flex items-center">
+                                                <input
+                                                    type="radio"
+                                                    name="invitation-type"
+                                                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                                                    checked={matches!(invite_form.invitation_type, InvitationType::Link)}
+                                                    onchange={on_invitation_type_change.reform(|_| InvitationType::Link)}
+                                                />
+                                                <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">{"Invite Link"}</span>
+                                            </label>
+                                        </div>
+                                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                            {
+                                                match invite_form.invitation_type {
+                                                    InvitationType::Email => "Send an invitation directly to someone's email address.",
+                                                    InvitationType::Link => "Create a one-time link that can be shared with anyone."
+                                                }
+                                            }
+                                        </p>
+                                    </div>
+
+                                    // Email input (only shown for email invitations)
+                                    if matches!(invite_form.invitation_type, InvitationType::Email) {
+                                        <div>
+                                            <label for="invite-email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                {"Email Address"}
+                                            </label>
+                                            <div class="mt-1">
+                                                <input
+                                                    type="email"
+                                                    id="invite-email"
+                                                    name="invite-email"
+                                                    required=true
+                                                    class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
                                                 placeholder="Enter email address to invite"
                                                 value={invite_form.email.clone()}
                                                 oninput={on_email_change}
                                                 disabled={invite_form.is_loading}
                                             />
                                         </div>
-                                    </div>
+                                        </div>
+                                    }
+
+                                    // Generated invite link (shown after creating a link)
+                                    if let Some(link) = &invite_form.generated_invite_link {
+                                        <div class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md p-4">
+                                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                {"Invite Link"}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                readonly=true
+                                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-mono text-gray-900 dark:text-white"
+                                                value={link.clone()}
+                                            />
+                                            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                                {"Share this link with the person you want to invite. The link can only be used once."}
+                                            </p>
+                                        </div>
+                                    }
 
                                     if let Some(error) = &invite_form.error {
                                         <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-md">
@@ -1366,9 +1583,9 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                                     <div class="flex justify-end">
                                         <button
                                             type="submit"
-                                            disabled={invite_form.is_loading || invite_form.email.trim().is_empty()}
+                                            disabled={invite_form.is_loading || (matches!(invite_form.invitation_type, InvitationType::Email) && invite_form.email.trim().is_empty())}
                                             class={format!("inline-flex items-center px-4 py-2 text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border {}",
-                                                if invite_form.is_loading || invite_form.email.trim().is_empty() {
+                                                if invite_form.is_loading || (matches!(invite_form.invitation_type, InvitationType::Email) && invite_form.email.trim().is_empty()) {
                                                     "border-gray-300 bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
                                                 } else {
                                                     "border-transparent bg-blue-600 text-white hover:bg-blue-700"
@@ -1379,16 +1596,26 @@ pub fn CommunitySettings(props: &CommunitySettingsProps) -> Html {
                                                 <span class="flex items-center">
                                                     <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                     </svg>
-                                                    {"Sending Invite..."}
+                                                    {
+                                                        match invite_form.invitation_type {
+                                                            InvitationType::Email => "Sending Invite...",
+                                                            InvitationType::Link => "Creating Link..."
+                                                        }
+                                                    }
                                                 </span>
                                             } else {
                                                 <>
                                                     <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                                                     </svg>
-                                                    {"Send Invitation"}
+                                                    {
+                                                        match invite_form.invitation_type {
+                                                            InvitationType::Email => "Send Invitation",
+                                                            InvitationType::Link => "Create Invite Link"
+                                                        }
+                                                    }
                                                 </>
                                             }
                                         </button>

@@ -242,6 +242,19 @@ impl TestApp {
         Ok(self.client.invite_member(&details).await?)
     }
 
+    /// Creates a link-based invite (no email) for testing invite link acceptance
+    pub async fn create_link_invite(
+        &self,
+    ) -> anyhow::Result<payloads::InviteId> {
+        let communities = self.client.get_communities().await?;
+        let community_id = communities.first().unwrap().id;
+        let details = requests::InviteCommunityMember {
+            community_id,
+            new_member_email: None, // Link-based invite, no email
+        };
+        Ok(self.client.invite_member(&details).await?)
+    }
+
     pub async fn accept_invite(&self) -> anyhow::Result<()> {
         // get the first invite received
         let invites = self.client.get_invites().await?;

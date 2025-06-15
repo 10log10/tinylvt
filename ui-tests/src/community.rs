@@ -269,6 +269,138 @@ async fn test_join_community_via_invite() -> Result<()> {
     Ok(())
 }
 
+/// UI integration test for US-010b: Accept community invite via direct link
+///
+/// This test covers the user story:
+///   As a user, I want to accept community invites via direct link so I can join communities easily.
+///
+/// Steps:
+/// - Create a community and generate a link-based invite
+/// - Create a new user (Bob) to accept the invite
+/// - Navigate directly to the invite acceptance URL with query parameter
+/// - Verify automatic invite acceptance when authenticated
+/// - Verify redirect to communities page after successful acceptance
+/// - Verify community membership is established
+/// - *API Coverage*: `accept_invite`
+#[tokio::test]
+async fn test_accept_community_invite_via_link() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Set up test data - create Alice and a community
+    info!("📊 Setting up test data (Alice user and community)");
+    env.api.create_alice_user().await?;
+    let community_id = env.api.create_test_community().await?;
+    debug!("Created community with ID: {}", community_id);
+
+    // Step 2: Create a link-based invite (no email)
+    info!("🔗 Creating link-based community invite");
+    env.api.login_alice().await?;
+    let invite_id = env.api.create_link_invite().await?;
+    debug!("Created link-based invite with ID: {}", invite_id.0);
+
+    // Step 3: Create Bob user
+    info!("👤 Creating Bob user");
+    env.api.create_bob_user().await?;
+
+    // Step 4: Log in as Bob
+    login_user(&env.browser, &env.frontend_url, &bob_login_credentials())
+        .await?;
+
+    // Step 5: Navigate directly to the invite acceptance URL with query parameter
+    info!("🌐 Navigating directly to invite acceptance URL");
+    let invite_url = format!(
+        "{}/communities/invites?accept={}",
+        env.frontend_url, invite_id.0
+    );
+    debug!("Invite URL: {}", invite_url);
+
+    env.browser.goto(&invite_url).await?;
+    sleep(Duration::from_secs(2)).await;
+
+    // Step 6: Verify automatic invite acceptance and redirect
+    info!("🔍 Verifying automatic invite acceptance and redirect");
+
+    // Wait for the automatic acceptance process to complete
+    let mut redirect_completed = false;
+    let mut attempts = 0;
+    while attempts < 10 {
+        let current_url = env.browser.current_url().await?;
+        debug!("Current URL (attempt {}): {}", attempts + 1, current_url);
+
+        // Check if we've been redirected to the communities page (success)
+        if current_url.as_str().contains("/communities")
+            && !current_url.as_str().contains("/invites")
+            && !current_url.as_str().contains("accept=")
+        {
+            redirect_completed = true;
+            info!("✅ Successfully redirected to communities page");
+            break;
+        }
+
+        // Check if we're still on the invites page (might be processing)
+        if current_url.as_str().contains("/communities/invites") {
+            debug!("Still on invites page, waiting for processing...");
+            sleep(Duration::from_millis(500)).await;
+            attempts += 1;
+            continue;
+        }
+
+        // Check for any error states
+        let page_body = env.browser.find(Locator::Css("body")).await?;
+        let page_text = page_body.text().await?;
+        if page_text.contains("Failed to accept invite")
+            || page_text.contains("Invalid invite")
+        {
+            panic!("Invite acceptance failed: {}", page_text);
+        }
+
+        sleep(Duration::from_millis(500)).await;
+        attempts += 1;
+    }
+
+    assert!(
+        redirect_completed,
+        "Should be redirected to communities page after automatic invite acceptance"
+    );
+
+    // Step 7: Verify community membership
+    info!("🏘️ Verifying community membership");
+
+    // We should already be on the communities page, wait for it to load
+    sleep(Duration::from_millis(1000)).await;
+
+    // Step 8: Verify the community appears in Bob's communities list
+    info!("👀 Checking if community appears in Bob's communities");
+
+    // Get the page content to verify the community is displayed
+    let communities_body = env.browser.find(Locator::Css("body")).await?;
+    let communities_text = communities_body.text().await?;
+    debug!("Communities page content: {}", communities_text);
+
+    // Check if the community name appears on the page
+    let community_displayed = communities_text.contains("Test community")
+        || communities_text.contains("Test Community");
+
+    assert!(
+        community_displayed,
+        "Bob should see 'Test community' in his communities list after accepting invite via link. Page content: {}",
+        communities_text
+    );
+
+    // Also verify that Bob has the Member role
+    let has_member_role = communities_text.contains("Member");
+    assert!(
+        has_member_role,
+        "Bob should have 'Member' role displayed for the community. Page content: {}",
+        communities_text
+    );
+
+    info!("✅ Community membership verified successfully via link acceptance");
+
+    info!("✅ Accept community invite via link test completed");
+    Ok(())
+}
+
 /// UI integration test for US-009: View communities list
 ///
 /// This test covers the user story:
