@@ -7,11 +7,21 @@ use crate::{Route, get_api_client};
 use payloads::requests;
 
 // Authentication state management
-#[derive(Default, Clone, PartialEq, Store)]
+#[derive(Clone, PartialEq, Store)]
 pub struct AuthState {
     pub is_authenticated: bool,
     pub username: Option<String>,
     pub is_loading: bool,
+}
+
+impl Default for AuthState {
+    fn default() -> Self {
+        Self {
+            is_authenticated: false,
+            username: None,
+            is_loading: true, // Start with loading=true to prevent premature redirects
+        }
+    }
 }
 
 // Form states for different auth pages

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fantoccini::Locator;
 use std::time::Duration;
-use test_helpers::alice_login_credentials;
+use test_helpers::{alice_login_credentials, bob_login_credentials};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
@@ -117,6 +117,137 @@ async fn test_create_new_community() -> Result<()> {
     );
 
     info!("✅ Create new community test completed successfully");
+    Ok(())
+}
+
+/// UI integration test for US-010: Join community via invite
+///
+/// This test covers the user story:
+///   As a user, I want to join communities via invite so I can participate in shared space allocation.
+///
+/// Steps:
+/// - Create a community and generate an invite
+/// - Create a new user (Bob) to receive the invite
+/// - Navigate to community invites page
+/// - Accept the community invite
+/// - Verify community membership
+/// - Verify default active status
+/// - *API Coverage*: `accept_invite`, `get_invites`
+#[tokio::test]
+async fn test_join_community_via_invite() -> Result<()> {
+    let env = TestEnvironment::setup().await?;
+
+    // Step 1: Set up test data - create Alice and a community
+    info!("📊 Setting up test data (Alice user and community)");
+    env.api.create_alice_user().await?;
+    let community_id = env.api.create_test_community().await?;
+    debug!("Created community with ID: {}", community_id);
+
+    // Step 2: Create an invite for Bob to join the community
+    info!("📧 Creating community invite for Bob");
+    env.api.login_alice().await?;
+    let _invite_path = env.api.invite_bob().await?;
+    debug!("Created invite for Bob");
+
+    // Step 3: Create Bob user
+    info!("👤 Creating Bob user");
+    env.api.create_bob_user().await?;
+
+    // Step 4: Log in as Bob
+    login_user(&env.browser, &env.frontend_url, &bob_login_credentials())
+        .await?;
+
+        // Step 5: Navigate to community invites page
+    info!("📬 Navigating to community invites page");
+    
+    // Navigate to the main page first to ensure the frontend app is loaded
+    env.browser.goto(&env.frontend_url).await?;
+    sleep(Duration::from_millis(500)).await;
+    
+    // Navigate to communities page
+    info!("🏘️ Going to communities page");
+    let communities_link = env.browser.find(Locator::LinkText("Communities")).await?;
+    communities_link.click().await?;
+    sleep(Duration::from_millis(500)).await;
+    
+    // Look for "Join Community" button to get to invites (handles responsive text)
+    info!("📧 Looking for Join Community button");
+    let join_button = env.browser.find(Locator::XPath("//button[contains(., 'Join Community') or contains(., 'Join')]")).await?;
+    join_button.click().await?;
+    sleep(Duration::from_millis(500)).await;
+
+    // Step 6: Verify we're on the community invites page
+    info!("🔍 Verifying we're on the community invites page");
+    let current_url = env.browser.current_url().await?;
+    debug!("Current URL: {}", current_url);
+    
+    // Verify we're on the invites page by URL
+    assert!(
+        current_url.as_str().contains("/communities/invites"),
+        "Should be on community invites page, but got: {}",
+        current_url
+    );
+
+    // Step 7: Accept the community invite
+    info!("🔍 Looking for pending invites");
+    
+    // Wait briefly for invites to load
+    sleep(Duration::from_millis(500)).await;
+    
+    // Find and click the accept button
+    let accept_buttons = env.browser.find_all(Locator::XPath("//button[contains(text(), 'Accept') or contains(text(), 'Join')]")).await?;
+    assert!(!accept_buttons.is_empty(), "Should find at least one accept button for the invite");
+    
+    info!("✅ Found {} accept button(s), clicking the first one", accept_buttons.len());
+    accept_buttons[0].click().await?;
+    sleep(Duration::from_millis(500)).await;
+
+    // Step 8: Verify invite acceptance success
+    info!("🎉 Verifying invite acceptance success");
+    
+    // Check that we were redirected to communities page (success indicator)
+    let current_url = env.browser.current_url().await?;
+    assert!(
+        current_url.as_str().contains("/communities") && !current_url.as_str().contains("/invites"),
+        "Should be redirected to communities page after accepting invite, but got: {}",
+        current_url
+    );
+
+    // Step 9: Verify community membership
+    info!("🏘️ Verifying community membership");
+    
+    // We should already be on the communities page, just wait for it to load
+    sleep(Duration::from_millis(500)).await;
+
+    // Step 10: Verify the community appears in Bob's communities list
+    info!("👀 Checking if community appears in Bob's communities");
+
+    // Get the page content to verify the community is displayed
+    let communities_body = env.browser.find(Locator::Css("body")).await?;
+    let communities_text = communities_body.text().await?;
+    debug!("Communities page content: {}", communities_text);
+
+    // Check if the community name appears on the page
+    let community_displayed = communities_text.contains("Test community") || 
+                             communities_text.contains("Test Community");
+    
+    assert!(
+        community_displayed,
+        "Bob should see 'Test community' in his communities list after accepting invite. Page content: {}",
+        communities_text
+    );
+
+    // Also verify that Bob has the Member role
+    let has_member_role = communities_text.contains("Member");
+    assert!(
+        has_member_role,
+        "Bob should have 'Member' role displayed for the community. Page content: {}",
+        communities_text
+    );
+
+    info!("✅ Community membership verified successfully");
+
+    info!("✅ Join community via invite test completed");
     Ok(())
 }
 
