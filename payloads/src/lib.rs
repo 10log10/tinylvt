@@ -112,6 +112,7 @@ pub struct Site {
     pub open_hours: Option<OpenHours>,
     pub auto_schedule: bool,
     pub timezone: String,
+    pub site_image_id: Option<SiteImageId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +122,7 @@ pub struct Space {
     pub description: Option<String>,
     pub eligibility_points: f64,
     pub is_available: bool,
+    pub site_image_id: Option<SiteImageId>,
 }
 
 /// An auction for a site's possession period

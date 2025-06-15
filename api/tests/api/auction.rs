@@ -499,6 +499,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
             description: None,
             eligibility_points: 15.0, // Higher points than space_a
             is_available: true,
+            site_image_id: None,
         })
         .await?;
     let space_b = app.client.get_space(&space_b).await?;

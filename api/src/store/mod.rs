@@ -65,6 +65,7 @@ impl From<Space> for payloads::Space {
             description: space.description,
             eligibility_points: space.eligibility_points,
             is_available: space.is_available,
+            site_image_id: space.site_image_id,
         }
     }
 }
@@ -1277,8 +1278,9 @@ pub async fn create_site(
             proxy_bidding_lead_time,
             open_hours_id,
             auto_schedule,
-            timezone
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+            timezone,
+            site_image_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
     )
     .bind(actor.0.community_id)
     .bind(&details.name)
@@ -1290,6 +1292,7 @@ pub async fn create_site(
     .bind(open_hours_id)
     .bind(details.auto_schedule)
     .bind(&details.timezone)
+    .bind(details.site_image_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1415,6 +1418,7 @@ pub async fn get_site(
         open_hours,
         auto_schedule: site.auto_schedule,
         timezone: site.timezone,
+        site_image_id: site.site_image_id,
     };
     Ok(payloads::responses::Site {
         site_id: site.id,
@@ -1463,8 +1467,9 @@ pub async fn update_site(
             proxy_bidding_lead_time = $6,
             open_hours_id = $7,
             auto_schedule = $8,
-            timezone = $9
-        WHERE id = $10",
+            timezone = $9,
+            site_image_id = $10
+        WHERE id = $11",
     )
     .bind(&details.name)
     .bind(&details.description)
@@ -1475,6 +1480,7 @@ pub async fn update_site(
     .bind(new_open_hours_id)
     .bind(details.auto_schedule)
     .bind(&details.timezone)
+    .bind(details.site_image_id)
     .bind(existing_site.id)
     .execute(&mut *tx)
     .await?;
@@ -1623,14 +1629,16 @@ pub async fn create_space(
             name,
             description,
             eligibility_points,
-            is_available
-        ) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            is_available,
+            site_image_id
+        ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
     )
     .bind(details.site_id)
     .bind(&details.name)
     .bind(&details.description)
     .bind(details.eligibility_points)
     .bind(details.is_available)
+    .bind(details.site_image_id)
     .fetch_one(pool)
     .await?;
 
@@ -1664,14 +1672,16 @@ pub async fn update_space(
             name = $1,
             description = $2,
             eligibility_points = $3,
-            is_available = $4
-        WHERE id = $5
+            is_available = $4,
+            site_image_id = $5
+        WHERE id = $6
         RETURNING *",
     )
     .bind(&details.name)
     .bind(&details.description)
     .bind(details.eligibility_points)
     .bind(details.is_available)
+    .bind(details.site_image_id)
     .bind(space_id)
     .fetch_one(pool)
     .await?;

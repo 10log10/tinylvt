@@ -536,6 +536,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
         open_hours: Some(open_hours),
         auto_schedule: true,
         timezone: "America/Los_Angeles".into(),
+        site_image_id: None,
     }
 }
 
@@ -570,6 +571,7 @@ pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
         open_hours: Some(open_hours),
         auto_schedule: true,
         timezone: "America/Los_Angeles".into(),
+        site_image_id: None,
     }
 }
 pub fn assert_site_equal(
@@ -610,6 +612,7 @@ pub fn space_details_a(site_id: SiteId) -> payloads::Space {
         description: Some("test space description".into()),
         eligibility_points: 10.0,
         is_available: true,
+        site_image_id: None,
     }
 }
 
@@ -621,6 +624,7 @@ pub fn space_details_b(site_id: SiteId) -> payloads::Space {
         description: None,
         eligibility_points: 10.0,
         is_available: true,
+        site_image_id: None,
     }
 }
 
@@ -632,6 +636,7 @@ pub fn space_details_c(site_id: SiteId) -> payloads::Space {
         description: Some("test space c description".into()),
         eligibility_points: 10.0,
         is_available: true,
+        site_image_id: None,
     }
 }
 
@@ -642,6 +647,7 @@ fn space_details_a_update(site_id: SiteId) -> payloads::Space {
         description: Some("updated test space description".into()),
         eligibility_points: 15.0,
         is_available: false,
+        site_image_id: None,
     }
 }
 
