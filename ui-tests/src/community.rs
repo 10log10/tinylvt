@@ -157,22 +157,28 @@ async fn test_join_community_via_invite() -> Result<()> {
     login_user(&env.browser, &env.frontend_url, &bob_login_credentials())
         .await?;
 
-        // Step 5: Navigate to community invites page
+    // Step 5: Navigate to community invites page
     info!("📬 Navigating to community invites page");
-    
+
     // Navigate to the main page first to ensure the frontend app is loaded
     env.browser.goto(&env.frontend_url).await?;
     sleep(Duration::from_millis(500)).await;
-    
+
     // Navigate to communities page
     info!("🏘️ Going to communities page");
-    let communities_link = env.browser.find(Locator::LinkText("Communities")).await?;
+    let communities_link =
+        env.browser.find(Locator::LinkText("Communities")).await?;
     communities_link.click().await?;
     sleep(Duration::from_millis(500)).await;
-    
+
     // Look for "Join Community" button to get to invites (handles responsive text)
     info!("📧 Looking for Join Community button");
-    let join_button = env.browser.find(Locator::XPath("//button[contains(., 'Join Community') or contains(., 'Join')]")).await?;
+    let join_button = env
+        .browser
+        .find(Locator::XPath(
+            "//button[contains(., 'Join Community') or contains(., 'Join')]",
+        ))
+        .await?;
     join_button.click().await?;
     sleep(Duration::from_millis(500)).await;
 
@@ -180,7 +186,7 @@ async fn test_join_community_via_invite() -> Result<()> {
     info!("🔍 Verifying we're on the community invites page");
     let current_url = env.browser.current_url().await?;
     debug!("Current URL: {}", current_url);
-    
+
     // Verify we're on the invites page by URL
     assert!(
         current_url.as_str().contains("/communities/invites"),
@@ -190,32 +196,44 @@ async fn test_join_community_via_invite() -> Result<()> {
 
     // Step 7: Accept the community invite
     info!("🔍 Looking for pending invites");
-    
+
     // Wait briefly for invites to load
     sleep(Duration::from_millis(500)).await;
-    
+
     // Find and click the accept button
-    let accept_buttons = env.browser.find_all(Locator::XPath("//button[contains(text(), 'Accept') or contains(text(), 'Join')]")).await?;
-    assert!(!accept_buttons.is_empty(), "Should find at least one accept button for the invite");
-    
-    info!("✅ Found {} accept button(s), clicking the first one", accept_buttons.len());
+    let accept_buttons = env
+        .browser
+        .find_all(Locator::XPath(
+            "//button[contains(text(), 'Accept') or contains(text(), 'Join')]",
+        ))
+        .await?;
+    assert!(
+        !accept_buttons.is_empty(),
+        "Should find at least one accept button for the invite"
+    );
+
+    info!(
+        "✅ Found {} accept button(s), clicking the first one",
+        accept_buttons.len()
+    );
     accept_buttons[0].click().await?;
     sleep(Duration::from_millis(500)).await;
 
     // Step 8: Verify invite acceptance success
     info!("🎉 Verifying invite acceptance success");
-    
+
     // Check that we were redirected to communities page (success indicator)
     let current_url = env.browser.current_url().await?;
     assert!(
-        current_url.as_str().contains("/communities") && !current_url.as_str().contains("/invites"),
+        current_url.as_str().contains("/communities")
+            && !current_url.as_str().contains("/invites"),
         "Should be redirected to communities page after accepting invite, but got: {}",
         current_url
     );
 
     // Step 9: Verify community membership
     info!("🏘️ Verifying community membership");
-    
+
     // We should already be on the communities page, just wait for it to load
     sleep(Duration::from_millis(500)).await;
 
@@ -228,9 +246,9 @@ async fn test_join_community_via_invite() -> Result<()> {
     debug!("Communities page content: {}", communities_text);
 
     // Check if the community name appears on the page
-    let community_displayed = communities_text.contains("Test community") || 
-                             communities_text.contains("Test Community");
-    
+    let community_displayed = communities_text.contains("Test community")
+        || communities_text.contains("Test Community");
+
     assert!(
         community_displayed,
         "Bob should see 'Test community' in his communities list after accepting invite. Page content: {}",

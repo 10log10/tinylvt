@@ -92,13 +92,13 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Verify community is created with user as leader
   - *API Coverage*: `create_community`
 
-- [ ] **US-009**: View communities list
+- [x] **US-009**: View communities list
   - Access communities page
   - View list of user's communities
   - Click on community to access dashboard
   - *API Coverage*: `get_communities`
 
-- [ ] **US-010**: Join community via invite
+- [x] **US-010**: Join community via invite
   - Receive community invite
   - Click invite acceptance link
   - Verify community membership
@@ -112,7 +112,6 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
 
 - [ ] **US-011**: Access community management page
   - Login as moderator+ user
-  - Navigate to community from list
   - Access community management interface
   - Verify management options are visible
   - *API Coverage*: `get_communities`
