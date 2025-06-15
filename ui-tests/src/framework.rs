@@ -5,7 +5,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use fantoccini::{Client, ClientBuilder};
+use fantoccini::{Client, ClientBuilder, Locator};
 use rand::Rng;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -269,4 +269,56 @@ async fn connect_to_browser(gecko_port: u16, headed: bool) -> Result<Client> {
         .context("Failed to connect to geckodriver")?;
 
     Ok(client)
+}
+
+/// Reusable login function that fills in credentials and submits the login form
+pub async fn login_user(
+    browser: &Client,
+    frontend_url: &str,
+    credentials: &payloads::requests::LoginCredentials,
+) -> Result<()> {
+    info!("🔐 Logging in as {}", credentials.username);
+
+    // Navigate to login page
+    browser.goto(&format!("{}/login", frontend_url)).await?;
+    sleep(Duration::from_secs(1)).await;
+
+    // Fill in username
+    let username_field = browser.find(Locator::Id("username")).await?;
+    username_field.click().await?;
+    username_field.clear().await?;
+    username_field.send_keys(&credentials.username).await?;
+
+    // Fill in password
+    let password_field = browser.find(Locator::Id("password")).await?;
+    password_field.click().await?;
+    password_field.clear().await?;
+    password_field.send_keys(&credentials.password).await?;
+
+    // Trigger onchange event to ensure form validation
+    browser
+        .execute("document.getElementById('password')?.blur();", vec![])
+        .await?;
+    sleep(Duration::from_millis(100)).await;
+
+    // Submit the form
+    let submit_button =
+        browser.find(Locator::Css("button[type='submit']")).await?;
+    submit_button.click().await?;
+    sleep(Duration::from_secs(2)).await;
+
+    // Verify login was successful (not still on login page)
+    let current_url = browser.current_url().await?;
+    if current_url.as_str().contains("/login") {
+        let page_body = browser.find(Locator::Css("body")).await?;
+        let page_text = page_body.text().await?;
+        debug!(
+            "Still on login page after login attempt. Page content: {}",
+            page_text
+        );
+        return Err(anyhow::anyhow!("Login failed - still on login page"));
+    }
+
+    info!("✅ Successfully logged in as {}", credentials.username);
+    Ok(())
 }

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 api = { path = "../api", features = ["test-utils"] }
 test-helpers = { path = "../test-helpers" }
+payloads = { path = "../payloads" }
 anyhow = { workspace = true }
 fantoccini = "0.21"
 reqwest = { workspace = true }

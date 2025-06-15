@@ -4159,6 +4159,7 @@ dependencies = [
  "anyhow",
  "api",
  "fantoccini",
+ "payloads",
  "rand 0.8.5",
  "reqwest",
  "serde_json",

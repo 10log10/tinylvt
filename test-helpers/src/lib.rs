@@ -432,7 +432,7 @@ pub fn alice_login_credentials() -> requests::LoginCredentials {
     to_login_credentials(&alice_credentials())
 }
 
-fn bob_credentials() -> requests::CreateAccount {
+pub fn bob_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "bob".into(),
         password: "bobspw".into(),
@@ -440,11 +440,11 @@ fn bob_credentials() -> requests::CreateAccount {
     }
 }
 
-fn bob_login_credentials() -> requests::LoginCredentials {
+pub fn bob_login_credentials() -> requests::LoginCredentials {
     to_login_credentials(&bob_credentials())
 }
 
-fn charlie_credentials() -> requests::CreateAccount {
+pub fn charlie_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "charlie".into(),
         password: "charliepw".into(),
@@ -452,7 +452,7 @@ fn charlie_credentials() -> requests::CreateAccount {
     }
 }
 
-fn charlie_login_credentials() -> requests::LoginCredentials {
+pub fn charlie_login_credentials() -> requests::LoginCredentials {
     to_login_credentials(&charlie_credentials())
 }
 
