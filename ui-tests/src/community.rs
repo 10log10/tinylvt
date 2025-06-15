@@ -73,12 +73,7 @@ async fn test_create_new_community() -> Result<()> {
     name_field.clear().await?;
     name_field.send_keys(&community_name).await?;
 
-    // Optional: Check the "new members active by default" checkbox
-    let checkbox = env
-        .browser
-        .find(Locator::Id("new_members_default_active"))
-        .await?;
-    checkbox.click().await?;
+    // Note: new_members_default_active is always true by default
 
     // Step 6: Submit the form
     info!("🚀 Submitting community creation form");
