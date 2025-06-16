@@ -10,8 +10,51 @@ use rand::Rng;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use test_helpers::TestApp;
+use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
+
+// Global state for ensuring trunk build only happens once
+static TRUNK_BUILD_ONCE: OnceCell<Result<(), String>> = OnceCell::const_new();
+
+async fn ensure_trunk_build(backend_url: &str) -> Result<()> {
+    let backend_url = backend_url.to_string();
+
+    let result = TRUNK_BUILD_ONCE
+        .get_or_init(|| async move {
+            info!("🔨 Building frontend with trunk build (first time only)");
+            let build_result = Command::new("trunk")
+                .arg("build")
+                .current_dir("../ui")
+                .env("BACKEND_URL", &backend_url)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+
+            match build_result {
+                Ok(status) if status.success() => {
+                    info!("✅ Frontend build successful");
+                    Ok(())
+                }
+                Ok(status) => Err(format!(
+                    "Frontend build failed with status: {}",
+                    status
+                )),
+                Err(e) => Err(format!("Failed to run trunk build: {}", e)),
+            }
+        })
+        .await;
+
+    // Log whether we used cached build or not
+    if TRUNK_BUILD_ONCE.initialized() {
+        debug!("♻️ Using cached trunk build result");
+    }
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("{}", e)),
+    }
+}
 
 pub struct TestEnvironment {
     pub api: TestApp,
@@ -147,29 +190,7 @@ async fn start_frontend_with_retry(
     backend_url: &str,
 ) -> Result<(Child, u16)> {
     // First, ensure the frontend builds successfully
-    debug!("Building frontend with trunk build");
-    let build_result = Command::new("trunk")
-        .arg("build")
-        .current_dir("../ui")
-        .env("BACKEND_URL", backend_url)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    match build_result {
-        Ok(status) if status.success() => {
-            debug!("Frontend build successful");
-        }
-        Ok(status) => {
-            return Err(anyhow::anyhow!(
-                "Frontend build failed with status: {}",
-                status
-            ));
-        }
-        Err(e) => {
-            return Err(anyhow::anyhow!("Failed to run trunk build: {}", e));
-        }
-    }
+    ensure_trunk_build(backend_url).await?;
 
     // Now try to start the server on different ports
     for attempt in 1..=5 {
@@ -280,7 +301,7 @@ pub async fn login_user(
 
     // Navigate to login page
     browser.goto(&format!("{}/login", frontend_url)).await?;
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // Fill in username
     let username_field = browser.find(Locator::Id("username")).await?;
@@ -304,7 +325,7 @@ pub async fn login_user(
     let submit_button =
         browser.find(Locator::Css("button[type='submit']")).await?;
     submit_button.click().await?;
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // Verify login was successful (not still on login page)
     let current_url = browser.current_url().await?;
@@ -320,4 +341,64 @@ pub async fn login_user(
 
     info!("✅ Successfully logged in as {}", credentials.username);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::Instant;
+
+    /// Test that demonstrates trunk build only happens once even with parallel setup calls
+    #[tokio::test]
+    async fn test_trunk_build_synchronization() -> Result<()> {
+        let backend_url = "http://localhost:8000";
+
+        // Start timer to measure how long builds take
+        let start = Instant::now();
+
+        // Spawn multiple tasks that all try to ensure trunk build happens
+        let handles: Vec<_> = (0..5)
+            .map(|i| {
+                let backend_url = backend_url.to_string();
+                tokio::spawn(async move {
+                    let task_start = Instant::now();
+                    let result = ensure_trunk_build(&backend_url).await;
+                    let duration = task_start.elapsed();
+                    info!("Task {} completed in {:?}", i, duration);
+                    result
+                })
+            })
+            .collect();
+
+        // Wait for all tasks to complete
+        let mut all_succeeded = true;
+        for (i, handle) in handles.into_iter().enumerate() {
+            match handle.await {
+                Ok(Ok(())) => info!("Task {} succeeded", i),
+                Ok(Err(e)) => {
+                    warn!("Task {} failed: {}", i, e);
+                    all_succeeded = false;
+                }
+                Err(e) => {
+                    warn!("Task {} panicked: {}", i, e);
+                    all_succeeded = false;
+                }
+            }
+        }
+
+        let total_duration = start.elapsed();
+        info!("All tasks completed in {:?}", total_duration);
+
+        // All tasks should succeed (they should all get the same result)
+        assert!(all_succeeded, "All tasks should succeed");
+
+        // The build should have completed reasonably quickly (much faster than 5 separate builds)
+        // This is just a sanity check - the real test is that only one build message appears in logs
+        assert!(
+            total_duration.as_secs() < 30,
+            "Build should complete in reasonable time"
+        );
+
+        Ok(())
+    }
 }

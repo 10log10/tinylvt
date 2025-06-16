@@ -413,4 +413,90 @@ RUST_LOG=ui_tests=debug,api=info cargo run
 Or for even more detailed output:
 ```bash
 RUST_LOG=debug cargo run
-``` 
+```
+
+# UI Integration Tests
+
+This package contains UI integration tests that verify the frontend functionality by running real browser automation tests.
+
+## Key Features
+
+### Single Trunk Build per Test Session
+
+The test framework ensures that `trunk build` only runs once per test session, even when multiple tests run in parallel. This significantly speeds up test execution and prevents conflicts.
+
+**How it works:**
+- The first test to call `TestEnvironment::setup()` triggers the trunk build
+- All subsequent tests (including parallel ones) wait for the build to complete and reuse the result
+- Uses `tokio::sync::OnceCell` for thread-safe, async-compatible synchronization
+
+**To verify this behavior:**
+1. Clean any previous build state: `cd ../ui && rm -rf dist/`
+2. Run multiple tests in parallel with logging:
+   ```bash
+   RUST_LOG=ui_tests=info cargo test test_login -- --nocapture --test-threads=2
+   ```
+3. Look for the single "🔨 Building frontend with trunk build (first time only)" message in the logs
+4. Subsequent test environments should show "♻️ Using cached trunk build result"
+
+## Running Tests
+
+### Single Test
+```bash
+# Run one test with verbose output
+RUST_LOG=ui_tests=debug,api=info cargo test test_login_with_valid_credentials -- --nocapture
+```
+
+### Multiple Tests
+```bash
+# Run all authentication tests
+cargo test authentication -- --test-threads=1
+
+# Run tests in parallel (for when the bugs around parallel execution are resolved)
+cargo test authentication -- --test-threads=4
+```
+
+### All Tests
+```bash
+# Run all UI tests
+cargo test -- --test-threads=1
+```
+
+## Test Structure
+
+Each test follows this pattern:
+1. **Setup**: `TestEnvironment::setup()` starts API server, builds frontend (once), starts geckodriver and browser
+2. **Execute**: Test-specific actions using browser automation
+3. **Verify**: Assert expected outcomes
+4. **Cleanup**: Automatic cleanup when `TestEnvironment` is dropped
+
+## Architecture
+
+- **TestEnvironment**: Manages the full test environment (API, frontend, browser)
+- **Framework helpers**: Reusable functions like `login_user()`
+- **Test modules**: Organized by feature (authentication, community, etc.)
+
+## Dependencies
+
+- **Backend**: Rust API server (from `../api`)
+- **Frontend**: Trunk-built WASM frontend (from `../ui`) 
+- **Browser**: Firefox via geckodriver (automatically managed)
+
+## Debugging
+
+### Frontend Not Loading
+If tests fail with frontend connection issues:
+1. Check that trunk is installed: `trunk --version`
+2. Verify UI builds successfully: `cd ../ui && trunk build`
+3. Check for port conflicts in test logs
+
+### Browser Issues
+- Tests run in headless Firefox by default
+- For visual debugging, use `TestEnvironment::setup_headed()` in `main.rs`
+- Geckodriver logs are suppressed but can be enabled in framework.rs
+
+### Build Issues
+If trunk build fails:
+1. Check `../ui` directory exists and has proper Trunk.toml
+2. Verify BACKEND_URL environment variable is set correctly
+3. Check for wasm-pack and other trunk dependencies
