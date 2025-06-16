@@ -148,12 +148,12 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
 #### Story: Site & Space Creation
 **As a community moderator, I want to create and configure sites and spaces so members can bid on them.**
 
-- [ ] **US-015**: Create new site
+- [x] **US-015**: Create new site
   - Navigate to sites page for community
   - Click create site button
   - Fill site details form (name, description, auction params)
-  - Configure possession period and lead times
-  - Set timezone and open hours
+  - Configure possession period and lead times (not for MVP)
+  - Set timezone and open hours (open hours not for MVP)
   - Verify site creation success
   - *API Coverage*: `create_site`
 
