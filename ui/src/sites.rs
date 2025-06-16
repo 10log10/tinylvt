@@ -1,6 +1,9 @@
 use base64::Engine;
 use payloads::{CommunityId, SiteImageId, requests, responses};
-use web_sys::{window, File, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement, KeyboardEvent, MouseEvent};
+use web_sys::{
+    File, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement,
+    KeyboardEvent, MouseEvent, window,
+};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -249,11 +252,11 @@ pub fn Sites(props: &SitesProps) -> Html {
                                 let sites_state_deleted = sites_state.clone();
                                 let community_id_renamed = community_id.clone();
                                 let community_id_deleted = community_id.clone();
-                                
+
                                 let on_renamed = Callback::from(move |(_image_id, _new_name): (SiteImageId, String)| {
                                     let sites_state_renamed = sites_state_renamed.clone();
                                     let community_id = community_id_renamed.clone();
-                                    
+
                                     // Refresh site images from server to get updated data
                                     yew::platform::spawn_local(async move {
                                         let client = get_api_client();
@@ -270,11 +273,11 @@ pub fn Sites(props: &SitesProps) -> Html {
                                         }
                                     });
                                 });
-                                
+
                                 let on_deleted = Callback::from(move |image_id: SiteImageId| {
                                     let sites_state_deleted = sites_state_deleted.clone();
                                     let community_id = community_id_deleted.clone();
-                                    
+
                                     // Refresh site images from server to get updated data
                                     yew::platform::spawn_local(async move {
                                         let client = get_api_client();
@@ -293,7 +296,7 @@ pub fn Sites(props: &SitesProps) -> Html {
                                         }
                                     });
                                 });
-                                
+
                                 html! {
                                     <SiteImageCard
                                         key={format!("{}", image.id.0)}
@@ -422,7 +425,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
         let is_editing = is_editing.clone();
         let new_name = new_name.clone();
         let image_name = image.name.clone();
-        
+
         Callback::from(move |e: MouseEvent| {
             e.stop_propagation();
             new_name.set(image_name.clone());
@@ -434,16 +437,16 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
         let is_deleting = is_deleting.clone();
         let on_deleted = props.on_deleted.clone();
         let image_id = image.id.clone();
-        
+
         Callback::from(move |e: MouseEvent| {
             e.stop_propagation();
             if window().unwrap().confirm_with_message("Are you sure you want to delete this image? This action cannot be undone.").unwrap_or(false) {
                 let is_deleting = is_deleting.clone();
                 let on_deleted = on_deleted.clone();
                 let image_id = image_id.clone();
-                
+
                 is_deleting.set(true);
-                
+
                 yew::platform::spawn_local(async move {
                     let client = get_api_client();
                     match client.delete_site_image(&image_id).await {
@@ -475,7 +478,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
         let error = error.clone();
         let on_renamed = props.on_renamed.clone();
         let image_id = image.id.clone();
-        
+
         Callback::from(move |e: MouseEvent| {
             e.stop_propagation();
             let is_editing = is_editing.clone();
@@ -484,12 +487,12 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
             let on_renamed = on_renamed.clone();
             let image_id = image_id.clone();
             let name = (*new_name).clone();
-            
+
             if name.trim().is_empty() {
                 error.set(Some("Name cannot be empty".to_string()));
                 return;
             }
-            
+
             yew::platform::spawn_local(async move {
                 let client = get_api_client();
                 let update_request = payloads::requests::UpdateSiteImage {
@@ -497,7 +500,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                     name: Some(name.clone()),
                     image_data: None,
                 };
-                
+
                 match client.update_site_image(&update_request).await {
                     Ok(_) => {
                         is_editing.set(false);
@@ -519,7 +522,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
         let error = error.clone();
         let new_name = new_name.clone();
         let original_name = image.name.clone();
-        
+
         Callback::from(move |e: MouseEvent| {
             e.stop_propagation();
             is_editing.set(false);
@@ -531,19 +534,17 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
     let on_key_down = {
         let on_save_click = on_save_click.clone();
         let on_cancel_click = on_cancel_click.clone();
-        
-        Callback::from(move |e: KeyboardEvent| {
-            match e.key().as_str() {
-                "Enter" => {
-                    e.prevent_default();
-                    on_save_click.emit(MouseEvent::new("click").unwrap());
-                }
-                "Escape" => {
-                    e.prevent_default();
-                    on_cancel_click.emit(MouseEvent::new("click").unwrap());
-                }
-                _ => {}
+
+        Callback::from(move |e: KeyboardEvent| match e.key().as_str() {
+            "Enter" => {
+                e.prevent_default();
+                on_save_click.emit(MouseEvent::new("click").unwrap());
             }
+            "Escape" => {
+                e.prevent_default();
+                on_cancel_click.emit(MouseEvent::new("click").unwrap());
+            }
+            _ => {}
         })
     };
 
@@ -555,7 +556,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                     alt={image.name.clone()}
                     class="w-full h-32 object-cover"
                 />
-                
+
                 // Hover overlay with action buttons
                 if !*is_editing && !*is_deleting {
                     <div class="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center space-x-2">
@@ -579,7 +580,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                         </button>
                     </div>
                 }
-                
+
                 // Loading overlay for deletion
                 if *is_deleting {
                     <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
@@ -587,7 +588,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                     </div>
                 }
             </div>
-            
+
             <div class="p-3">
                 if *is_editing {
                     <div class="space-y-2">
@@ -600,11 +601,11 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                             placeholder="Image name"
                             autofocus=true
                         />
-                        
+
                         if let Some(err) = &*error {
                             <p class="text-xs text-red-600 dark:text-red-400">{err}</p>
                         }
-                        
+
                         <div class="flex justify-end space-x-2">
                             <button
                                 onclick={on_cancel_click}
@@ -614,7 +615,7 @@ pub fn SiteImageCard(props: &SiteImageCardProps) -> Html {
                             </button>
                             <button
                                 onclick={on_save_click}
-                                class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                             >
                                 {"Save"}
                             </button>
@@ -779,7 +780,7 @@ pub fn CreateSite(props: &CreateSiteProps) -> Html {
                     if let Some(file) = files.get(0) {
                         // Check file size (1MB = 1024 * 1024 bytes)
                         const MAX_FILE_SIZE: f64 = 1024.0 * 1024.0; // 1MB
-                        
+
                         if file.size() > MAX_FILE_SIZE {
                             form_data.error = Some("Image file size must be under 1MB. Please choose a smaller file or compress the image.".to_string());
                             form_data.image_file = None;
@@ -1773,7 +1774,7 @@ pub fn EditSite(props: &EditSiteProps) -> Html {
                     if let Some(file) = files.get(0) {
                         // Check file size (1MB = 1024 * 1024 bytes)
                         const MAX_FILE_SIZE: f64 = 1024.0 * 1024.0; // 1MB
-                        
+
                         if file.size() > MAX_FILE_SIZE {
                             current_state.form.error = Some("Image file size must be under 1MB. Please choose a smaller file or compress the image.".to_string());
                             current_state.form.image_file = None;
@@ -2193,6 +2194,11 @@ pub fn EditSite(props: &EditSiteProps) -> Html {
                                         </div>
                                     </div>
 
+                                    // Add Spaces Section
+                                    <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                                        <AddSpacesToSite site_id={site_id.clone()} />
+                                    </div>
+
                                     // Submit buttons
                                     <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200 dark:border-gray-700">
                                         <button
@@ -2300,5 +2306,1027 @@ fn get_system_timezone() -> String {
     } else {
         // Fallback to UTC if no IANA name is available
         "UTC".to_string()
+    }
+}
+
+// ============================================================================
+// Add Spaces to Site Component
+// ============================================================================
+
+#[derive(Clone)]
+struct SpaceForm {
+    name: String,
+    description: String,
+    eligibility_points: String,
+    is_available: bool,
+    selected_image: Option<SiteImageId>,
+    is_loading: bool,
+    error: Option<String>,
+}
+
+impl Default for SpaceForm {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            eligibility_points: "1.0".to_string(), // Default to 1.0 eligibility points
+            is_available: true,                    // Default to available
+            selected_image: None,
+            is_loading: false,
+            error: None,
+        }
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct AddSpacesToSiteProps {
+    pub site_id: payloads::SiteId,
+}
+
+#[function_component]
+pub fn AddSpacesToSite(props: &AddSpacesToSiteProps) -> Html {
+    let form = use_state(SpaceForm::default);
+    let spaces = use_state(Vec::<responses::Space>::new);
+    let site_images = use_state(Vec::<responses::SiteImage>::new);
+    let community_id = use_state(|| None::<CommunityId>);
+    let show_form = use_state(|| false);
+
+    // Load existing spaces for this site
+    {
+        let spaces = spaces.clone();
+        let site_id = props.site_id.clone();
+
+        use_effect_with(props.site_id, move |_| {
+            let spaces = spaces.clone();
+            let site_id = site_id.clone();
+
+            yew::platform::spawn_local(async move {
+                let client = get_api_client();
+                match client.list_spaces(&site_id).await {
+                    Ok(space_list) => {
+                        spaces.set(space_list);
+                    }
+                    Err(_) => {
+                        // Ignore error, just show empty list
+                        spaces.set(Vec::new());
+                    }
+                }
+            });
+            || ()
+        });
+    }
+
+    // Load site images when component mounts (needed for editing existing spaces)
+    {
+        let site_images = site_images.clone();
+        let community_id = community_id.clone();
+        let site_id = props.site_id.clone();
+
+        use_effect_with(props.site_id, move |_| {
+            let site_images = site_images.clone();
+            let community_id = community_id.clone();
+            let site_id = site_id.clone();
+
+            yew::platform::spawn_local(async move {
+                let client = get_api_client();
+                // First get the site to find its community_id
+                match client.get_site(&site_id).await {
+                    Ok(site) => {
+                        let site_community_id = site.site_details.community_id;
+                        community_id.set(Some(site_community_id));
+                        
+                        match client
+                            .list_site_images(&site_community_id)
+                            .await
+                        {
+                            Ok(images) => {
+                                site_images.set(images);
+                            }
+                            Err(_) => {
+                                site_images.set(Vec::new());
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        site_images.set(Vec::new());
+                        community_id.set(None);
+                    }
+                }
+            });
+            || ()
+        });
+    }
+
+    let on_add_space_click = {
+        let show_form = show_form.clone();
+        let form = form.clone();
+        Callback::from(move |_: MouseEvent| {
+            show_form.set(true);
+            form.set(SpaceForm::default());
+        })
+    };
+
+    let on_cancel_add = {
+        let show_form = show_form.clone();
+        Callback::from(move |_: MouseEvent| {
+            show_form.set(false);
+        })
+    };
+
+    let on_name_change = {
+        let form = form.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.name = input.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_description_change = {
+        let form = form.clone();
+        Callback::from(move |e: InputEvent| {
+            let textarea: HtmlTextAreaElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.description = textarea.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_eligibility_points_change = {
+        let form = form.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.eligibility_points = input.value();
+            form.set(form_data);
+        })
+    };
+
+    let on_is_available_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            form_data.is_available = input.checked();
+            form.set(form_data);
+        })
+    };
+
+    let on_image_select_change = {
+        let form = form.clone();
+        Callback::from(move |e: Event| {
+            let select: HtmlSelectElement = e.target_unchecked_into();
+            let mut form_data = (*form).clone();
+            if select.value().is_empty() {
+                form_data.selected_image = None;
+            } else {
+                if let Ok(uuid) = select.value().parse::<uuid::Uuid>() {
+                    form_data.selected_image = Some(SiteImageId(uuid));
+                }
+            }
+            form.set(form_data);
+        })
+    };
+
+    let on_submit_space = {
+        let form = form.clone();
+        let spaces = spaces.clone();
+        let show_form = show_form.clone();
+        let site_id = props.site_id.clone();
+
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+
+            let form_data = (*form).clone();
+
+            // Validation
+            if form_data.name.trim().is_empty() {
+                let mut new_form = form_data;
+                new_form.error = Some("Space name is required".to_string());
+                form.set(new_form);
+                return;
+            }
+
+            let eligibility_points = match form_data
+                .eligibility_points
+                .parse::<f64>()
+            {
+                Ok(points) if points >= 0.0 => points,
+                _ => {
+                    let mut new_form = form_data;
+                    new_form.error = Some("Eligibility points must be a valid non-negative number".to_string());
+                    form.set(new_form);
+                    return;
+                }
+            };
+
+            let form = form.clone();
+            let spaces = spaces.clone();
+            let show_form = show_form.clone();
+            let site_id = site_id.clone();
+
+            yew::platform::spawn_local(async move {
+                // Set loading state
+                {
+                    let mut new_form = (*form).clone();
+                    new_form.is_loading = true;
+                    new_form.error = None;
+                    form.set(new_form);
+                }
+
+                let client = get_api_client();
+                let form_data = (*form).clone();
+
+                let space_details = payloads::Space {
+                    site_id,
+                    name: form_data.name.trim().to_string(),
+                    description: if form_data.description.trim().is_empty() {
+                        None
+                    } else {
+                        Some(form_data.description.trim().to_string())
+                    },
+                    eligibility_points,
+                    is_available: form_data.is_available,
+                    site_image_id: form_data.selected_image,
+                };
+
+                match client.create_space(&space_details).await {
+                    Ok(_space_id) => {
+                        // Refresh the spaces list
+                        match client.list_spaces(&site_id).await {
+                            Ok(updated_spaces) => {
+                                spaces.set(updated_spaces);
+                                show_form.set(false);
+                                form.set(SpaceForm::default());
+                            }
+                            Err(_) => {
+                                let mut new_form = (*form).clone();
+                                new_form.error = Some(
+                                    "Space created but failed to refresh list"
+                                        .to_string(),
+                                );
+                                new_form.is_loading = false;
+                                form.set(new_form);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let mut new_form = (*form).clone();
+                        new_form.error =
+                            Some(format!("Failed to create space: {}", e));
+                        new_form.is_loading = false;
+                        form.set(new_form);
+                    }
+                }
+            });
+        })
+    };
+
+    html! {
+        <div>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                    {"Spaces"}
+                    <span class="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                        {"("}{spaces.len()}{" total, "}{site_images.len()}{" images loaded)"}
+                    </span>
+                </h3>
+                if !*show_form {
+                    <button
+                        type="button"
+                        onclick={on_add_space_click}
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    >
+                        <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        {"Add Space"}
+                    </button>
+                }
+            </div>
+
+            // Existing spaces list
+            if spaces.is_empty() && !*show_form {
+                <div class="text-center py-6 text-gray-500 dark:text-gray-400">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                    <p class="mt-2">{"No spaces added yet"}</p>
+                </div>
+            } else if !spaces.is_empty() {
+                <div class="space-y-3 mb-6">
+                    {for spaces.iter().enumerate().map(|(_index, space)| {
+                        let spaces_for_edit = spaces.clone();
+                        let spaces_for_delete = spaces.clone();
+                        
+                        let space_id_for_update = space.space_id;
+                        let space_id_for_delete = space.space_id;
+
+                        html! {
+                            if let Some(comm_id) = *community_id {
+                                <SpaceDisplayCard
+                                    key={format!("{}", space.space_id.0)}
+                                    space={space.clone()}
+                                    community_id={comm_id}
+                                    on_updated={Callback::from(move |updated_space: responses::Space| {
+                                        let mut current_spaces = (*spaces_for_edit).clone();
+                                        if let Some(idx) = current_spaces.iter().position(|s| s.space_id == space_id_for_update) {
+                                            current_spaces[idx] = updated_space;
+                                            spaces_for_edit.set(current_spaces);
+                                        }
+                                    })}
+                                    on_deleted={Callback::from(move |_deleted_space_id: payloads::SpaceId| {
+                                        let mut current_spaces = (*spaces_for_delete).clone();
+                                        current_spaces.retain(|s| s.space_id != space_id_for_delete);
+                                        spaces_for_delete.set(current_spaces);
+                                    })}
+                                />
+                            }
+                        }
+                    })}
+                </div>
+            }
+
+            // Add space form
+            if *show_form {
+                <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
+                    <h4 class="text-lg font-medium text-gray-900 dark:text-white mb-4">{"Add New Space"}</h4>
+
+                    <form onsubmit={on_submit_space}>
+                        // Form error message
+                        if let Some(error) = &form.error {
+                            <div class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded">
+                                {error}
+                            </div>
+                        }
+
+                        <div class="grid grid-cols-1 gap-4">
+                            // Space Name
+                            <div>
+                                <label for="space_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Space Name"}
+                                    <span class="text-red-500 ml-1">{"*"}</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    id="space_name"
+                                    name="space_name"
+                                    required=true
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white sm:text-sm"
+                                    placeholder="Enter space name"
+                                    value={form.name.clone()}
+                                    oninput={on_name_change}
+                                    disabled={form.is_loading}
+                                />
+                            </div>
+
+                            // Description
+                            <div>
+                                <label for="space_description" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Description"}
+                                </label>
+                                <textarea
+                                    id="space_description"
+                                    name="space_description"
+                                    rows="2"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white sm:text-sm"
+                                    placeholder="Optional description of the space"
+                                    value={form.description.clone()}
+                                    oninput={on_description_change}
+                                    disabled={form.is_loading}
+                                />
+                            </div>
+
+                            // Eligibility Points
+                            <div>
+                                <label for="eligibility_points" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Eligibility Points"}
+                                    <span class="text-red-500 ml-1">{"*"}</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    id="eligibility_points"
+                                    name="eligibility_points"
+                                    required=true
+                                    min="0"
+                                    step="0.1"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white sm:text-sm"
+                                    placeholder="0.0"
+                                    value={form.eligibility_points.clone()}
+                                    oninput={on_eligibility_points_change}
+                                    disabled={form.is_loading}
+                                />
+                            </div>
+
+                            // Availability checkbox
+                            <div class="flex items-center">
+                                <input
+                                    id="is_available"
+                                    name="is_available"
+                                    type="checkbox"
+                                    class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 dark:border-gray-600 rounded dark:bg-gray-600"
+                                    checked={form.is_available}
+                                    onchange={on_is_available_change}
+                                    disabled={form.is_loading}
+                                />
+                                <label for="is_available" class="ml-2 block text-sm text-gray-900 dark:text-white">
+                                    {"Space is available for bidding"}
+                                </label>
+                            </div>
+
+                            // Site Image Selection
+                            if !site_images.is_empty() {
+                                <div>
+                                    <label for="space_image" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        {"Site Image"}
+                                    </label>
+                                    <select
+                                        id="space_image"
+                                        name="space_image"
+                                        class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white sm:text-sm"
+                                        value={form.selected_image.map(|id| id.0.to_string()).unwrap_or_default()}
+                                        onchange={on_image_select_change}
+                                        disabled={form.is_loading}
+                                    >
+                                        <option value="">{"No image selected"}</option>
+                                        {for site_images.iter().map(|image| {
+                                            html! {
+                                                <option value={image.id.0.to_string()}>
+                                                    {&image.name}
+                                                </option>
+                                            }
+                                        })}
+                                    </select>
+                                </div>
+                            }
+                        </div>
+
+                        // Form buttons
+                        <div class="flex justify-end space-x-3 mt-6">
+                            <button
+                                type="button"
+                                onclick={on_cancel_add}
+                                class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                disabled={form.is_loading}
+                            >
+                                {"Cancel"}
+                            </button>
+                            <button
+                                type="submit"
+                                class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                                disabled={form.is_loading}
+                            >
+                                if form.is_loading {
+                                    {"Creating..."}
+                                } else {
+                                    {"Create Space"}
+                                }
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            }
+        </div>
+    }
+}
+
+// ============================================================================
+// Space Display Card Component (with edit/delete functionality)
+// ============================================================================
+
+#[derive(Properties)]
+pub struct SpaceDisplayCardProps {
+    pub space: responses::Space,
+    pub community_id: CommunityId,
+    pub on_updated: Callback<responses::Space>,
+    pub on_deleted: Callback<payloads::SpaceId>,
+}
+
+impl PartialEq for SpaceDisplayCardProps {
+    fn eq(&self, other: &Self) -> bool {
+        self.space.space_id == other.space.space_id
+    }
+}
+
+#[derive(Clone)]
+struct EditSpaceForm {
+    name: String,
+    description: String,
+    eligibility_points: String,
+    is_available: bool,
+    selected_image: Option<SiteImageId>,
+    is_loading: bool,
+    error: Option<String>,
+}
+
+impl From<&payloads::Space> for EditSpaceForm {
+    fn from(space: &payloads::Space) -> Self {
+        Self {
+            name: space.name.clone(),
+            description: space.description.clone().unwrap_or_default(),
+            eligibility_points: space.eligibility_points.to_string(),
+            is_available: space.is_available,
+            selected_image: space.site_image_id,
+            is_loading: false,
+            error: None,
+        }
+    }
+}
+
+#[function_component]
+pub fn SpaceDisplayCard(props: &SpaceDisplayCardProps) -> Html {
+    let is_editing = use_state(|| false);
+    let is_deleting = use_state(|| false);
+    let edit_form =
+        use_state(|| EditSpaceForm::from(&props.space.space_details));
+    let site_images = use_state(Vec::<responses::SiteImage>::new);
+    let space_image = use_state(|| None::<responses::SiteImage>);
+
+    let space = &props.space;
+
+    // Load site images when component mounts or when editing starts
+    {
+        let site_images = site_images.clone();
+        let space_image = space_image.clone();
+        let community_id = props.community_id.clone();
+        let current_image_id = space.space_details.site_image_id;
+
+        use_effect_with(props.community_id, move |_| {
+            let site_images = site_images.clone();
+            let space_image = space_image.clone();
+            let community_id = community_id.clone();
+
+            yew::platform::spawn_local(async move {
+                let client = get_api_client();
+                match client.list_site_images(&community_id).await {
+                    Ok(images) => {
+                        // Find the current space's image if it has one
+                        let current_image = if let Some(image_id) = current_image_id {
+                            images.iter().find(|img| img.id == image_id).cloned()
+                        } else {
+                            None
+                        };
+                        
+                        site_images.set(images);
+                        space_image.set(current_image);
+                    }
+                    Err(_) => {
+                        site_images.set(Vec::new());
+                        space_image.set(None);
+                    }
+                }
+            });
+            || ()
+        });
+    }
+
+    let on_edit_click = {
+        let is_editing = is_editing.clone();
+        let edit_form = edit_form.clone();
+        let space_details = space.space_details.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            edit_form.set(EditSpaceForm::from(&space_details));
+            is_editing.set(true);
+        })
+    };
+
+    let on_delete_click = {
+        let is_deleting = is_deleting.clone();
+        let on_deleted = props.on_deleted.clone();
+        let space_id = space.space_id;
+        let space_name = space.space_details.name.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let space_name = space_name.clone();
+            if window().unwrap().confirm_with_message(&format!("Are you sure you want to delete the space '{}'? This action cannot be undone.", space_name)).unwrap_or(false) {
+                let is_deleting = is_deleting.clone();
+                let on_deleted = on_deleted.clone();
+
+                is_deleting.set(true);
+
+                yew::platform::spawn_local(async move {
+                    let client = get_api_client();
+                    match client.delete_space(&space_id).await {
+                        Ok(_) => {
+                            on_deleted.emit(space_id);
+                        }
+                        Err(_) => {
+                            is_deleting.set(false);
+                        }
+                    }
+                });
+            }
+        })
+    };
+
+    let on_cancel_edit = {
+        let is_editing = is_editing.clone();
+        let edit_form = edit_form.clone();
+        let space_details = space.space_details.clone();
+        Callback::from(move |_: MouseEvent| {
+            edit_form.set(EditSpaceForm::from(&space_details));
+            is_editing.set(false);
+        })
+    };
+
+    let on_name_change = {
+        let edit_form = edit_form.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*edit_form).clone();
+            form_data.name = input.value();
+            edit_form.set(form_data);
+        })
+    };
+
+    let on_description_change = {
+        let edit_form = edit_form.clone();
+        Callback::from(move |e: InputEvent| {
+            let textarea: HtmlTextAreaElement = e.target_unchecked_into();
+            let mut form_data = (*edit_form).clone();
+            form_data.description = textarea.value();
+            edit_form.set(form_data);
+        })
+    };
+
+    let on_eligibility_points_change = {
+        let edit_form = edit_form.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*edit_form).clone();
+            form_data.eligibility_points = input.value();
+            edit_form.set(form_data);
+        })
+    };
+
+    let on_is_available_change = {
+        let edit_form = edit_form.clone();
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            let mut form_data = (*edit_form).clone();
+            form_data.is_available = input.checked();
+            edit_form.set(form_data);
+        })
+    };
+
+    let on_image_select_change = {
+        let edit_form = edit_form.clone();
+        Callback::from(move |e: Event| {
+            let select: HtmlSelectElement = e.target_unchecked_into();
+            let mut form_data = (*edit_form).clone();
+            if select.value().is_empty() {
+                form_data.selected_image = None;
+            } else {
+                if let Ok(uuid) = select.value().parse::<uuid::Uuid>() {
+                    form_data.selected_image = Some(SiteImageId(uuid));
+                }
+            }
+            edit_form.set(form_data);
+        })
+    };
+
+    let on_save_edit = {
+        let edit_form = edit_form.clone();
+        let is_editing = is_editing.clone();
+        let on_updated = props.on_updated.clone();
+        let space_id = space.space_id;
+        let site_id = space.space_details.site_id;
+
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+
+            let form_data = (*edit_form).clone();
+
+            // Validation
+            if form_data.name.trim().is_empty() {
+                let mut new_form = form_data;
+                new_form.error = Some("Space name is required".to_string());
+                edit_form.set(new_form);
+                return;
+            }
+
+            let eligibility_points = match form_data
+                .eligibility_points
+                .parse::<f64>()
+            {
+                Ok(points) if points >= 0.0 => points,
+                _ => {
+                    let mut new_form = form_data;
+                    new_form.error = Some("Eligibility points must be a valid non-negative number".to_string());
+                    edit_form.set(new_form);
+                    return;
+                }
+            };
+
+            let edit_form = edit_form.clone();
+            let is_editing = is_editing.clone();
+            let on_updated = on_updated.clone();
+
+            yew::platform::spawn_local(async move {
+                // Set loading state
+                {
+                    let mut new_form = (*edit_form).clone();
+                    new_form.is_loading = true;
+                    new_form.error = None;
+                    edit_form.set(new_form);
+                }
+
+                let client = get_api_client();
+                let form_data = (*edit_form).clone();
+
+                let space_details = payloads::Space {
+                    site_id,
+                    name: form_data.name.trim().to_string(),
+                    description: if form_data.description.trim().is_empty() {
+                        None
+                    } else {
+                        Some(form_data.description.trim().to_string())
+                    },
+                    eligibility_points,
+                    is_available: form_data.is_available,
+                    site_image_id: form_data.selected_image,
+                };
+
+                let update_request = payloads::requests::UpdateSpace {
+                    space_id,
+                    space_details,
+                };
+
+                match client.update_space(&update_request).await {
+                    Ok(updated_space) => {
+                        is_editing.set(false);
+                        on_updated.emit(updated_space);
+                    }
+                    Err(e) => {
+                        let mut new_form = (*edit_form).clone();
+                        new_form.error =
+                            Some(format!("Failed to update space: {}", e));
+                        new_form.is_loading = false;
+                        edit_form.set(new_form);
+                    }
+                }
+            });
+        })
+    };
+
+    html! {
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+            if *is_editing {
+                // Edit form
+                <form onsubmit={on_save_edit}>
+                    if let Some(error) = &edit_form.error {
+                        <div class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-3 py-2 rounded text-sm">
+                            {error}
+                        </div>
+                    }
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        // Left column - image preview
+                        <div>
+                            {
+                                // Show preview of selected image from form, not the current space image
+                                if let Some(selected_id) = edit_form.selected_image {
+                                    if let Some(img) = site_images.iter().find(|img| img.id == selected_id) {
+                                        html! {
+                                            <>
+                                                <div class="aspect-square w-full max-w-xs rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-600">
+                                                    <img
+                                                        src={format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&img.image_data))}
+                                                        alt={img.name.clone()}
+                                                        class="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                                <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                                    {"Selected image: "}{&img.name}
+                                                </p>
+                                            </>
+                                        }
+                                    } else {
+                                        html! {
+                                            <>
+                                                <div class="aspect-square w-full max-w-xs rounded-lg bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                                                    <svg class="h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                </div>
+                                                <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                                    {"No image selected"}
+                                                </p>
+                                            </>
+                                        }
+                                    }
+                                } else {
+                                    html! {
+                                        <>
+                                            <div class="aspect-square w-full max-w-xs rounded-lg bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                                                <svg class="h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                                {"No image selected"}
+                                            </p>
+                                        </>
+                                    }
+                                }
+                            }
+                        </div>
+
+                        // Right column - form fields
+                        <div class="space-y-4">
+                            <div>
+                                <label for="edit_space_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Space Name"}
+                                    <span class="text-red-500 ml-1">{"*"}</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    id="edit_space_name"
+                                    required=true
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white"
+                                    value={edit_form.name.clone()}
+                                    oninput={on_name_change}
+                                    disabled={edit_form.is_loading}
+                                />
+                            </div>
+
+                            <div>
+                                <label for="edit_space_description" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Description"}
+                                </label>
+                                <textarea
+                                    id="edit_space_description"
+                                    rows="2"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white"
+                                    value={edit_form.description.clone()}
+                                    oninput={on_description_change}
+                                    disabled={edit_form.is_loading}
+                                />
+                            </div>
+
+                            <div>
+                                <label for="edit_eligibility_points" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Eligibility Points"}
+                                    <span class="text-red-500 ml-1">{"*"}</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    id="edit_eligibility_points"
+                                    required=true
+                                    min="0"
+                                    step="0.1"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white"
+                                    value={edit_form.eligibility_points.clone()}
+                                    oninput={on_eligibility_points_change}
+                                    disabled={edit_form.is_loading}
+                                />
+                            </div>
+
+                            <div class="flex items-center">
+                                <input
+                                    id="edit_is_available"
+                                    type="checkbox"
+                                    class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 dark:border-gray-600 rounded dark:bg-gray-600"
+                                    checked={edit_form.is_available}
+                                    onchange={on_is_available_change}
+                                    disabled={edit_form.is_loading}
+                                />
+                                <label for="edit_is_available" class="ml-2 block text-sm text-gray-900 dark:text-white">
+                                    {"Available for bidding"}
+                                </label>
+                            </div>
+
+                            <div>
+                                <label for="edit_space_image" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    {"Site Image"}
+                                </label>
+                                if !site_images.is_empty() {
+                                    <select
+                                        id="edit_space_image"
+                                        class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-600 dark:text-white"
+                                        value={edit_form.selected_image.map(|id| id.0.to_string()).unwrap_or_default()}
+                                        onchange={on_image_select_change}
+                                        disabled={edit_form.is_loading}
+                                    >
+                                        <option value="">{"No image"}</option>
+                                        {for site_images.iter().map(|image| {
+                                            html! {
+                                                <option value={image.id.0.to_string()}>
+                                                    {&image.name}
+                                                </option>
+                                            }
+                                        })}
+                                    </select>
+                                } else {
+                                    <div class="mt-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400 text-sm">
+                                        {"Loading site images..."}
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button
+                            type="button"
+                            onclick={on_cancel_edit}
+                            class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                            disabled={edit_form.is_loading}
+                        >
+                            {"Cancel"}
+                        </button>
+                        <button
+                            type="submit"
+                            class="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                            disabled={edit_form.is_loading}
+                        >
+                            if edit_form.is_loading {
+                                {"Saving..."}
+                            } else {
+                                {"Save Changes"}
+                            }
+                        </button>
+                    </div>
+                </form>
+            } else {
+                // Display mode
+                <div class="flex items-start justify-between">
+                    <div class="flex-1 flex space-x-4">
+                        // Space image thumbnail
+                        <div class="flex-shrink-0">
+                            if let Some(img) = &*space_image {
+                                <div class="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-600">
+                                    <img
+                                        src={format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&img.image_data))}
+                                        alt={img.name.clone()}
+                                        class="w-full h-full object-cover"
+                                    />
+                                </div>
+                            } else {
+                                <div class="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                                    <svg class="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                            }
+                        </div>
+
+                        // Space details
+                        <div class="flex-1">
+                            <h4 class="font-medium text-gray-900 dark:text-white">{&space.space_details.name}</h4>
+                            if let Some(description) = &space.space_details.description {
+                                <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{description}</p>
+                            }
+                            <div class="mt-2 flex items-center flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400">
+                                <span>{"Eligibility Points: "}{space.space_details.eligibility_points}</span>
+                                <span class={if space.space_details.is_available { "text-green-600" } else { "text-red-600" }}>
+                                    {if space.space_details.is_available { "Available" } else { "Unavailable" }}
+                                </span>
+                                if space_image.is_some() {
+                                    <span class="inline-flex items-center text-blue-600">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                        {"Image attached"}
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    // Action buttons
+                    <div class="flex space-x-2 ml-4">
+                        <button
+                            onclick={on_edit_click}
+                            class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                            title="Edit space"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                        </button>
+                        <button
+                            onclick={on_delete_click}
+                            class="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                            title="Delete space"
+                            disabled={*is_deleting}
+                        >
+                            if *is_deleting {
+                                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            } else {
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            }
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
     }
 }
