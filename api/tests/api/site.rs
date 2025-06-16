@@ -159,3 +159,77 @@ async fn site_image_unique_names_per_community() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn list_sites() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    // Initially, there should be no sites
+    let sites = app.client.list_sites(&community_id).await?;
+    assert_eq!(sites.len(), 0);
+
+    // Create a test site
+    let site1 = app.create_test_site(&community_id).await?;
+
+    // Create a second site with different details
+    let site2_details = payloads::Site {
+        community_id,
+        name: "Second Test Site".to_string(),
+        description: Some("A second test site".to_string()),
+        default_auction_params: payloads::AuctionParams {
+            round_duration: jiff::Span::new().hours(2), // Different duration
+            bid_increment: rust_decimal::Decimal::new(200, 2), // $2.00
+            activity_rule_params: payloads::ActivityRuleParams {
+                eligibility_progression: vec![(1, 0.8)], // 80% eligibility required
+            },
+        },
+        possession_period: jiff::Span::new().days(14), // 14 days
+        auction_lead_time: jiff::Span::new().days(3), // 3 days
+        proxy_bidding_lead_time: jiff::Span::new().hours(12), // 12 hours
+        open_hours: None,
+        auto_schedule: false,
+        timezone: "America/New_York".to_string(),
+        site_image_id: None,
+    };
+    let site2_id = app.client.create_site(&site2_details).await?;
+    let site2 = app.client.get_site(&site2_id).await?;
+
+    // List all sites
+    let sites = app.client.list_sites(&community_id).await?;
+    assert_eq!(sites.len(), 2);
+
+    // Sites should be sorted by name
+    assert_eq!(sites[0].site_details.name, "Second Test Site");
+    assert_eq!(sites[1].site_details.name, "test site");
+
+    // Verify the site details are correct
+    assert_eq!(sites[0].site_id, site2.site_id);
+    assert_eq!(sites[1].site_id, site1.site_id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_sites_permissions() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    // Create a test site
+    let _site = app.create_test_site(&community_id).await?;
+
+    // Create Bob and make him a member
+    app.create_bob_user().await?;
+    let invite_id = app.invite_bob().await?;
+    app.login_bob().await?;
+    app.client.accept_invite(&invite_id).await?;
+
+    // Bob should be able to list sites (any member can)
+    let sites = app.client.list_sites(&community_id).await?;
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].site_details.name, "test site");
+
+    Ok(())
+}

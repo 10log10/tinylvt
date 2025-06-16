@@ -4,7 +4,7 @@ This document defines the complete frontend interface for TinyLVT, a community-b
 
 ## MVP Plan
 
-Certain features are not immediately planned for implementation. These include the member active/inactive status, setting the membership schedule, the editing of user roles.
+Certain features are not immediately planned for implementation. These include the member active/inactive status, setting the membership schedule, the editing of user roles, auto scheduling site auctions (proxy bidding lead time, open hours).
 
 ## System Overview
 

@@ -138,7 +138,7 @@ The project is configured with `test-threads = 1` in `.cargo/config.toml` to enf
   - Verify changes are reflected immediately
   - *API Coverage*: `get_members`
 
-- [ ] **US-014**: Configure membership schedule
+- [ ] **US-014**: Configure membership schedule (not planned for MVP)
   - Access membership scheduling page
   - Upload CSV of membership periods
   - Set individual member schedules

@@ -1573,6 +1573,31 @@ pub async fn delete_site(
     Ok(())
 }
 
+pub async fn list_sites(
+    community_id: &payloads::CommunityId,
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::Site>, StoreError> {
+    // Validate user is a member of the community
+    let _ = get_validated_member(user_id, community_id, pool).await?;
+
+    let sites = sqlx::query_as::<_, Site>(
+        "SELECT * FROM sites WHERE community_id = $1 ORDER BY name",
+    )
+    .bind(community_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Convert to response format
+    let mut site_responses = Vec::new();
+    for site in sites {
+        let site_response = get_site(&site.id, pool).await?;
+        site_responses.push(site_response);
+    }
+
+    Ok(site_responses)
+}
+
 /// Get a space and validate that the user has the required permission level in the site's community.
 /// Returns both the space and the validated member if successful.
 async fn get_validated_space(

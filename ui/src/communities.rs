@@ -1883,6 +1883,26 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
         })
     };
 
+    let on_manage_sites = {
+        let navigator = navigator.clone();
+        let community_id = props.community_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::Sites {
+                community_id: community_id.clone(),
+            });
+        })
+    };
+
+    let on_create_site = {
+        let navigator = navigator.clone();
+        let community_id = props.community_id.clone();
+        Callback::from(move |_: MouseEvent| {
+            navigator.push(&Route::CreateSite {
+                community_id: community_id.clone(),
+            });
+        })
+    };
+
     // Don't render anything if not authenticated
     if !auth_state.is_authenticated {
         return html! {};
@@ -2040,6 +2060,7 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                                     </p>
                                     <div class="mt-6">
                                         <button
+                                            onclick={on_create_site.clone()}
                                             class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                                         >
                                             {"Create Site"}
@@ -2090,6 +2111,7 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                                     {"Community Settings"}
                                 </button>
                                 <button
+                                    onclick={on_manage_sites}
                                     class="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors"
                                 >
                                     <svg class="mr-3 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

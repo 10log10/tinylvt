@@ -65,6 +65,18 @@ pub async fn delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/sites")]
+pub async fn list_sites(
+    user: Identity,
+    community_id: web::Json<payloads::CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let sites = store::list_sites(&community_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(sites))
+}
+
 // Site Image Routes
 
 #[tracing::instrument(skip(user, pool), ret)]

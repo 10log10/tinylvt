@@ -700,6 +700,14 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn list_sites(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::Site>, ClientError> {
+        let response = self.post("sites", &community_id).await?;
+        ok_body(response).await
+    }
+
     pub async fn create_space(
         &self,
         space: &Space,

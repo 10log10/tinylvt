@@ -1,6 +1,7 @@
 mod auth;
 mod communities;
 mod profile;
+mod sites;
 mod theme;
 
 use payloads::APIClient;
@@ -16,6 +17,7 @@ use communities::{
     Communities, CommunityDashboard, CommunityInvites, CommunitySettings,
     CreateCommunity as CreateCommunityComponent,
 };
+use sites::{Sites, CreateSite as CreateSiteComponent, SiteDetails, EditSite};
 use theme::ThemeToggle;
 
 #[derive(Default, Clone, PartialEq, Store)]
@@ -299,6 +301,14 @@ enum Route {
     CommunityDashboard { id: String },
     #[at("/community/:id/settings")]
     CommunitySettings { id: String },
+    #[at("/community/:community_id/sites")]
+    Sites { community_id: String },
+    #[at("/community/:community_id/sites/create")]
+    CreateSite { community_id: String },
+    #[at("/site/:id")]
+    SiteDetails { id: String },
+    #[at("/site/:id/edit")]
+    EditSite { id: String },
     #[at("/profile")]
     Profile,
     // #[at("/bids")]
@@ -384,6 +394,18 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunitySettings { id } => {
             html! { <CommunitySettings community_id={id.clone()} /> }
+        }
+        Route::Sites { community_id } => {
+            html! { <Sites community_id={community_id.clone()} /> }
+        }
+        Route::CreateSite { community_id } => {
+            html! { <CreateSiteComponent community_id={community_id.clone()} /> }
+        }
+        Route::SiteDetails { id } => {
+            html! { <SiteDetails site_id={id.clone()} /> }
+        }
+        Route::EditSite { id } => {
+            html! { <EditSite site_id={id.clone()} /> }
         }
         Route::Profile => html! { <profile::Profile /> },
         // Route::Bids => html! { <bids::Bids /> },
