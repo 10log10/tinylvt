@@ -1,15 +1,15 @@
-use payloads::{requests, responses, Role};
+use payloads::{Role, requests, responses};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::{Route, auth::use_auth, get_api_client};
+use crate::{Route, auth::use_auth, get_api_client, sites::SiteCard};
 
 /// Helper function to format role for display
 fn format_role(role: &Role) -> &'static str {
     match role {
         Role::Member => "Member",
-        Role::Moderator => "Moderator", 
+        Role::Moderator => "Moderator",
         Role::Coleader => "Co-leader",
         Role::Leader => "Leader",
     }
@@ -18,10 +18,18 @@ fn format_role(role: &Role) -> &'static str {
 /// Helper function to get role badge color classes
 fn get_role_badge_classes(role: &Role) -> &'static str {
     match role {
-        Role::Member => "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300",
-        Role::Moderator => "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-        Role::Coleader => "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-        Role::Leader => "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+        Role::Member => {
+            "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+        }
+        Role::Moderator => {
+            "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+        }
+        Role::Coleader => {
+            "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
+        }
+        Role::Leader => {
+            "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
+        }
     }
 }
 
@@ -1768,9 +1776,10 @@ pub fn MemberItem(props: &MemberItemProps) -> Html {
 }
 
 // Community Dashboard State
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone)]
 pub struct CommunityDashboardState {
     pub community: Option<responses::CommunityWithRole>,
+    pub sites: Vec<responses::Site>,
     pub is_loading: bool,
     pub error: Option<String>,
 }
@@ -1829,9 +1838,17 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
 
                         let client = get_api_client();
 
-                        // Get all communities to find this one
-                        match client.get_communities().await {
-                            Ok(communities) => {
+                        // Load both community info and sites
+                        let communities_future = client.get_communities();
+                        let sites_future = client.list_sites(&community_id);
+
+                        match futures::future::try_join(
+                            communities_future,
+                            sites_future,
+                        )
+                        .await
+                        {
+                            Ok((communities, sites)) => {
                                 // Find the community we're viewing
                                 let community = communities
                                     .into_iter()
@@ -1840,6 +1857,7 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                                 if let Some(community) = community {
                                     let mut state = (*community_state).clone();
                                     state.community = Some(community);
+                                    state.sites = sites;
                                     state.is_loading = false;
                                     community_state.set(state);
                                 } else {
@@ -1852,7 +1870,7 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                             Err(e) => {
                                 let mut state = (*community_state).clone();
                                 state.error = Some(format!(
-                                    "Failed to load community: {}",
+                                    "Failed to load community data: {}",
                                     e
                                 ));
                                 state.is_loading = false;
@@ -2041,32 +2059,63 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                     <div class="lg:col-span-2 space-y-6">
                         // Sites section
                         <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
-                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                                <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Sites"}</h2>
-                                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                    {"Spaces and auctions in this community"}
-                                </p>
+                            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                                <div>
+                                    <h2 class="text-lg font-medium text-gray-900 dark:text-white">{"Sites"}</h2>
+                                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                        {"Spaces and auctions in this community"}
+                                    </p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button
+                                        onclick={on_manage_sites.clone()}
+                                        class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                    >
+                                        {"View All"}
+                                    </button>
+                                    <button
+                                        onclick={on_create_site.clone()}
+                                        class="inline-flex items-center px-3 py-2 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                    >
+                                        <svg class="-ml-1 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                        </svg>
+                                        {"Create"}
+                                    </button>
+                                </div>
                             </div>
                             <div class="p-6">
-                                <div class="text-center py-8">
-                                    <div class="mx-auto h-12 w-12 text-gray-400">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 11V9a1 1 0 011-1h2a1 1 0 011 1v11M7 21h4"></path>
-                                        </svg>
+                                if community_state.sites.is_empty() {
+                                    <div class="text-center py-8">
+                                        <div class="mx-auto h-12 w-12 text-gray-400">
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 11V9a1 1 0 011-1h2a1 1 0 011 1v11M7 21h4"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No sites yet"}</h3>
+                                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                            {"Create your first site to start hosting auctions."}
+                                        </p>
                                     </div>
-                                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{"No sites yet"}</h3>
-                                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                        {"Create your first site to start hosting auctions."}
-                                    </p>
-                                    <div class="mt-6">
-                                        <button
-                                            onclick={on_create_site.clone()}
-                                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                                        >
-                                            {"Create Site"}
-                                        </button>
+                                } else {
+                                    <div class="space-y-4">
+                                        {for community_state.sites.iter().take(3).map(|site| {
+                                            html! {
+                                                <SiteCard site={site.clone()} />
+                                            }
+                                        })}
+                                        if community_state.sites.len() > 3 {
+                                            <div class="pt-4 border-t border-gray-200 dark:border-gray-700">
+                                                <button
+                                                    onclick={on_manage_sites.clone()}
+                                                    class="w-full text-center text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                                                >
+                                                    {format!("View all {} sites →", community_state.sites.len())}
+                                                </button>
+                                            </div>
+                                        }
                                     </div>
-                                </div>
+                                }
                             </div>
                         </div>
 
@@ -2137,7 +2186,9 @@ pub fn CommunityDashboard(props: &CommunityDashboardProps) -> Html {
                                 // Remove new members status display for MVP
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Sites"}</dt>
-                                    <dd class="text-sm text-gray-900 dark:text-white">{"0 sites"}</dd>
+                                    <dd class="text-sm text-gray-900 dark:text-white">
+                                        {format!("{} sites", community_state.sites.len())}
+                                    </dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{"Members"}</dt>

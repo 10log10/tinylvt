@@ -186,7 +186,7 @@ async fn list_sites() -> anyhow::Result<()> {
             },
         },
         possession_period: jiff::Span::new().days(14), // 14 days
-        auction_lead_time: jiff::Span::new().days(3), // 3 days
+        auction_lead_time: jiff::Span::new().days(3),  // 3 days
         proxy_bidding_lead_time: jiff::Span::new().hours(12), // 12 hours
         open_hours: None,
         auto_schedule: false,

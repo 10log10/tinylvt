@@ -17,7 +17,7 @@ use communities::{
     Communities, CommunityDashboard, CommunityInvites, CommunitySettings,
     CreateCommunity as CreateCommunityComponent,
 };
-use sites::{Sites, CreateSite as CreateSiteComponent, SiteDetails, EditSite};
+use sites::{CreateSite as CreateSiteComponent, EditSite, SiteDetails, Sites};
 use theme::ThemeToggle;
 
 #[derive(Default, Clone, PartialEq, Store)]
