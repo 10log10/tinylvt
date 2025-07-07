@@ -462,6 +462,21 @@ cargo test authentication -- --test-threads=4
 cargo test -- --test-threads=1
 ```
 
+### Cleanup Orphaned Processes
+
+If tests are cancelled, fail, or panic, they may leave orphaned `geckodriver` and `trunk serve` processes running. Use the cleanup script to kill these processes:
+
+```bash
+# Kill all orphaned test processes
+cd ui-tests && cargo run --bin cleanup
+```
+
+This script searches for and kills processes matching:
+- `geckodriver --port` (WebDriver processes)
+- `trunk serve --port` (Frontend dev server processes)
+
+The cleanup script is cross-platform and works on both Unix (using `pgrep`/`kill`) and Windows (using `tasklist`/`taskkill`).
+
 ## Test Structure
 
 Each test follows this pattern:

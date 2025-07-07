@@ -109,14 +109,8 @@ async fn main() -> Result<()> {
 
     // Set up Ctrl+C handler
     let ctrl_c = tokio::signal::ctrl_c();
+    ctrl_c.await.expect("Failed to listen for Ctrl+C");
 
-    // Keep the browser open until Ctrl+C
-    tokio::select! {
-        _ = ctrl_c => {
-            info!("📝 Received keyboard interrupt, shutting down...");
-        }
-    }
-
-    info!("🧹 Cleaning up and closing browser");
+    info!("🛑 Received Ctrl+C, shutting down gracefully");
     Ok(())
 }

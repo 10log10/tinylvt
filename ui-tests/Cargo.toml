@@ -2,6 +2,15 @@
 name = "ui-tests"
 version = "0.1.0"
 edition = "2024"
+default-run = "main"
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
+name = "cleanup"
+path = "src/cleanup.rs"
 
 [dependencies]
 api = { path = "../api", features = ["test-utils"] }
