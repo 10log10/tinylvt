@@ -2394,10 +2394,8 @@ pub fn AddSpacesToSite(props: &AddSpacesToSiteProps) -> Html {
                     Ok(site) => {
                         let site_community_id = site.site_details.community_id;
                         community_id.set(Some(site_community_id));
-                        
-                        match client
-                            .list_site_images(&site_community_id)
-                            .await
+
+                        match client.list_site_images(&site_community_id).await
                         {
                             Ok(images) => {
                                 site_images.set(images);
@@ -2619,7 +2617,7 @@ pub fn AddSpacesToSite(props: &AddSpacesToSiteProps) -> Html {
                     {for spaces.iter().enumerate().map(|(_index, space)| {
                         let spaces_for_edit = spaces.clone();
                         let spaces_for_delete = spaces.clone();
-                        
+
                         let space_id_for_update = space.space_id;
                         let space_id_for_delete = space.space_id;
 
@@ -2862,12 +2860,16 @@ pub fn SpaceDisplayCard(props: &SpaceDisplayCardProps) -> Html {
                 match client.list_site_images(&community_id).await {
                     Ok(images) => {
                         // Find the current space's image if it has one
-                        let current_image = if let Some(image_id) = current_image_id {
-                            images.iter().find(|img| img.id == image_id).cloned()
-                        } else {
-                            None
-                        };
-                        
+                        let current_image =
+                            if let Some(image_id) = current_image_id {
+                                images
+                                    .iter()
+                                    .find(|img| img.id == image_id)
+                                    .cloned()
+                            } else {
+                                None
+                            };
+
                         site_images.set(images);
                         space_image.set(current_image);
                     }
@@ -3300,6 +3302,7 @@ pub fn SpaceDisplayCard(props: &SpaceDisplayCardProps) -> Html {
                     <div class="flex space-x-2 ml-4">
                         <button
                             onclick={on_edit_click}
+                            type="button" // avoid form submission in UI testing
                             class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                             title="Edit space"
                         >

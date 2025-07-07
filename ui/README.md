@@ -325,4 +325,46 @@ All pages must be fully responsive with mobile-optimized:
 4. Calendar integration
 5. System administration tools
 
-This specification provides a comprehensive blueprint for implementing the TinyLVT frontend, ensuring all backend functionality is properly exposed through an intuitive user interface. 
+This specification provides a comprehensive blueprint for implementing the TinyLVT frontend, ensuring all backend functionality is properly exposed through an intuitive user interface.
+
+## Architecture & Design Principles
+
+### Form Implementation
+
+**Important**: This application takes care with HTML `<form>` elements to prevent testing and interaction issues. All forms have `<button type="button">` elements and explicit click handlers.
+
+#### Rationale
+
+HTML forms have default behaviors that can interfere with modern framework-based UIs during automated testing:
+
+1. **Form submission navigation**: Buttons inside forms default to `type="submit"`, which can trigger unwanted page navigation
+2. **Event handling conflicts**: Framework event handlers may not properly intercept automated test clicks on form submit buttons
+3. **Testing reliability**: Manual clicks work fine with Yew's event handlers and `preventDefault()`, but automated testing tools (like WebDriver) may trigger default HTML behaviors instead of framework handlers
+
+#### Implementation Standards
+
+- **Explicit button types**: Always use `<button type="button">` and `onclick` handlers instead of `type="submit"`
+- **Direct event handling**: Handle form submission through explicit button click handlers, not form submit events
+- **No form validation attributes**: Use framework-based validation instead of HTML5 form validation
+
+#### Example
+
+```rust
+// ✅ Correct approach
+<form class="space-y-6">
+    <input /* form fields */ />
+    <button type="button" onclick={on_submit}>
+        {"Submit"}
+    </button>
+</form>
+
+// ❌ Avoid this approach
+<form onsubmit={on_submit}>
+    <input /* form fields */ />
+    <button type="submit">
+        {"Submit"}
+    </button>
+</form>
+```
+
+This approach ensures consistent behavior across manual usage and automated testing while maintaining the same user experience. 
