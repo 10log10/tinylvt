@@ -37,6 +37,20 @@ async fn main() -> Result<()> {
     env.api.create_alice_user().await?;
     info!("🏘️ Creating Alice's community (Alice as leader)");
     let alice_community_id = env.api.create_test_community().await?;
+    let site = env.api.create_test_site(&alice_community_id).await?;
+
+    // Create some site images for testing
+    let site_image_1 =
+        env.api.create_test_site_image(&alice_community_id).await?;
+    let site_image_2_body =
+        test_helpers::site_image_details_b(alice_community_id);
+    let site_image_2_id =
+        env.api.client.create_site_image(&site_image_2_body).await?;
+    let _site_image_2 = env.api.client.get_site_image(&site_image_2_id).await?;
+
+    // Create an initial space without any image
+    let initial_space = env.api.create_test_space(&site.site_id).await?;
+
     info!(
         "✅ Alice's community created with ID: {}",
         alice_community_id.0
@@ -81,6 +95,20 @@ async fn main() -> Result<()> {
     let alice_login_creds = test_helpers::alice_login_credentials();
     framework::login_user(&env.browser, &env.frontend_url, &alice_login_creds)
         .await?;
+
+    // Step 3: Navigate to site editing page
+    info!("🏢 Navigating to site editing page");
+    let communities_link =
+        env.browser.find(Locator::LinkText("Communities")).await?;
+    communities_link.click().await?;
+    sleep(Duration::from_millis(200)).await;
+
+    // Click on the community
+    let community_link = env
+        .browser
+        .find(Locator::XPath("//div[contains(@class, 'cursor-pointer')]"))
+        .await?;
+    community_link.click().await?;
 
     // === DISPLAY TEST DATA SUMMARY ===
     info!("📋 Test Environment Summary:");

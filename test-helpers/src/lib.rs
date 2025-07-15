@@ -1,5 +1,6 @@
 use api::time::TimeSource;
 use api::{Config, telemetry};
+use base64::Engine;
 use jiff::Span;
 use jiff_sqlx::ToSqlx;
 use payloads::{CommunityId, SiteId, requests, responses};
@@ -666,20 +667,32 @@ pub fn assert_space_equal(
 pub fn site_image_details_a(
     community_id: CommunityId,
 ) -> payloads::requests::CreateSiteImage {
+    // Create a minimal valid 1x1 red PNG image using base64-encoded data
+    // This is a proper PNG file that browsers can display
+    let red_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+    let red_png_data = base64::engine::general_purpose::STANDARD
+        .decode(red_png_base64)
+        .expect("Valid base64 for red PNG");
+
     payloads::requests::CreateSiteImage {
         community_id,
-        name: "test image".into(),
-        image_data: vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], // PNG header
+        name: "Red Square".into(),
+        image_data: red_png_data,
     }
 }
 
 pub fn site_image_details_b(
     community_id: CommunityId,
 ) -> payloads::requests::CreateSiteImage {
+    let blue_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC";
+    let blue_png_data = base64::engine::general_purpose::STANDARD
+        .decode(blue_png_base64)
+        .expect("Valid base64 for blue PNG");
+
     payloads::requests::CreateSiteImage {
         community_id,
-        name: "test image b".into(),
-        image_data: vec![0xFF, 0xD8, 0xFF, 0xE0], // JPEG header
+        name: "Blue Square".into(),
+        image_data: blue_png_data,
     }
 }
 

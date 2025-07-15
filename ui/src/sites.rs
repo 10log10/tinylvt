@@ -57,14 +57,12 @@ pub fn Sites(props: &SitesProps) -> Html {
     {
         let sites_state = sites_state.clone();
         let auth_state = auth_state.clone();
-        let community_id = community_id.clone();
 
         use_effect_with(
             (auth_state.is_authenticated, props.community_id.clone()),
             move |(is_authenticated, _)| {
                 if *is_authenticated {
                     let sites_state = sites_state.clone();
-                    let community_id = community_id.clone();
 
                     yew::platform::spawn_local(async move {
                         let mut state = (*sites_state).clone();
@@ -1534,30 +1532,7 @@ pub fn SiteDetails(props: &SiteDetailsProps) -> Html {
                                     <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{"This site doesn't have any spaces yet."}</p>
                                 </div>
                             } else {
-                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {for state.spaces.iter().map(|space| {
-                                        html! {
-                                            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                                                <h4 class="font-medium text-gray-900 dark:text-white">{&space.space_details.name}</h4>
-                                                if let Some(description) = &space.space_details.description {
-                                                    <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{description}</p>
-                                                }
-                                                <div class="mt-2 space-y-1">
-                                                    <div class="flex justify-between text-sm">
-                                                        <span class="text-gray-500 dark:text-gray-400">{"Eligibility Points:"}</span>
-                                                        <span class="text-gray-900 dark:text-white">{space.space_details.eligibility_points}</span>
-                                                    </div>
-                                                    <div class="flex justify-between text-sm">
-                                                        <span class="text-gray-500 dark:text-gray-400">{"Available:"}</span>
-                                                        <span class={if space.space_details.is_available { "text-green-600" } else { "text-red-600" }}>
-                                                            {if space.space_details.is_available { "Yes" } else { "No" }}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-                                    })}
-                                </div>
+                                <SpaceListWithImages spaces={state.spaces.clone()} site={state.site.clone()} />
                             }
                         </div>
                     </div>
@@ -3330,6 +3305,144 @@ pub fn SpaceDisplayCard(props: &SpaceDisplayCardProps) -> Html {
                     </div>
                 </div>
             }
+        </div>
+    }
+}
+
+// ============================================================================
+// Space List with Images Component (Read-only view for site details)
+// ============================================================================
+
+#[derive(Properties)]
+pub struct SpaceListWithImagesProps {
+    pub spaces: Vec<responses::Space>,
+    pub site: Option<responses::Site>,
+}
+
+impl PartialEq for SpaceListWithImagesProps {
+    fn eq(&self, other: &Self) -> bool {
+        // For the UI, we can use simple comparison on the length and site ID
+        self.spaces.len() == other.spaces.len()
+            && self.site.as_ref().map(|s| s.site_id)
+                == other.site.as_ref().map(|s| s.site_id)
+    }
+}
+
+#[function_component]
+pub fn SpaceListWithImages(props: &SpaceListWithImagesProps) -> Html {
+    let site_images = use_state(Vec::<responses::SiteImage>::new);
+    let space_images = use_state(
+        std::collections::HashMap::<uuid::Uuid, responses::SiteImage>::new,
+    );
+
+    // Load site images when component mounts
+    {
+        let site_images = site_images.clone();
+        let space_images = space_images.clone();
+        let site_id = props.site.as_ref().map(|s| s.site_id);
+        let spaces_count = props.spaces.len();
+        let props_site = props.site.clone();
+        let props_spaces = props.spaces.clone();
+
+        use_effect_with(
+            (site_id, spaces_count),
+            move |(_site_id, _spaces_count)| {
+                if let Some(site) = props_site {
+                    let site_images = site_images.clone();
+                    let space_images = space_images.clone();
+                    let props_spaces = props_spaces.clone();
+
+                    yew::platform::spawn_local(async move {
+                        let client = get_api_client();
+                        match client
+                            .list_site_images(&site.site_details.community_id)
+                            .await
+                        {
+                            Ok(images) => {
+                                // Create a map of space_id -> image for spaces that have images
+                                let mut space_image_map =
+                                    std::collections::HashMap::new();
+                                for space in &props_spaces {
+                                    if let Some(image_id) =
+                                        space.space_details.site_image_id
+                                    {
+                                        if let Some(image) = images
+                                            .iter()
+                                            .find(|img| img.id == image_id)
+                                        {
+                                            space_image_map.insert(
+                                                space.space_id.0,
+                                                image.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                site_images.set(images);
+                                space_images.set(space_image_map);
+                            }
+                            Err(_) => {
+                                // Ignore error, just show spaces without images
+                                site_images.set(Vec::new());
+                                space_images
+                                    .set(std::collections::HashMap::new());
+                            }
+                        }
+                    });
+                }
+                || ()
+            },
+        );
+    }
+
+    html! {
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {for props.spaces.iter().map(|space| {
+                let space_image = space_images.get(&space.space_id.0);
+
+                html! {
+                    <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                        // Space image at the top
+                        if let Some(image) = space_image {
+                            <div class="mb-3">
+                                <img
+                                    src={format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&image.image_data))}
+                                    alt={image.name.clone()}
+                                    class="w-full h-32 object-cover rounded-lg"
+                                />
+                            </div>
+                        }
+
+                        <h4 class="font-medium text-gray-900 dark:text-white">{&space.space_details.name}</h4>
+                        if let Some(description) = &space.space_details.description {
+                            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{description}</p>
+                        }
+                        <div class="mt-2 space-y-1">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">{"Eligibility Points:"}</span>
+                                <span class="text-gray-900 dark:text-white">{space.space_details.eligibility_points}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">{"Available:"}</span>
+                                <span class={if space.space_details.is_available { "text-green-600" } else { "text-red-600" }}>
+                                    {if space.space_details.is_available { "Yes" } else { "No" }}
+                                </span>
+                            </div>
+                            if space_image.is_some() {
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-500 dark:text-gray-400">{"Image:"}</span>
+                                    <span class="text-blue-600 flex items-center">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                        {"Image attached"}
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            })}
         </div>
     }
 }

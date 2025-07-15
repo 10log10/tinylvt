@@ -3796,6 +3796,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "api",
+ "base64 0.22.1",
  "jiff",
  "jiff-sqlx",
  "payloads",
