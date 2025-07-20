@@ -76,18 +76,41 @@ Care must be taken to avoid cheating in the rent redistribution. Since rents hav
 Based on the [Zero to Production](https://github.com/LukeMathWalker/zero-to-production) reference text.
 
 ### User roles
+
 - Member
-    - can participate in auctions and receive distributions
+    - can participate in auctions
+    - can receive distributions if active
 - Moderator
-    - can add/remove members
+    - can also add/remove members and set their active/inactive status
 - Coleader
     - can edit auction params, sites, spaces
     - can promote/demote moderators
     - can promote new coleaders
+    - can set active/inactive status for all members, including other coleaders and the leader
 - Leader
     - only one leader
-    - can promote/demote coleaders
+    - can promote/demote coleaders and set their active/inactive status
     - can self demote to coleader and give leadership to a coleader
+
+Coleaders are essentially equal leaders of the commmunity, with all priviledges except that of the leader's ability to demote coleaders. The leader is thus the final arbiter of disputes.
+
+### Acitive/invactive
+
+Active members are eligible to receive an equal share of auction proceeds. A community may have zero or more active members. With zero active members, no payment is made upon auction conclusion. This is something of an edge case.
+
+With one active member, the community acts like a single owner / multiple renter setup. All proceeds are captured by the active member. This is useful when the community is renting space from an outside entity and wants to primarily use its auction proceeds to cover that obligation. Alternatively, this can be used when the community is open to anyone to bid, and there is no defense against sybil attacks, where fake identities are used to capture an outsized share of the rent distributions.
+
+With multiple active members, the community has a joint ownership of the resource value.
+
+Members do not need to be active in order to bid in auctions. This is so that members can participate in auctions that have large lead times, and where the auction takes place before the member is present/active in the community. This allows communities to define activity based on properties like physical presence within the community, while allowing people to reserve space before they arrive.
+
+### Payments
+
+In trustful communities, the auction currency are simple IOUs. By winning a space in an auction for a nonzero value, users create a debt obligation to all other active members. Debuts are settled outside of TinyLVT, and payments are recorded to cancel out the debts. Mutal debts also cancel out.
+
+In trustless communities, users pre-fill their TinyLVT account with funds, and can only bid up to their available funds. Upon winning an auction their bid value is deducted from their balance and transferred to the other active members in the community. [Not planned for MVP.]
+
+Since auctions can have significant lead time (bidding happens before the period of possession), the recipients of the auction proceeds are determined when the period of possession begins. For IOUs, this means that the IOU quantity is established at the conclusion of the auction, but the recipients of those IOUs are not determined until space possession begins. For real balances, this means that the bid value is deducted from the winner's balance at the conclusion of the auction, and that the bid value is only distributed to other community members when space possession begins. (In the future, there will be support for incremental distribution throughout the possession period, parameterized by a `distribution_interval` column in the `sites` table.)
 
 ## Notes
 
