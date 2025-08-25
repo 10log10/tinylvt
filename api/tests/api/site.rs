@@ -62,12 +62,10 @@ async fn create_read_update_delete_site_image() -> anyhow::Result<()> {
 
     // Create and verify a test site image
     let site_image = app.create_test_site_image(&community_id).await?;
-    assert_eq!(site_image.name, "test image");
+    let expected = test_helpers::site_image_details_a(community_id);
+    assert_eq!(site_image.name, expected.name);
     assert_eq!(site_image.community_id, community_id);
-    assert_eq!(
-        site_image.image_data,
-        vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-    );
+    assert_eq!(site_image.image_data, expected.image_data,);
 
     // Update the site image
     app.update_site_image_details(site_image.clone()).await?;
@@ -109,8 +107,8 @@ async fn list_site_images_multiple() -> anyhow::Result<()> {
     assert_eq!(site_images.len(), 2);
 
     // Images should be sorted by name
-    assert_eq!(site_images[0].name, "test image");
-    assert_eq!(site_images[1].name, "test image b");
+    assert_eq!(site_images[0].name, "Blue Square");
+    assert_eq!(site_images[1].name, "Red Square");
 
     Ok(())
 }
