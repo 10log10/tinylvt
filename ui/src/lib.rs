@@ -1,23 +1,18 @@
 use payloads::APIClient;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use yewdux::prelude::*;
 
+mod components;
 pub mod logs;
-pub mod components;
-pub mod pages;
+mod pages;
+mod state;
 
 use components::layout::MainLayout;
 use pages::{HomePage, NotFoundPage};
-
-#[derive(Default, Clone, PartialEq, Store)]
-struct State {
-    pub error_message: Option<String>,
-    pub dark_mode: bool,
-}
+pub(crate) use state::{State, ThemeMode};
 
 // Global API client - configurable via environment or same-origin fallback
-pub fn get_api_client() -> APIClient {
+fn get_api_client() -> APIClient {
     // Try environment variable first (set at build time)
     let address = option_env!("BACKEND_URL")
         .map(|url| url.to_string())
@@ -33,7 +28,6 @@ pub fn get_api_client() -> APIClient {
         inner_client: reqwest::Client::new(),
     }
 }
-
 
 #[function_component]
 pub fn App() -> Html {
