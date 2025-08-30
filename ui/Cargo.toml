@@ -16,11 +16,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = "0.2.99"
 wasm-bindgen-futures = "0.4.42"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["registry", "env-filter", "tracing-log"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["registry", "env-filter", "tracing-log"] }
 tracing-web = "0.1.3"
-uuid = { version = "1.16.0", features = ["v4", "serde", "js"] }
-wasm-logger = "0.2.0"
+uuid = { workspace = true, features = ["v4", "serde", "js"] }
 web-sys = { version = "0.3.77", features = [
     "HtmlInputElement", 
     "HtmlSelectElement",

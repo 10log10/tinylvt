@@ -3,6 +3,8 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
+mod logs;
+
 #[derive(Default, Clone, PartialEq, Store)]
 struct State {
     pub error_message: Option<String>,
@@ -28,6 +30,7 @@ pub fn get_api_client() -> APIClient {
 
 #[function_component]
 pub fn App() -> Html {
+    logs::init_logging();
     html! {
         <BrowserRouter>
             <div class="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors">
