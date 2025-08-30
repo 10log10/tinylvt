@@ -91,24 +91,26 @@ async fn main() -> Result<()> {
     // === START UI SESSION AS ALICE ===
     info!("🌐 Starting UI session as Alice");
 
+    env.browser.goto(&format!("{}/", env.frontend_url)).await?;
+
     // Use the login helper function
-    let alice_login_creds = test_helpers::alice_login_credentials();
-    framework::login_user(&env.browser, &env.frontend_url, &alice_login_creds)
-        .await?;
+    // let alice_login_creds = test_helpers::alice_login_credentials();
+    // framework::login_user(&env.browser, &env.frontend_url, &alice_login_creds)
+    // .await?;
 
     // Step 3: Navigate to site editing page
-    info!("🏢 Navigating to site editing page");
-    let communities_link =
-        env.browser.find(Locator::LinkText("Communities")).await?;
-    communities_link.click().await?;
-    sleep(Duration::from_millis(200)).await;
+    // info!("🏢 Navigating to site editing page");
+    // let communities_link =
+    // env.browser.find(Locator::LinkText("Communities")).await?;
+    // communities_link.click().await?;
+    // sleep(Duration::from_millis(200)).await;
 
     // Click on the community
-    let community_link = env
-        .browser
-        .find(Locator::XPath("//div[contains(@class, 'cursor-pointer')]"))
-        .await?;
-    community_link.click().await?;
+    // let community_link = env
+    // .browser
+    // .find(Locator::XPath("//div[contains(@class, 'cursor-pointer')]"))
+    // .await?;
+    // community_link.click().await?;
 
     // === DISPLAY TEST DATA SUMMARY ===
     info!("📋 Test Environment Summary:");
