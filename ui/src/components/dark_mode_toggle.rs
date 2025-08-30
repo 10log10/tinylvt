@@ -22,7 +22,7 @@ pub fn DarkModeToggle() -> Html {
     html! {
         <button
             onclick={cycle_theme}
-            class="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            class="p-2 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
             title={match state.theme_mode {
                 ThemeMode::System => "Theme: System (click for Dark)",
                 ThemeMode::Dark => "Theme: Dark (click for Light)",
