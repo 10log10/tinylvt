@@ -536,7 +536,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
         proxy_bidding_lead_time: Span::new().days(1),
         open_hours: Some(open_hours),
         auto_schedule: true,
-        timezone: "America/Los_Angeles".into(),
+        timezone: Some("America/Los_Angeles".into()),
         site_image_id: None,
     }
 }
@@ -571,7 +571,7 @@ pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
         proxy_bidding_lead_time: Span::new().days(2),
         open_hours: Some(open_hours),
         auto_schedule: true,
-        timezone: "America/Los_Angeles".into(),
+        timezone: Some("America/Los_Angeles".into()),
         site_image_id: None,
     }
 }

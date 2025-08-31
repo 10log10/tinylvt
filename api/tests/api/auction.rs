@@ -156,7 +156,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     let mut site = app.create_test_site(&community_id).await?;
 
     // Set timezone to Los Angeles
-    site.site_details.timezone = "America/Los_Angeles".to_string();
+    site.site_details.timezone = Some("America/Los_Angeles".to_string());
     app.client
         .update_site(&requests::UpdateSite {
             site_id: site.site_id,

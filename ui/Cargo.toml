@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 base64 = "0.22.1"
 futures = "0.3.31"
-jiff = { workspace = true }
+jiff = { workspace = true, features = ["js"] }
 js-sys = "0.3.77"
 payloads = { path = "../payloads" }
 reqwest = { workspace = true }

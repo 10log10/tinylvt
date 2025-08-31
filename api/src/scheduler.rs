@@ -443,7 +443,7 @@ pub async fn add_subsequent_rounds_for_auction(
     // use DST-aware datetime math in case the round duration is days or
     // larger
     let zoned_start_time = match start_time_ts
-        .in_tz(&timezone)
+        .in_tz(&timezone.unwrap_or("UTC".into()))
         .context("converting to timezone; falling back to DST-naive")
     {
         Ok(t) => t,

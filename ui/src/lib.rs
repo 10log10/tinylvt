@@ -6,9 +6,11 @@ mod components;
 pub mod logs;
 mod pages;
 mod state;
+mod test_components;
+mod utils;
 
 use components::layout::MainLayout;
-use pages::{HomePage, NotFoundPage};
+use pages::{HomePage, NotFoundPage, TestPage};
 pub(crate) use state::{State, ThemeMode};
 
 // Global API client - configurable via environment or same-origin fallback
@@ -41,9 +43,11 @@ pub fn App() -> Html {
 }
 
 #[derive(Clone, Routable, PartialEq)]
-enum Route {
+pub enum Route {
     #[at("/")]
     Home,
+    #[at("/test")]
+    Test,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -52,6 +56,7 @@ enum Route {
 fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <HomePage /> },
+        Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },
     }
 }

@@ -76,6 +76,14 @@ pub struct AuctionParams {
     pub activity_rule_params: ActivityRuleParams,
 }
 
+impl PartialEq for AuctionParams {
+    fn eq(&self, other: &Self) -> bool {
+        self.round_duration.fieldwise() == other.round_duration.fieldwise()
+            && self.bid_increment == other.bid_increment
+            && self.activity_rule_params == other.activity_rule_params
+    }
+}
+
 /// Contents of the `activity_rule_params` JSONB column of `auction_params`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivityRuleParams {
@@ -111,8 +119,24 @@ pub struct Site {
     pub proxy_bidding_lead_time: Span,
     pub open_hours: Option<OpenHours>,
     pub auto_schedule: bool,
-    pub timezone: String,
+    pub timezone: Option<String>,
     pub site_image_id: Option<SiteImageId>,
+}
+
+impl PartialEq for Site {
+    fn eq(&self, other: &Self) -> bool {
+        self.community_id == other.community_id
+            && self.name == other.name
+            && self.description == other.description
+            && self.default_auction_params == other.default_auction_params
+            && self.possession_period.fieldwise() == other.possession_period.fieldwise()
+            && self.auction_lead_time.fieldwise() == other.auction_lead_time.fieldwise()
+            && self.proxy_bidding_lead_time.fieldwise() == other.proxy_bidding_lead_time.fieldwise()
+            && self.open_hours == other.open_hours
+            && self.auto_schedule == other.auto_schedule
+            && self.timezone == other.timezone
+            && self.site_image_id == other.site_image_id
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +150,7 @@ pub struct Space {
 }
 
 /// An auction for a site's possession period
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Auction {
     pub site_id: SiteId,
     pub possession_start_at: Timestamp,

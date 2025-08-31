@@ -302,7 +302,7 @@ async fn test_view_existing_site() -> Result<()> {
 
         // Check that timezone appears
         assert!(
-            page_text.contains(&site.site_details.timezone),
+            page_text.contains(&site.site_details.timezone.unwrap()),
             "Site timezone should be displayed"
         );
 
@@ -352,7 +352,7 @@ async fn test_view_existing_site() -> Result<()> {
 
     // Check that timezone appears
     assert!(
-        page_text.contains(&site.site_details.timezone),
+        page_text.contains(&site.site_details.timezone.unwrap()),
         "Site timezone should be displayed"
     );
 

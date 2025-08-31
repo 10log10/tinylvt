@@ -188,7 +188,7 @@ async fn list_sites() -> anyhow::Result<()> {
         proxy_bidding_lead_time: jiff::Span::new().hours(12), // 12 hours
         open_hours: None,
         auto_schedule: false,
-        timezone: "America/New_York".to_string(),
+        timezone: Some("America/New_York".to_string()),
         site_image_id: None,
     };
     let site2_id = app.client.create_site(&site2_details).await?;

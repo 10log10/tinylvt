@@ -231,7 +231,7 @@ pub struct Site {
     pub open_hours_id: Option<OpenHoursId>,
     pub auto_schedule: bool,
     pub site_image_id: Option<SiteImageId>,
-    pub timezone: String,
+    pub timezone: Option<String>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]

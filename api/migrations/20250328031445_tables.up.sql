@@ -160,7 +160,10 @@ CREATE TABLE sites (
     -- auctions are manually triggered.
     auto_schedule BOOLEAN NOT NULL DEFAULT true,
 
-    timezone TEXT NOT NULL, -- IANA time zone, e.g. 'America/Los_Angeles'
+    -- IANA time zone, e.g. 'America/Los_Angeles'.
+    -- If not provided, datetime math uses UTC and the times render in the
+    -- users's local time.
+    timezone TEXT,
 
     -- Image is optional if the location is otherwise well-described.
     site_image_id UUID REFERENCES site_images (id) ON DELETE SET NULL,
