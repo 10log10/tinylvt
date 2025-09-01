@@ -1,7 +1,8 @@
 use crate::components::AuctionInfo;
 use jiff::{Span, Timestamp};
 use payloads::{
-    ActivityRuleParams, Auction, AuctionParams, CommunityId, Site, SiteId,
+    ActivityRuleParams, Auction, AuctionId, AuctionParams, CommunityId, Site, SiteId,
+    responses,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -11,22 +12,30 @@ use yew::prelude::*;
 pub fn AuctionInfoTest() -> Html {
     // Create test auction data
     let now = Timestamp::now();
-    let test_auction = Auction {
+    let auction_details = Auction {
         site_id: SiteId(Uuid::new_v4()),
         possession_start_at: now + Span::new().hours(24 + 2), // 1 day = 24 hours
         possession_end_at: now + Span::new().hours(192 + 2), // 8 days = 192 hours
         start_at: now + Span::new().hours(2),
         auction_params: AuctionParams {
             round_duration: Span::new().minutes(5),
-            bid_increment: Decimal::new(250, 2), // $5.00
+            bid_increment: Decimal::new(250, 2), // $2.50
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![(1, 1.0), (5, 0.8), (10, 0.6)],
             },
         },
     };
 
+    let test_auction = responses::Auction {
+        auction_id: AuctionId(Uuid::new_v4()),
+        auction_details,
+        end_at: None, // Ongoing auction
+        created_at: now,
+        updated_at: now,
+    };
+
     // Create test site data
-    let test_site = Site {
+    let site_details = Site {
         community_id: CommunityId(Uuid::new_v4()),
         name: "Downtown Coworking - All Desks".to_string(),
         description: Some("Premium desk in downtown location".to_string()),
@@ -44,6 +53,13 @@ pub fn AuctionInfoTest() -> Html {
         auto_schedule: true,
         timezone: Some("America/New_York".to_string()),
         site_image_id: None,
+    };
+
+    let test_site = responses::Site {
+        site_id: SiteId(Uuid::new_v4()),
+        site_details,
+        created_at: now,
+        updated_at: now,
     };
 
     html! {

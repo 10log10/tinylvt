@@ -365,7 +365,7 @@ pub mod responses {
     }
 
     /// Details about a community member for a community one is a part of.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Site {
         pub site_id: super::SiteId,
         pub site_details: super::Site,
@@ -381,7 +381,7 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Auction {
         pub auction_id: super::AuctionId,
         pub auction_details: super::Auction,
