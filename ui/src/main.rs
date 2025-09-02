@@ -1,4 +1,4 @@
-use ui::{logs, App};
+use ui::{App, logs};
 
 fn main() {
     logs::init_logging();

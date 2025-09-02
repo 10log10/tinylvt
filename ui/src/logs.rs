@@ -1,6 +1,6 @@
 //! Logging to the javascript console and to the backend.
 
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_web::MakeWebConsoleWriter;
 
 /// Initialize logging

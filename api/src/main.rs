@@ -56,9 +56,9 @@ async fn main() -> std::io::Result<()> {
     let pool = sqlx::PgPool::connect(&config.database_url).await.unwrap();
 
     // Create time source
-    #[cfg(not(feature = "test-utils"))]
+    #[cfg(not(feature = "mock-time"))]
     let time_source = TimeSource::new();
-    #[cfg(feature = "test-utils")]
+    #[cfg(feature = "mock-time")]
     let time_source = TimeSource::new(jiff::Timestamp::now());
 
     // Start the scheduler service

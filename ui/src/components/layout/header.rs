@@ -1,4 +1,4 @@
-use crate::{components::DarkModeToggle, Route};
+use crate::{Route, components::DarkModeToggle};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -26,4 +26,3 @@ pub fn Header() -> Html {
         </header>
     }
 }
-

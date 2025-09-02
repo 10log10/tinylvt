@@ -939,6 +939,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dev-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "api",
+ "jiff",
+ "jiff-sqlx",
+ "payloads",
+ "rust_decimal",
+ "sqlx",
+ "test-helpers",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

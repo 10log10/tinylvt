@@ -1,10 +1,23 @@
+# Crate for starting the api with an isolated database instance and populating
+# it with test data.
+#
+# This crate is used both by the api's integration tests at api/tests/api,
+# browser automation tests in ui-tests, and the dev-server crate (which
+# disables the time mocking).
+
 [package]
 name = "test-helpers"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# enable mocking for api by default
+default = ["mock-time", "mock-email"]
+mock-time = ["api/mock-time"]
+mock-email = ["api/mock-email"]
+
 [dependencies]
-api = { path = "../api", features = ["test-utils"] }
+api = { path = "../api" }
 payloads = { path = "../payloads" }
 anyhow = { workspace = true }
 base64 = "0.22"

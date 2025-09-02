@@ -129,9 +129,12 @@ impl PartialEq for Site {
             && self.name == other.name
             && self.description == other.description
             && self.default_auction_params == other.default_auction_params
-            && self.possession_period.fieldwise() == other.possession_period.fieldwise()
-            && self.auction_lead_time.fieldwise() == other.auction_lead_time.fieldwise()
-            && self.proxy_bidding_lead_time.fieldwise() == other.proxy_bidding_lead_time.fieldwise()
+            && self.possession_period.fieldwise()
+                == other.possession_period.fieldwise()
+            && self.auction_lead_time.fieldwise()
+                == other.auction_lead_time.fieldwise()
+            && self.proxy_bidding_lead_time.fieldwise()
+                == other.proxy_bidding_lead_time.fieldwise()
             && self.open_hours == other.open_hours
             && self.auto_schedule == other.auto_schedule
             && self.timezone == other.timezone

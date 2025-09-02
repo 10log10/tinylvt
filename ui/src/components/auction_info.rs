@@ -1,7 +1,10 @@
-use jiff::{fmt::friendly::{Designator, Spacing, SpanPrinter}, Timestamp};
+use crate::utils::time::{format_zoned_timestamp, localize_timestamp};
+use jiff::{
+    Timestamp,
+    fmt::friendly::{Designator, Spacing, SpanPrinter},
+};
 use payloads::responses;
 use yew::prelude::*;
-use crate::utils::time::{localize_timestamp, format_zoned_timestamp};
 
 #[derive(Debug, Clone, PartialEq)]
 enum AuctionStatus {
@@ -13,7 +16,7 @@ enum AuctionStatus {
 impl AuctionStatus {
     fn from_auction(auction: &responses::Auction) -> Self {
         let now = Timestamp::now();
-        
+
         if let Some(_end_at) = auction.end_at {
             Self::Concluded
         } else if now >= auction.auction_details.start_at {
@@ -22,7 +25,7 @@ impl AuctionStatus {
             Self::Upcoming
         }
     }
-    
+
     fn label(&self) -> &'static str {
         match self {
             Self::Upcoming => "Upcoming",
@@ -30,12 +33,18 @@ impl AuctionStatus {
             Self::Concluded => "Concluded",
         }
     }
-    
+
     fn badge_classes(&self) -> &'static str {
         match self {
-            Self::Upcoming => "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200",
-            Self::Ongoing => "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900",
-            Self::Concluded => "bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-400",
+            Self::Upcoming => {
+                "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200"
+            }
+            Self::Ongoing => {
+                "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
+            }
+            Self::Concluded => {
+                "bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-400"
+            }
         }
     }
 }
@@ -46,13 +55,12 @@ pub struct AuctionInfoProps {
     pub site: responses::Site,
 }
 
-
 #[function_component]
 pub fn AuctionInfo(props: &AuctionInfoProps) -> Html {
     let auction_details = &props.auction.auction_details;
     let site_details = &props.site.site_details;
     let site_timezone = site_details.timezone.as_deref();
-    
+
     // Calculate auction status
     let status = AuctionStatus::from_auction(&props.auction);
 

@@ -7,7 +7,8 @@ edition = "2024"
 
 [features]
 default = []
-test-utils = [] # for testing utilities like time mocking
+mock-time = []
+mock-email = []
 
 [dependencies]
 actix-cors = "0.7.1"
@@ -39,5 +40,5 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-api = { path = ".", features = ["test-utils"] }
-test-helpers = { path = "../test-helpers" }
+api = { path = "." }
+test-helpers = { path = "../test-helpers" }  # enables mocking for api

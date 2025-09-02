@@ -1,4 +1,6 @@
 use api::time::TimeSource;
+
+pub mod mock;
 use api::{Config, telemetry};
 use base64::Engine;
 use jiff::Span;
@@ -740,7 +742,12 @@ pub async fn spawn_app() -> TestApp {
     let subscriber = telemetry::get_subscriber("error".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
+
+    #[cfg(any(feature = "mock-time", test))]
     let time_source = TimeSource::new("2025-01-01T00:00:00Z".parse().unwrap());
+
+    #[cfg(not(any(feature = "mock-time", test)))]
+    let time_source = TimeSource::new();
 
     let (db_pool, new_db_name) = setup_database().await.unwrap();
     let db_url = format!("{DATABASE_URL}/{}", new_db_name);

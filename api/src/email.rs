@@ -1,14 +1,14 @@
-#[cfg(not(feature = "test-utils"))]
+#[cfg(not(feature = "mock-email"))]
 use anyhow::Context;
 use anyhow::Result;
-#[cfg(not(feature = "test-utils"))]
+#[cfg(not(feature = "mock-email"))]
 use resend_rs::{Resend, types::CreateEmailBaseOptions};
-#[cfg(not(feature = "test-utils"))]
+#[cfg(not(feature = "mock-email"))]
 use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 
 pub struct EmailService {
-    #[cfg(not(feature = "test-utils"))]
+    #[cfg(not(feature = "mock-email"))]
     client: Resend,
     from_address: String,
 }
@@ -21,7 +21,7 @@ pub struct EmailTemplate {
 }
 
 impl EmailService {
-    #[cfg(not(feature = "test-utils"))]
+    #[cfg(not(feature = "mock-email"))]
     pub fn new(api_key: SecretBox<String>, from_address: String) -> Self {
         let client = Resend::new(api_key.expose_secret());
         Self {
@@ -30,13 +30,13 @@ impl EmailService {
         }
     }
 
-    #[cfg(feature = "test-utils")]
+    #[cfg(feature = "mock-email")]
     pub fn new(_api_key: SecretBox<String>, from_address: String) -> Self {
         Self { from_address }
     }
 
     #[tracing::instrument(skip(self), fields(to = %to_email))]
-    #[cfg(not(feature = "test-utils"))]
+    #[cfg(not(feature = "mock-email"))]
     pub async fn send_email(
         &self,
         to_email: &str,
@@ -61,7 +61,7 @@ impl EmailService {
     }
 
     #[tracing::instrument(skip(self), fields(to = %to_email))]
-    #[cfg(feature = "test-utils")]
+    #[cfg(feature = "mock-email")]
     pub async fn send_email(
         &self,
         to_email: &str,

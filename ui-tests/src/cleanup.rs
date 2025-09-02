@@ -64,4 +64,3 @@ fn kill_processes_by_pattern(
 
     Ok(killed_count)
 }
-

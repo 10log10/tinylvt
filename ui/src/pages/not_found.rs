@@ -9,4 +9,3 @@ pub fn NotFoundPage() -> Html {
         </div>
     }
 }
-
