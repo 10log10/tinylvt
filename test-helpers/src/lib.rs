@@ -738,7 +738,7 @@ pub fn assert_site_image_equal(
     Ok(())
 }
 
-pub async fn spawn_app() -> TestApp {
+pub async fn spawn_app_on_port(port: u16) -> TestApp {
     let subscriber = telemetry::get_subscriber("error".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
@@ -754,7 +754,7 @@ pub async fn spawn_app() -> TestApp {
     let mut config = Config {
         database_url: db_url,
         ip: "127.0.0.1".into(),
-        port: 0,
+        port,
         allowed_origins: vec!["*".to_string()],
         email_api_key: secrecy::SecretBox::new(Box::new(
             "test-api-key".to_string(),
@@ -781,6 +781,11 @@ pub async fn spawn_app() -> TestApp {
         },
         time_source,
     }
+}
+
+/// Use OS-assigned port for parallel testing.
+pub async fn spawn_app() -> TestApp {
+    spawn_app_on_port(0).await
 }
 
 /// Create a new database specific for the test and migrate it, returning a

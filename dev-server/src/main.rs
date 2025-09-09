@@ -22,8 +22,8 @@ async fn main() -> Result<()> {
     info!("🚀 Starting TinyLVT development server");
     info!("⏰ Using MOCKED time initially, then syncing with real time");
 
-    // Spawn the test app with mocked time
-    let app = test_helpers::spawn_app().await;
+    // Spawn the test app with mocked time on port 8000 for development
+    let app = test_helpers::spawn_app_on_port(8000).await;
 
     info!("✅ API server running on http://127.0.0.1:{}", app.port);
 

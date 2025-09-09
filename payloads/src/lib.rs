@@ -416,7 +416,7 @@ pub mod responses {
         pub created_at: Timestamp,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct UserProfile {
         pub username: String,
         pub email: String,

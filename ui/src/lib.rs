@@ -3,6 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 mod components;
+mod hooks;
 pub mod logs;
 mod pages;
 mod state;
@@ -10,11 +11,26 @@ mod test_components;
 mod utils;
 
 use components::layout::MainLayout;
-use pages::{HomePage, NotFoundPage, TestPage};
-pub(crate) use state::{State, ThemeMode};
+use hooks::use_authentication;
+use pages::{HomePage, LoginPage, NotFoundPage, TestPage};
+pub(crate) use state::{AuthState, State, ThemeMode};
+
+#[function_component]
+pub fn App() -> Html {
+    // Check authentication status on startup
+    use_authentication();
+
+    html! {
+        <BrowserRouter>
+            <MainLayout>
+                <Switch<Route> render={switch} />
+            </MainLayout>
+        </BrowserRouter>
+    }
+}
 
 // Global API client - configurable via environment or same-origin fallback
-fn get_api_client() -> APIClient {
+pub(crate) fn get_api_client() -> APIClient {
     // Try environment variable first (set at build time)
     let address = option_env!("BACKEND_URL")
         .map(|url| url.to_string())
@@ -31,21 +47,12 @@ fn get_api_client() -> APIClient {
     }
 }
 
-#[function_component]
-pub fn App() -> Html {
-    html! {
-        <BrowserRouter>
-            <MainLayout>
-                <Switch<Route> render={switch} />
-            </MainLayout>
-        </BrowserRouter>
-    }
-}
-
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
     #[at("/")]
     Home,
+    #[at("/login")]
+    Login,
     #[at("/test")]
     Test,
     #[not_found]
@@ -56,6 +63,7 @@ pub enum Route {
 fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <HomePage /> },
+        Route::Login => html! { <LoginPage /> },
         Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },
     }
