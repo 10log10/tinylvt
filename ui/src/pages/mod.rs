@@ -1,4 +1,6 @@
 pub mod communities;
+pub mod community_detail;
+pub mod community_members;
 pub mod create_community;
 pub mod home;
 pub mod logged_in_home;
@@ -8,6 +10,8 @@ pub mod not_found;
 pub mod test;
 
 pub use communities::CommunitiesPage;
+pub use community_detail::CommunityDetailPage;
+pub use community_members::CommunityMembersPage;
 pub use create_community::CreateCommunityPage;
 pub use home::HomePage;
 pub use logged_in_home::LoggedInHomePage;

@@ -77,9 +77,12 @@ pub fn CommunitiesPage() -> Html {
                                         </div>
 
                                         <div class="pt-2">
-                                            <button class="w-full bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-900 dark:text-neutral-100 px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                                            <Link<Route>
+                                                to={Route::CommunityDetail { id: community.id.to_string() }}
+                                                classes="block w-full bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-900 dark:text-neutral-100 px-4 py-2 rounded-md text-sm font-medium transition-colors text-center"
+                                            >
                                                 {"View Details"}
-                                            </button>
+                                            </Link<Route>>
                                         </div>
                                     </div>
                                 </div>

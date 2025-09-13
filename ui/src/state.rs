@@ -1,4 +1,5 @@
-use payloads::responses;
+use payloads::{CommunityId, responses};
+use std::collections::HashMap;
 use yewdux::prelude::*;
 
 #[derive(Clone, PartialEq, Default)]
@@ -29,6 +30,7 @@ pub struct State {
     pub system_prefers_dark: bool,
     pub auth_state: AuthState,
     pub communities: Option<Vec<responses::CommunityWithRole>>,
+    pub sites: HashMap<CommunityId, Vec<responses::Site>>,
 }
 
 impl State {
@@ -65,9 +67,36 @@ impl State {
         self.communities = Some(communities);
     }
 
+    pub fn has_sites_loaded_for_community(
+        &self,
+        community_id: CommunityId,
+    ) -> bool {
+        self.sites.contains_key(&community_id)
+    }
+
+    pub fn get_sites_for_community(
+        &self,
+        community_id: CommunityId,
+    ) -> Option<&Vec<responses::Site>> {
+        self.sites.get(&community_id)
+    }
+
+    pub fn set_sites_for_community(
+        &mut self,
+        community_id: CommunityId,
+        sites: Vec<responses::Site>,
+    ) {
+        self.sites.insert(community_id, sites);
+    }
+
+    pub fn clear_sites(&mut self) {
+        self.sites.clear();
+    }
+
     pub fn logout(&mut self) {
         self.auth_state = AuthState::LoggedOut;
         self.clear_communities();
+        self.clear_sites();
         // Future: clear other user-specific state here
     }
 }

@@ -457,7 +457,7 @@ use uuid::Uuid;
 pub struct UserId(pub Uuid);
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct CommunityId(pub Uuid);
