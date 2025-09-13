@@ -5,7 +5,7 @@ use tracing_web::MakeWebConsoleWriter;
 
 /// Initialize logging
 pub fn init_logging() {
-    let env_filter = EnvFilter::new("error,front=debug");
+    let env_filter = EnvFilter::new("error,ui=debug");
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_line_number(true)

@@ -12,7 +12,10 @@ mod utils;
 
 use components::layout::MainLayout;
 use hooks::use_authentication;
-use pages::{HomePage, LoginPage, NotFoundPage, TestPage};
+use pages::{
+    CommunitiesPage, CreateCommunityPage, HomePage, LoginPage, NotFoundPage,
+    TestPage,
+};
 pub(crate) use state::{AuthState, State, ThemeMode};
 
 #[function_component]
@@ -53,6 +56,10 @@ pub enum Route {
     Home,
     #[at("/login")]
     Login,
+    #[at("/communities")]
+    Communities,
+    #[at("/communities/new")]
+    CreateCommunity,
     #[at("/test")]
     Test,
     #[not_found]
@@ -64,6 +71,8 @@ fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <HomePage /> },
         Route::Login => html! { <LoginPage /> },
+        Route::Communities => html! { <CommunitiesPage /> },
+        Route::CreateCommunity => html! { <CreateCommunityPage /> },
         Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },
     }

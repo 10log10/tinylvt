@@ -1,5 +1,8 @@
 use payloads::responses;
 use yew::prelude::*;
+use yew_router::prelude::*;
+
+use crate::Route;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -9,6 +12,14 @@ pub struct Props {
 #[function_component]
 pub fn LoggedInHomePage(props: &Props) -> Html {
     let profile = &props.profile;
+    let navigator = use_navigator().unwrap();
+
+    let on_view_communities = {
+        let navigator = navigator.clone();
+        Callback::from(move |_| {
+            navigator.push(&Route::Communities);
+        })
+    };
 
     html! {
         <div class="space-y-8">
@@ -42,7 +53,10 @@ pub fn LoggedInHomePage(props: &Props) -> Html {
                     <p class="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
                         {"Manage your community memberships and create new communities"}
                     </p>
-                    <button class="w-full bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                    <button
+                        onclick={on_view_communities}
+                        class="w-full bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                    >
                         {"View Communities"}
                     </button>
                 </div>

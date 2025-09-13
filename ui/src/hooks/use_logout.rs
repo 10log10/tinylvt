@@ -1,4 +1,4 @@
-use crate::{AuthState, Route, State};
+use crate::{Route, State};
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
@@ -17,7 +17,7 @@ pub fn use_logout() -> Callback<MouseEvent> {
             let _ = api_client.logout().await;
 
             dispatch.reduce_mut(|state| {
-                state.auth_state = AuthState::LoggedOut;
+                state.logout();
             });
 
             navigator.push(&Route::Login);

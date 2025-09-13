@@ -26,20 +26,20 @@ pub fn use_authentication() {
                             }
                             Err(_) => {
                                 dispatch.reduce_mut(|state| {
-                                    state.auth_state = AuthState::LoggedOut;
+                                    state.logout();
                                 });
                             }
                         }
                     }
                     Ok(false) => {
                         dispatch.reduce_mut(|state| {
-                            state.auth_state = AuthState::LoggedOut;
+                            state.logout();
                         });
                     }
                     Err(_) => {
                         // Network error or other issue, assume logged out
                         dispatch.reduce_mut(|state| {
-                            state.auth_state = AuthState::LoggedOut;
+                            state.logout();
                         });
                     }
                 }

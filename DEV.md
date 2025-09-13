@@ -6,7 +6,7 @@ Spin up a local postgres database and migrate it:
 
 ```
 docker pull postgres
-docker run --name postgres -e POSTGRES_PASSWORD=password -e POSTGRES_USER=user -e POSTGRES_DB=tinylvt -p 5432:5432 -d postgres:17-alpine
+docker run --name postgres -e POSTGRES_PASSWORD=password -e POSTGRES_USER=user -e POSTGRES_DB=tinylvt -p 5433:5432 -d postgres:17-alpine
 cd api
 DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt sqlx migrate run
 ```

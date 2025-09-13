@@ -13,7 +13,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../api/migrations");
-const DATABASE_URL: &str = "postgresql://user:password@localhost:5432";
+const DATABASE_URL: &str = "postgresql://user:password@localhost:5433";
 const DEFAULT_DB: &str = "tinylvt";
 
 pub struct TestApp {
