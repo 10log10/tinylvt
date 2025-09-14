@@ -1,31 +1,17 @@
-use payloads::CommunityId;
+use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
-use crate::components::{ActiveTab, CommunityTabHeader};
 use crate::hooks::use_communities;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub community_id: String,
-    pub active_tab: ActiveTab,
-    pub children: Callback<CommunityId, Html>,
+    pub community_id: CommunityId,
+    pub children: Callback<CommunityWithRole, Html>,
 }
 
 #[function_component]
 pub fn CommunityPageWrapper(props: &Props) -> Html {
     let communities_hook = use_communities();
-
-    // Parse community ID from string
-    let community_id = match uuid::Uuid::parse_str(&props.community_id) {
-        Ok(id) => CommunityId(id),
-        Err(_) => {
-            return html! {
-                <div class="text-center py-12">
-                    <p class="text-red-600 dark:text-red-400">{"Invalid community ID"}</p>
-                </div>
-            };
-        }
-    };
 
     // Find the community in the global state
     let community =
@@ -33,7 +19,7 @@ pub fn CommunityPageWrapper(props: &Props) -> Html {
             .communities
             .as_ref()
             .and_then(|communities| {
-                communities.iter().find(|c| c.id == community_id)
+                communities.iter().find(|c| c.id == props.community_id)
             });
 
     if communities_hook.is_loading {
@@ -65,11 +51,7 @@ pub fn CommunityPageWrapper(props: &Props) -> Html {
 
     html! {
         <div>
-            <CommunityTabHeader community={community.clone()} active_tab={props.active_tab.clone()} />
-
-            <div class="py-6">
-                {props.children.emit(community_id)}
-            </div>
+            {props.children.emit(community.clone())}
         </div>
     }
 }

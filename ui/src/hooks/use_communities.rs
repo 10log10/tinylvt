@@ -73,10 +73,17 @@ pub fn use_communities() -> CommunitiesHookReturn {
         });
     }
 
+    // Consider it "loading" if actively loading OR if we're in initial state
+    // (no data, no error yet)
+    let communities = state.get_communities().clone();
+    let current_error = (*error).clone();
+    let effective_is_loading =
+        *is_loading || (communities.is_none() && current_error.is_none());
+
     CommunitiesHookReturn {
-        communities: state.get_communities().clone(),
-        is_loading: *is_loading,
-        error: (*error).clone(),
+        communities,
+        is_loading: effective_is_loading,
+        error: current_error,
         refetch,
     }
 }

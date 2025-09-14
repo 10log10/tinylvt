@@ -1,23 +1,29 @@
-use payloads::CommunityId;
+use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
-use crate::components::{ActiveTab, CommunityPageWrapper};
+use crate::components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub community_id: String,
+    pub community_id: CommunityId,
 }
 
 #[function_component]
 pub fn CommunityMembersPage(props: &Props) -> Html {
-    let render_content = Callback::from(|community_id: CommunityId| {
-        html! { <MembersContent community_id={community_id} /> }
+    let render_content = Callback::from(|community: CommunityWithRole| {
+        html! {
+            <div>
+                <CommunityTabHeader community={community.clone()} active_tab={ActiveTab::Members} />
+                <div class="py-6">
+                    <MembersContent community_id={community.id} />
+                </div>
+            </div>
+        }
     });
 
     html! {
         <CommunityPageWrapper
-            community_id={props.community_id.clone()}
-            active_tab={ActiveTab::Members}
+            community_id={props.community_id}
             children={render_content}
         />
     }

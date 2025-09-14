@@ -1,24 +1,34 @@
-use payloads::CommunityId;
+use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
+use yew_router::prelude::*;
 
-use crate::components::{ActiveTab, CommunityPageWrapper};
 use crate::hooks::use_sites;
+use crate::{
+    Route,
+    components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader},
+};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub community_id: String,
+    pub community_id: CommunityId,
 }
 
 #[function_component]
 pub fn CommunityDetailPage(props: &Props) -> Html {
-    let render_content = Callback::from(|community_id: CommunityId| {
-        html! { <SitesTab community_id={community_id} /> }
+    let render_content = Callback::from(|community: CommunityWithRole| {
+        html! {
+            <div>
+                <CommunityTabHeader community={community.clone()} active_tab={ActiveTab::Sites} />
+                <div class="py-6">
+                    <SitesTab community_id={community.id} />
+                </div>
+            </div>
+        }
     });
 
     html! {
         <CommunityPageWrapper
-            community_id={props.community_id.clone()}
-            active_tab={ActiveTab::Sites}
+            community_id={props.community_id}
             children={render_content}
         />
     }
@@ -57,9 +67,12 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                         <p class="text-neutral-600 dark:text-neutral-400 mb-4">
                             {"No sites have been created for this community yet."}
                         </p>
-                        <button class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                        <Link<Route>
+                            to={Route::CreateSite { id: props.community_id }}
+                            classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                        >
                             {"Create First Site"}
-                        </button>
+                        </Link<Route>>
                     </div>
                 }
             } else {
@@ -69,9 +82,12 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                             <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                                 {"Sites"}
                             </h2>
-                            <button class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                            <Link<Route>
+                                to={Route::CreateSite { id: props.community_id }}
+                                classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                            >
                                 {"Create New Site"}
-                            </button>
+                            </Link<Route>>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

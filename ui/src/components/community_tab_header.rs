@@ -34,7 +34,7 @@ pub fn CommunityTabHeader(props: &Props) -> Html {
             <div class="border-b border-neutral-200 dark:border-neutral-700">
                 <nav class="-mb-px flex space-x-8">
                     <Link<Route>
-                        to={Route::CommunityDetail { id: props.community.id.to_string() }}
+                        to={Route::CommunityDetail { id: props.community.id }}
                         classes={classes!(format!(
                             "py-2 px-1 border-b-2 font-medium text-sm {}",
                             if props.active_tab == ActiveTab::Sites {
@@ -47,7 +47,7 @@ pub fn CommunityTabHeader(props: &Props) -> Html {
                         {"Sites"}
                     </Link<Route>>
                     <Link<Route>
-                        to={Route::CommunityMembers { id: props.community.id.to_string() }}
+                        to={Route::CommunityMembers { id: props.community.id }}
                         classes={classes!(format!(
                             "py-2 px-1 border-b-2 font-medium text-sm {}",
                             if props.active_tab == ActiveTab::Members {

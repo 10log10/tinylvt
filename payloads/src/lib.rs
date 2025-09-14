@@ -462,6 +462,14 @@ pub struct UserId(pub Uuid);
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct CommunityId(pub Uuid);
 
+impl std::str::FromStr for CommunityId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        uuid::Uuid::parse_str(s).map(CommunityId)
+    }
+}
+
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]

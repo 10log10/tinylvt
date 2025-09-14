@@ -1,4 +1,4 @@
-use payloads::APIClient;
+use payloads::{APIClient, CommunityId};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -14,7 +14,8 @@ use components::layout::MainLayout;
 use hooks::use_authentication;
 use pages::{
     CommunitiesPage, CommunityDetailPage, CommunityMembersPage,
-    CreateCommunityPage, HomePage, LoginPage, NotFoundPage, TestPage,
+    CreateCommunityPage, CreateSitePage, HomePage, LoginPage, NotFoundPage,
+    SiteAdminPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -61,9 +62,13 @@ pub enum Route {
     #[at("/communities/new")]
     CreateCommunity,
     #[at("/communities/:id")]
-    CommunityDetail { id: String },
+    CommunityDetail { id: CommunityId },
     #[at("/communities/:id/members")]
-    CommunityMembers { id: String },
+    CommunityMembers { id: CommunityId },
+    #[at("/communities/:id/sites/new")]
+    CreateSite { id: CommunityId },
+    #[at("/sites/:id/admin")]
+    SiteAdmin { id: String }, // Site ID will be a string for now
     #[at("/test")]
     Test,
     #[not_found]
@@ -82,6 +87,12 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityMembers { id } => {
             html! { <CommunityMembersPage community_id={id} /> }
+        }
+        Route::CreateSite { id } => {
+            html! { <CreateSitePage community_id={id} /> }
+        }
+        Route::SiteAdmin { id } => {
+            html! { <SiteAdminPage site_id={id} /> }
         }
         Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },
