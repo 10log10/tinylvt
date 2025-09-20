@@ -51,6 +51,7 @@ pub async fn invite_community_member(
     let invite_id = store::invite_community_member(
         &validated_member,
         &details.0.new_member_email,
+        details.0.single_use,
         &pool,
     )
     .await?;

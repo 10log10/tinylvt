@@ -232,6 +232,7 @@ pub mod requests {
     pub struct InviteCommunityMember {
         pub community_id: CommunityId,
         pub new_member_email: Option<String>,
+        pub single_use: bool,
     }
 
     /// An empty schedule can be used to delete the schedule entirely.

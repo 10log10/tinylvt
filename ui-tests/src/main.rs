@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
     let invite_details = requests::InviteCommunityMember {
         community_id: bob_community_id,
         new_member_email: Some(alice_credentials.email.clone()),
+        single_use: false,
     };
     let invite_id = env.api.client.invite_member(&invite_details).await?;
     info!(

@@ -337,6 +337,7 @@ async fn create_cross_community_invite(
     let invite_details = requests::InviteCommunityMember {
         community_id: *bob_community_id,
         new_member_email: Some(alice_credentials.email.clone()),
+        single_use: false,
     };
     let invite_id = app.client.invite_member(&invite_details).await?;
     Ok(invite_id)

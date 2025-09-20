@@ -66,6 +66,7 @@ CREATE TABLE community_invites (
     -- If provided, the accepting user email must match. Otherwise it's an open
     -- invite to anyone with the invite id.
     email VARCHAR(255),
+    single_use BOOLEAN NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 

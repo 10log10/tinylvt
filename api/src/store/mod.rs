@@ -146,6 +146,7 @@ pub struct CommunityInvite {
     pub id: InviteId,
     pub community_id: CommunityId,
     pub email: Option<String>,
+    pub single_use: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
 }
@@ -995,17 +996,19 @@ pub async fn get_validated_member(
 pub async fn invite_community_member(
     actor: &ValidatedMember,
     new_member_email: &Option<String>,
+    single_use: bool,
     pool: &PgPool,
 ) -> Result<InviteId, StoreError> {
     if !actor.0.role.is_ge_moderator() {
         return Err(StoreError::RequiresModeratorPermissions);
     }
     let invite = sqlx::query_as::<_, CommunityInvite>(
-        "INSERT INTO community_invites (community_id, email)
-        VALUES ($1, $2) RETURNING *;",
+        "INSERT INTO community_invites (community_id, email, single_use)
+        VALUES ($1, $2, $3) RETURNING *;",
     )
     .bind(actor.0.community_id)
     .bind(new_member_email)
+    .bind(single_use)
     .fetch_one(pool)
     .await?;
     Ok(invite.id)
@@ -1029,8 +1032,8 @@ pub async fn accept_invite(
     let Some(invite) = invite else {
         return Err(StoreError::CommunityInviteNotFound);
     };
-    if let Some(invite_email) = invite.email {
-        if invite_email != user.email {
+    if let Some(ref invite_email) = invite.email {
+        if *invite_email != user.email {
             return Err(StoreError::MismatchedInviteEmail);
         }
     }
@@ -1047,10 +1050,12 @@ pub async fn accept_invite(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM community_invites WHERE id = $1")
-        .bind(invite_id)
-        .execute(&mut *tx)
-        .await?;
+    if invite.email.is_some() || invite.single_use {
+        sqlx::query("DELETE FROM community_invites WHERE id = $1")
+            .bind(invite_id)
+            .execute(&mut *tx)
+            .await?;
+    }
 
     tx.commit().await?;
 

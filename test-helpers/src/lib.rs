@@ -241,6 +241,7 @@ impl TestApp {
         let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: Some(bob_credentials().email),
+            single_use: false,
         };
         Ok(self.client.invite_member(&details).await?)
     }
@@ -254,6 +255,7 @@ impl TestApp {
         let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: None, // Link-based invite, no email
+            single_use: true,
         };
         Ok(self.client.invite_member(&details).await?)
     }
@@ -325,6 +327,7 @@ impl TestApp {
         let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: Some(charlie_credentials().email),
+            single_use: false,
         };
         self.client.invite_member(&details).await?;
         self.create_charlie_user().await?;

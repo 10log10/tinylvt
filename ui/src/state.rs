@@ -31,6 +31,7 @@ pub struct State {
     pub auth_state: AuthState,
     pub communities: Option<Vec<responses::CommunityWithRole>>,
     pub sites: HashMap<CommunityId, Vec<responses::Site>>,
+    pub members: HashMap<CommunityId, Vec<responses::CommunityMember>>,
 }
 
 impl State {
@@ -93,10 +94,37 @@ impl State {
         self.sites.clear();
     }
 
+    pub fn has_members_loaded_for_community(
+        &self,
+        community_id: CommunityId,
+    ) -> bool {
+        self.members.contains_key(&community_id)
+    }
+
+    pub fn get_members_for_community(
+        &self,
+        community_id: CommunityId,
+    ) -> Option<&Vec<responses::CommunityMember>> {
+        self.members.get(&community_id)
+    }
+
+    pub fn set_members_for_community(
+        &mut self,
+        community_id: CommunityId,
+        members: Vec<responses::CommunityMember>,
+    ) {
+        self.members.insert(community_id, members);
+    }
+
+    pub fn clear_members(&mut self) {
+        self.members.clear();
+    }
+
     pub fn logout(&mut self) {
         self.auth_state = AuthState::LoggedOut;
         self.clear_communities();
         self.clear_sites();
+        self.clear_members();
         // Future: clear other user-specific state here
     }
 }
