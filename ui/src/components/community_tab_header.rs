@@ -14,6 +14,7 @@ pub struct Props {
 pub enum ActiveTab {
     Sites,
     Members,
+    Invites,
 }
 
 #[function_component]
@@ -59,6 +60,26 @@ pub fn CommunityTabHeader(props: &Props) -> Html {
                     >
                         {"Members"}
                     </Link<Route>>
+
+                    {if props.community.user_role.is_ge_moderator() {
+                        html! {
+                            <Link<Route>
+                                to={Route::CommunityInvites { id: props.community.id }}
+                                classes={classes!(format!(
+                                    "py-2 px-1 border-b-2 font-medium text-sm {}",
+                                    if props.active_tab == ActiveTab::Invites {
+                                        "border-neutral-500 text-neutral-600 dark:text-neutral-400"
+                                    } else {
+                                        "border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-300"
+                                    }
+                                ))}
+                            >
+                                {"Invites"}
+                            </Link<Route>>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </nav>
             </div>
         </div>

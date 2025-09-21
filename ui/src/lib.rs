@@ -13,9 +13,9 @@ mod utils;
 use components::layout::MainLayout;
 use hooks::use_authentication;
 use pages::{
-    CommunitiesPage, CommunityDetailPage, CommunityMembersPage,
-    CreateCommunityPage, CreateSitePage, HomePage, LoginPage, NotFoundPage,
-    SiteAdminPage, TestPage,
+    CommunitiesPage, CommunityDetailPage, CommunityInvitesPage,
+    CommunityMembersPage, CreateCommunityPage, CreateSitePage, HomePage,
+    LoginPage, NotFoundPage, SiteAdminPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -65,6 +65,8 @@ pub enum Route {
     CommunityDetail { id: CommunityId },
     #[at("/communities/:id/members")]
     CommunityMembers { id: CommunityId },
+    #[at("/communities/:id/invites")]
+    CommunityInvites { id: CommunityId },
     #[at("/communities/:id/sites/new")]
     CreateSite { id: CommunityId },
     #[at("/sites/:id/admin")]
@@ -87,6 +89,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityMembers { id } => {
             html! { <CommunityMembersPage community_id={id} /> }
+        }
+        Route::CommunityInvites { id } => {
+            html! { <CommunityInvitesPage community_id={id} /> }
         }
         Route::CreateSite { id } => {
             html! { <CreateSitePage community_id={id} /> }

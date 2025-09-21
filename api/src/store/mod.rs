@@ -1098,17 +1098,17 @@ pub async fn get_community_by_id(
     community.ok_or(StoreError::CommunityNotFound)
 }
 
-pub async fn get_invites(
+pub async fn get_received_invites(
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<responses::CommunityInvite>, StoreError> {
+) -> Result<Vec<responses::CommunityInviteReceived>, StoreError> {
     let user = read_user(pool, user_id).await?;
     // Need to make sure this user actually owns this email before showing them
     // the invites they've received
     if !user.email_verified {
         return Err(StoreError::UnverifiedEmail);
     }
-    Ok(sqlx::query_as::<_, responses::CommunityInvite>(
+    Ok(sqlx::query_as::<_, responses::CommunityInviteReceived>(
         "SELECT
             a.*,
             b.name as community_name
@@ -1117,6 +1117,29 @@ pub async fn get_invites(
         WHERE a.email = $1",
     )
     .bind(user.email)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_issued_invites(
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<Vec<responses::IssuedCommunityInvite>, StoreError> {
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    Ok(sqlx::query_as::<_, responses::IssuedCommunityInvite>(
+        "SELECT
+            id,
+            email as new_member_email,
+            single_use,
+            created_at
+        FROM community_invites
+        WHERE community_id = $1
+        ORDER BY created_at DESC",
+    )
+    .bind(actor.0.community_id)
     .fetch_all(pool)
     .await?)
 }

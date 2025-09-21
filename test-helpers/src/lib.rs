@@ -262,7 +262,7 @@ impl TestApp {
 
     pub async fn accept_invite(&self) -> anyhow::Result<()> {
         // get the first invite received
-        let invites = self.client.get_invites().await?;
+        let invites = self.client.get_received_invites().await?;
         let first = invites.first().unwrap();
         assert_eq!(first.community_name, "Test community");
 
@@ -332,7 +332,7 @@ impl TestApp {
         self.client.invite_member(&details).await?;
         self.create_charlie_user().await?;
         self.login_charlie().await?;
-        let invites = self.client.get_invites().await?;
+        let invites = self.client.get_received_invites().await?;
         let charlie_invite = invites
             .iter()
             .find(|invite| invite.community_name == "Test community")

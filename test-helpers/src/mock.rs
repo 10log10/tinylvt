@@ -186,7 +186,7 @@ async fn create_meetup_site(
 
     let site_details = Site {
         community_id: *community_id,
-        name: "Executive Meeting Rooms".to_string(),
+        name: "Meeting Rooms".to_string(),
         description: Some(
             "Premium conference rooms with full AV setup".to_string(),
         ),
@@ -244,7 +244,7 @@ async fn create_conference_room(
 
     let space_details = Space {
         site_id: *site_id,
-        name: "Executive Boardroom".to_string(),
+        name: "Boardroom".to_string(),
         description: Some("12-person boardroom with 4K video conferencing, whiteboard walls, and skyline view".to_string()),
         eligibility_points: 15.0, // High desirability - premium space
         is_available: true,

@@ -80,13 +80,28 @@ pub async fn invite_community_member(
 
 /// Get the invites the user has received
 #[tracing::instrument(skip(user, pool), ret)]
-#[get("/invites")]
-pub async fn get_invites(
+#[get("/received_invites")]
+pub async fn get_received_invites(
     user: Identity,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let invites = store::get_invites(&user_id, &pool).await?;
+    let invites = store::get_received_invites(&user_id, &pool).await?;
+    Ok(HttpResponse::Ok().json(invites))
+}
+
+/// Get the invites that have been issued for a community (moderator+ only)
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/issued_invites")]
+pub async fn get_issued_invites(
+    user: Identity,
+    community_id: web::Json<CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &community_id, &pool).await?;
+    let invites = store::get_issued_invites(&validated_member, &pool).await?;
     Ok(HttpResponse::Ok().json(invites))
 }
 

@@ -329,10 +329,21 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
+    /// A community invite that has been issued from a given community.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+    pub struct IssuedCommunityInvite {
+        pub id: InviteId,
+        pub new_member_email: Option<String>,
+        pub single_use: bool,
+        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+        pub created_at: Timestamp,
+    }
+
     /// Details about a community invite, excluding the target community id.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
-    pub struct CommunityInvite {
+    pub struct CommunityInviteReceived {
         pub id: InviteId,
         pub community_name: String,
         #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
@@ -650,19 +661,26 @@ impl APIClient {
         ok_body(response).await
     }
 
-    pub async fn get_invites(
+    pub async fn get_received_invites(
         &self,
-    ) -> Result<Vec<responses::CommunityInvite>, ClientError> {
-        let response = self.empty_get("invites").await?;
+    ) -> Result<Vec<responses::CommunityInviteReceived>, ClientError> {
+        let response = self.empty_get("received_invites").await?;
         ok_body(response).await
     }
 
-    /// Returns the path component for the invite to construct a URL with.
     pub async fn invite_member(
         &self,
         details: &requests::InviteCommunityMember,
     ) -> Result<InviteId, ClientError> {
         let response = self.post("invite_member", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_issued_invites(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::IssuedCommunityInvite>, ClientError> {
+        let response = self.post("issued_invites", community_id).await?;
         ok_body(response).await
     }
 
