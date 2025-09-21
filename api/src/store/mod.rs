@@ -1032,10 +1032,10 @@ pub async fn accept_invite(
     let Some(invite) = invite else {
         return Err(StoreError::CommunityInviteNotFound);
     };
-    if let Some(ref invite_email) = invite.email {
-        if *invite_email != user.email {
-            return Err(StoreError::MismatchedInviteEmail);
-        }
+    if let Some(ref invite_email) = invite.email
+        && *invite_email != user.email
+    {
+        return Err(StoreError::MismatchedInviteEmail);
     }
 
     let mut tx = pool.begin().await?;
@@ -2555,10 +2555,10 @@ pub enum StoreError {
 
 impl From<sqlx::Error> for StoreError {
     fn from(e: sqlx::Error) -> Self {
-        if let sqlx::Error::Database(db_err) = &e {
-            if db_err.code().as_deref() == Some("23505") {
-                return StoreError::NotUnique(e);
-            }
+        if let sqlx::Error::Database(db_err) = &e
+            && db_err.code().as_deref() == Some("23505")
+        {
+            return StoreError::NotUnique(e);
         }
         StoreError::Database(e)
     }

@@ -201,14 +201,11 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
             // Only close if clicking the backdrop itself, not its children
             if let Some(backdrop_element) =
                 backdrop_ref.cast::<web_sys::Element>()
+                && let Some(target) = e.target()
+                && target.dyn_ref::<web_sys::Element>()
+                    == Some(&backdrop_element)
             {
-                if let Some(target) = e.target() {
-                    if target.dyn_ref::<web_sys::Element>()
-                        == Some(&backdrop_element)
-                    {
-                        on_close.emit(e);
-                    }
-                }
+                on_close.emit(e);
             }
         })
     };
@@ -323,11 +320,10 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
                                                     value={link.clone()}
                                                     readonly={true}
                                                     onfocus={Callback::from(move |e: FocusEvent| {
-                                                        if let Some(target) = e.target() {
-                                                            if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                        if let Some(target) = e.target()
+                                                            && let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
                                                                 input.select();
                                                             }
-                                                        }
                                                     })}
                                                     class="w-full px-2 py-1 text-xs border border-green-300 dark:border-green-600 rounded bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 font-mono cursor-pointer"
                                                     title="Click to select all, then copy"
@@ -599,11 +595,10 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
                         }}
                         readonly={true}
                         onfocus={Callback::from(move |e: FocusEvent| {
-                            if let Some(target) = e.target() {
-                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                            if let Some(target) = e.target()
+                                && let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
                                     input.select();
                                 }
-                            }
                         })}
                         class="flex-1 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
                         title="Click to select all, then copy"

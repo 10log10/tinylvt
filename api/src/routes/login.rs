@@ -380,13 +380,13 @@ pub async fn update_profile(
     let user_id = get_user_id(&user)?;
 
     // Validate display_name length if provided
-    if let Some(ref display_name) = request.display_name {
-        if display_name.len() > payloads::requests::DISPLAY_NAME_MAX_LEN {
-            return Err(APIError::BadRequest(anyhow::anyhow!(
-                "Display name must not exceed {} characters",
-                payloads::requests::DISPLAY_NAME_MAX_LEN
-            )));
-        }
+    if let Some(ref display_name) = request.display_name
+        && display_name.len() > payloads::requests::DISPLAY_NAME_MAX_LEN
+    {
+        return Err(APIError::BadRequest(anyhow::anyhow!(
+            "Display name must not exceed {} characters",
+            payloads::requests::DISPLAY_NAME_MAX_LEN
+        )));
     }
 
     let updated_user =

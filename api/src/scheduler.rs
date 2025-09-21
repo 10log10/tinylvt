@@ -177,18 +177,17 @@ async fn process_auction_without_round(
     .context("failed to query for concluded round")?;
 
     // If there's a previous round, check if it had activity
-    if let Some(previous_round) = &previous_round {
-        if let Ok(false) = update_round_space_results_for_auction(
+    if let Some(previous_round) = &previous_round
+        && let Ok(false) = update_round_space_results_for_auction(
             &auction,
             previous_round,
             pool,
         )
         .await
         .map_err(log_error)
-        {
-            // auction has concluded
-            return Ok(());
-        }
+    {
+        // auction has concluded
+        return Ok(());
     }
 
     // Create next round and update eligibilities atomically
@@ -199,19 +198,18 @@ async fn process_auction_without_round(
     {
         Ok(new_round_id) => {
             // Update eligibilities only if there was a previous round
-            if let Some(previous_round) = &previous_round {
-                if let Err(e) = update_user_eligibilities(
+            if let Some(previous_round) = &previous_round
+                && let Err(e) = update_user_eligibilities(
                     &auction,
                     previous_round,
                     &new_round_id,
                     &mut tx,
                 )
                 .await
-                {
-                    log_error(e);
-                    let _ = tx.rollback().await;
-                    return Ok(());
-                }
+            {
+                log_error(e);
+                let _ = tx.rollback().await;
+                return Ok(());
             }
 
             if let Err(e) = tx.commit().await {
