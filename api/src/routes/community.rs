@@ -105,6 +105,21 @@ pub async fn get_issued_invites(
     Ok(HttpResponse::Ok().json(invites))
 }
 
+/// Delete/rescind a community invite (moderator+ only)
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/delete_invite")]
+pub async fn delete_invite(
+    user: Identity,
+    details: web::Json<requests::DeleteInvite>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+    store::delete_invite(&validated_member, &details.invite_id, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/accept_invite/{invite_id}")]
 pub async fn accept_invite(

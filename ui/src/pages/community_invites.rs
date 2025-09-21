@@ -47,7 +47,7 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                 <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                     {"Community Invites"}
                 </h2>
-                <InviteMemberButton community={props.community.clone()} on_invite_created={issued_invites_hook.refetch} />
+                <InviteMemberButton community={props.community.clone()} on_invite_created={issued_invites_hook.refetch.clone()} />
             </div>
 
             // Display issued invites
@@ -88,7 +88,11 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                                 <div class="space-y-4">
                                     {for invites.iter().map(|invite| {
                                         html! {
-                                            <IssuedInviteCard invite={invite.clone()} />
+                                            <IssuedInviteCard
+                                                invite={invite.clone()}
+                                                community_id={props.community.id}
+                                                on_invite_deleted={issued_invites_hook.refetch.clone()}
+                                            />
                                         }
                                     })}
                                 </div>
@@ -485,11 +489,14 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct IssuedInviteCardProps {
     pub invite: payloads::responses::IssuedCommunityInvite,
+    pub community_id: payloads::CommunityId,
+    pub on_invite_deleted: Callback<()>,
 }
 
 #[function_component]
 fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
     let invite = &props.invite;
+    let is_deleting = use_state(|| false);
 
     // Format timestamp for display
     let created_date = {
@@ -499,62 +506,106 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
         zoned.strftime("%B %d, %Y at %l:%M %p").to_string()
     };
 
+    let on_delete_click = {
+        let is_deleting = is_deleting.clone();
+        let community_id = props.community_id;
+        let invite_id = invite.id;
+        let on_invite_deleted = props.on_invite_deleted.clone();
+
+        Callback::from(move |_| {
+            let is_deleting = is_deleting.clone();
+            let on_invite_deleted = on_invite_deleted.clone();
+
+            is_deleting.set(true);
+
+            yew::platform::spawn_local(async move {
+                let api_client = crate::get_api_client();
+                let delete_details = payloads::requests::DeleteInvite {
+                    community_id,
+                    invite_id,
+                };
+
+                match api_client.delete_invite(&delete_details).await {
+                    Ok(()) => {
+                        // Notify parent to refetch invites
+                        on_invite_deleted.emit(());
+                    }
+                    Err(err) => {
+                        // Log error, but still reset loading state
+                        web_sys::console::error_1(
+                            &format!("Failed to delete invite: {:?}", err)
+                                .into(),
+                        );
+                        is_deleting.set(false);
+                    }
+                }
+            });
+        })
+    };
+
     html! {
         <div class="p-4 border border-neutral-200 dark:border-neutral-700 rounded-lg">
-            <div class="flex justify-between items-start">
-                <div class="flex-1">
-                    <div class="flex items-center space-x-3 mb-2">
-                        <span class={
-                            format!(
-                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {}",
-                                if invite.single_use {
-                                    "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400"
-                                } else {
-                                    "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400"
-                                }
-                            )
-                        }>
-                            {if invite.single_use { "Single-use" } else { "Multi-use" }}
-                        </span>
-
-                        {if let Some(ref email) = invite.new_member_email {
-                            html! {
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-300">
-                                    {email}
-                                </span>
+            <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center space-x-3">
+                    <span class={
+                        format!(
+                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {}",
+                            if invite.single_use {
+                                "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400"
+                            } else {
+                                "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400"
                             }
-                        } else {
-                            html! {}
-                        }}
-                    </div>
+                        )
+                    }>
+                        {if invite.single_use { "Single-use" } else { "Multi-use" }}
+                    </span>
 
-                    <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                        <p>{format!("Created on {}", created_date)}</p>
-                        <div class="mt-2 flex items-center space-x-2">
-                            <label class="text-xs font-medium text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
-                                {"Invite Link:"}
-                            </label>
-                            <input
-                                type="text"
-                                value={{
-                                    let window = web_sys::window().unwrap();
-                                    let location = window.location();
-                                    let origin = location.origin().unwrap();
-                                    format!("{}/accept-invite/{}", origin, invite.id)
-                                }}
-                                readonly={true}
-                                onfocus={Callback::from(move |e: FocusEvent| {
-                                    if let Some(target) = e.target() {
-                                        if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                            input.select();
-                                        }
-                                    }
-                                })}
-                                class="flex-1 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
-                                title="Click to select all, then copy"
-                            />
-                        </div>
-                    </div>
+                    {if let Some(ref email) = invite.new_member_email {
+                        html! {
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-300">
+                                {email}
+                            </span>
+                        }
+                    } else {
+                        html! {}
+                    }}
+                </div>
+
+                <button
+                    onclick={on_delete_click}
+                    disabled={*is_deleting}
+                    class="px-3 py-1 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Delete this invite"
+                >
+                    {if *is_deleting { "Deleting..." } else { "Delete" }}
+                </button>
+            </div>
+
+            <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                <p class="mb-2">{format!("Created on {}", created_date)}</p>
+                <div class="flex items-center space-x-2">
+                    <label class="text-xs font-medium text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                        {"Invite Link:"}
+                    </label>
+                    <input
+                        type="text"
+                        value={{
+                            let window = web_sys::window().unwrap();
+                            let location = window.location();
+                            let origin = location.origin().unwrap();
+                            format!("{}/accept-invite/{}", origin, invite.id)
+                        }}
+                        readonly={true}
+                        onfocus={Callback::from(move |e: FocusEvent| {
+                            if let Some(target) = e.target() {
+                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                    input.select();
+                                }
+                            }
+                        })}
+                        class="flex-1 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
+                        title="Click to select all, then copy"
+                    />
                 </div>
             </div>
         </div>

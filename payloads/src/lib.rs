@@ -235,6 +235,12 @@ pub mod requests {
         pub single_use: bool,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct DeleteInvite {
+        pub community_id: CommunityId,
+        pub invite_id: super::InviteId,
+    }
+
     /// An empty schedule can be used to delete the schedule entirely.
     #[derive(Debug, Serialize, Deserialize)]
     pub struct SetMembershipSchedule {
@@ -691,6 +697,14 @@ impl APIClient {
         let response = self
             .empty_post(&format!("accept_invite/{invite_id}"))
             .await?;
+        ok_empty(response).await
+    }
+
+    pub async fn delete_invite(
+        &self,
+        details: &requests::DeleteInvite,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_invite", details).await?;
         ok_empty(response).await
     }
 

@@ -1062,6 +1062,37 @@ pub async fn accept_invite(
     Ok(())
 }
 
+pub async fn delete_invite(
+    actor: &ValidatedMember,
+    invite_id: &payloads::InviteId,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Verify the invite exists and belongs to this community
+    let invite_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM community_invites WHERE id = $1 AND community_id = $2)",
+    )
+    .bind(invite_id)
+    .bind(actor.0.community_id)
+    .fetch_one(pool)
+    .await?;
+
+    if !invite_exists {
+        return Err(StoreError::CommunityInviteNotFound);
+    }
+
+    // Delete the invite
+    sqlx::query("DELETE FROM community_invites WHERE id = $1")
+        .bind(invite_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 pub async fn get_communities(
     user_id: &UserId,
     pool: &PgPool,
