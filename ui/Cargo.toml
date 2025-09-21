@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 base64 = "0.22.1"
 futures = "0.3.31"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
 jiff = { workspace = true, features = ["js"] }
 js-sys = "0.3.77"
 payloads = { path = "../payloads" }

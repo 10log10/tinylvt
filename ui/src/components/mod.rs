@@ -3,8 +3,10 @@ pub mod community_page_wrapper;
 pub mod community_tab_header;
 pub mod dark_mode_toggle;
 pub mod layout;
+pub mod toast;
 
 pub use auction_info::AuctionInfo;
 pub use community_page_wrapper::CommunityPageWrapper;
 pub use community_tab_header::{ActiveTab, CommunityTabHeader};
 pub use dark_mode_toggle::DarkModeToggle;
+pub use toast::ToastContainer;

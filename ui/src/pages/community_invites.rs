@@ -4,6 +4,7 @@ use web_sys::{Event, FocusEvent, SubmitEvent};
 use yew::prelude::*;
 
 use crate::components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader};
+use crate::contexts::use_toast;
 use crate::hooks::use_issued_invites;
 
 #[derive(Properties, PartialEq)]
@@ -497,6 +498,7 @@ pub struct IssuedInviteCardProps {
 fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
     let invite = &props.invite;
     let is_deleting = use_state(|| false);
+    let toast = use_toast();
 
     // Format timestamp for display
     let created_date = {
@@ -511,10 +513,12 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
         let community_id = props.community_id;
         let invite_id = invite.id;
         let on_invite_deleted = props.on_invite_deleted.clone();
+        let toast = toast.clone();
 
         Callback::from(move |_| {
             let is_deleting = is_deleting.clone();
             let on_invite_deleted = on_invite_deleted.clone();
+            let toast = toast.clone();
 
             is_deleting.set(true);
 
@@ -527,15 +531,13 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
 
                 match api_client.delete_invite(&delete_details).await {
                     Ok(()) => {
-                        // Notify parent to refetch invites
+                        // Show success toast and refetch invites
+                        toast.success("Invite deleted successfully");
                         on_invite_deleted.emit(());
                     }
                     Err(err) => {
-                        // Log error, but still reset loading state
-                        web_sys::console::error_1(
-                            &format!("Failed to delete invite: {:?}", err)
-                                .into(),
-                        );
+                        toast
+                            .error(format!("Failed to delete invite: {}", err));
                         is_deleting.set(false);
                     }
                 }

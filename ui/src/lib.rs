@@ -3,6 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 mod components;
+mod contexts;
 mod hooks;
 pub mod logs;
 mod pages;
@@ -10,7 +11,9 @@ mod state;
 mod test_components;
 mod utils;
 
+use components::ToastContainer;
 use components::layout::MainLayout;
+use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
     CommunitiesPage, CommunityDetailPage, CommunityInvitesPage,
@@ -25,11 +28,14 @@ pub fn App() -> Html {
     use_authentication();
 
     html! {
-        <BrowserRouter>
-            <MainLayout>
-                <Switch<Route> render={switch} />
-            </MainLayout>
-        </BrowserRouter>
+        <ToastProvider>
+            <BrowserRouter>
+                <MainLayout>
+                    <Switch<Route> render={switch} />
+                    <ToastContainer />
+                </MainLayout>
+            </BrowserRouter>
+        </ToastProvider>
     }
 }
 
