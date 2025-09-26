@@ -58,7 +58,7 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                         {"Issued Invites"}
                     </h3>
                     <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
-                        {"All invites you've created for this community"}
+                        {"Outstanding invites created for this community"}
                     </p>
                 </div>
 
@@ -80,7 +80,7 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                             html! {
                                 <div class="text-center py-8">
                                     <p class="text-neutral-600 dark:text-neutral-400">
-                                        {"No invites have been created yet."}
+                                        {"No outstanding invites."}
                                     </p>
                                 </div>
                             }
