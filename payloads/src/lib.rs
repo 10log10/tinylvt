@@ -494,6 +494,14 @@ impl std::str::FromStr for CommunityId {
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct InviteId(pub Uuid);
 
+impl std::str::FromStr for InviteId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        uuid::Uuid::parse_str(s).map(InviteId)
+    }
+}
+
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
@@ -687,6 +695,16 @@ impl APIClient {
         community_id: &CommunityId,
     ) -> Result<Vec<responses::IssuedCommunityInvite>, ClientError> {
         let response = self.post("issued_invites", community_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_invite_community_name(
+        &self,
+        invite_id: &InviteId,
+    ) -> Result<String, ClientError> {
+        let response = self
+            .empty_get(&format!("invite_community_name/{invite_id}"))
+            .await?;
         ok_body(response).await
     }
 

@@ -1014,6 +1014,27 @@ pub async fn invite_community_member(
     Ok(invite.id)
 }
 
+pub async fn get_invite_community_name(
+    invite_id: &payloads::InviteId,
+    pool: &PgPool,
+) -> Result<String, StoreError> {
+    let community_name = sqlx::query_scalar::<_, String>(
+        "SELECT c.name
+         FROM community_invites ci
+         JOIN communities c ON ci.community_id = c.id
+         WHERE ci.id = $1;",
+    )
+    .bind(invite_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(community_name) = community_name else {
+        return Err(StoreError::CommunityInviteNotFound);
+    };
+
+    Ok(community_name)
+}
+
 pub async fn accept_invite(
     user_id: &UserId,
     invite_id: &payloads::InviteId,
@@ -1040,7 +1061,7 @@ pub async fn accept_invite(
 
     let mut tx = pool.begin().await?;
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO community_members (community_id, user_id, role)
         VALUES ($1, $2, $3);",
     )
@@ -1048,7 +1069,11 @@ pub async fn accept_invite(
     .bind(user_id)
     .bind(Role::Member)
     .execute(&mut *tx)
-    .await?;
+    .await;
+
+    if let Err(StoreError::NotUnique(_)) = result.map_err(StoreError::from) {
+        return Err(StoreError::AlreadyMember);
+    }
 
     if invite.email.is_some() || invite.single_use {
         sqlx::query("DELETE FROM community_invites WHERE id = $1")
@@ -2489,6 +2514,8 @@ pub enum StoreError {
     FieldTooLong,
     #[error("Invalid invite")]
     InvalidInvite,
+    #[error("Already a member of this community")]
+    AlreadyMember,
     #[error("Member not found")]
     MemberNotFound,
     #[error("Span too large")]

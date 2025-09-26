@@ -33,6 +33,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_received_invites)
         .service(community::get_issued_invites)
         .service(community::delete_invite)
+        .service(community::get_invite_community_name)
         .service(community::accept_invite)
         .service(community::get_members)
         .service(community::set_membership_schedule)

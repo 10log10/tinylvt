@@ -1,4 +1,4 @@
-use payloads::{APIClient, CommunityId};
+use payloads::{APIClient, CommunityId, InviteId};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -16,9 +16,9 @@ use components::layout::MainLayout;
 use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
-    CommunitiesPage, CommunityDetailPage, CommunityInvitesPage,
-    CommunityMembersPage, CreateCommunityPage, CreateSitePage, HomePage,
-    LoginPage, NotFoundPage, SiteAdminPage, TestPage,
+    AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
+    CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
+    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAdminPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -63,6 +63,8 @@ pub enum Route {
     Home,
     #[at("/login")]
     Login,
+    #[at("/accept-invite/:invite_id")]
+    AcceptInvite { invite_id: InviteId },
     #[at("/communities")]
     Communities,
     #[at("/communities/new")]
@@ -88,6 +90,9 @@ fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <HomePage /> },
         Route::Login => html! { <LoginPage /> },
+        Route::AcceptInvite { invite_id } => {
+            html! { <AcceptInvitePage invite_id={invite_id} /> }
+        }
         Route::Communities => html! { <CommunitiesPage /> },
         Route::CreateCommunity => html! { <CreateCommunityPage /> },
         Route::CommunityDetail { id } => {

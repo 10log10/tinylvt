@@ -1,3 +1,4 @@
+pub mod accept_invite;
 pub mod communities;
 pub mod community_detail;
 pub mod community_invites;
@@ -12,6 +13,7 @@ pub mod not_found;
 pub mod site_admin;
 pub mod test;
 
+pub use accept_invite::AcceptInvitePage;
 pub use communities::CommunitiesPage;
 pub use community_detail::CommunityDetailPage;
 pub use community_invites::CommunityInvitesPage;

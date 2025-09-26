@@ -120,6 +120,16 @@ pub async fn delete_invite(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[tracing::instrument(skip(pool), ret)]
+#[get("/invite_community_name/{invite_id}")]
+pub async fn get_invite_community_name(
+    path: web::Path<payloads::InviteId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let community_name = store::get_invite_community_name(&path, &pool).await?;
+    Ok(HttpResponse::Ok().json(community_name))
+}
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/accept_invite/{invite_id}")]
 pub async fn accept_invite(
