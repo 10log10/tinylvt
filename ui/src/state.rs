@@ -1,4 +1,4 @@
-use payloads::{CommunityId, responses};
+use payloads::{CommunityId, SiteId, responses};
 use std::collections::HashMap;
 use yewdux::prelude::*;
 
@@ -25,12 +25,22 @@ impl Default for ThemeMode {
 
 #[derive(Default, Clone, PartialEq, Store)]
 pub struct State {
-    pub error_message: Option<String>,
-    pub theme_mode: ThemeMode,
-    pub system_prefers_dark: bool,
+    // === Core App State (managed by various components) ===
+    pub error_message: Option<String>, // Global error handling
+    pub theme_mode: ThemeMode,         // Theme components
+    pub system_prefers_dark: bool,     // System theme detection
+
+    // === Authentication (managed by use_authentication) ===
     pub auth_state: AuthState,
+
+    // === Communities (managed by use_communities) ===
     pub communities: Option<Vec<responses::CommunityWithRole>>,
-    pub sites: HashMap<CommunityId, Vec<responses::Site>>,
+
+    // === Sites (canonical store - managed by use_sites + use_site) ===
+    pub individual_sites: HashMap<SiteId, responses::Site>, // Single source of truth
+    pub sites_by_community: HashMap<CommunityId, Vec<SiteId>>, // Community index
+
+    // === Members (managed by use_members) ===
     pub members: HashMap<CommunityId, Vec<responses::CommunityMember>>,
 }
 
@@ -72,14 +82,19 @@ impl State {
         &self,
         community_id: CommunityId,
     ) -> bool {
-        self.sites.contains_key(&community_id)
+        self.sites_by_community.contains_key(&community_id)
     }
 
     pub fn get_sites_for_community(
         &self,
         community_id: CommunityId,
-    ) -> Option<&Vec<responses::Site>> {
-        self.sites.get(&community_id)
+    ) -> Option<Vec<&responses::Site>> {
+        self.sites_by_community.get(&community_id).map(|site_ids| {
+            site_ids
+                .iter()
+                .filter_map(|site_id| self.individual_sites.get(site_id))
+                .collect()
+        })
     }
 
     pub fn set_sites_for_community(
@@ -87,11 +102,39 @@ impl State {
         community_id: CommunityId,
         sites: Vec<responses::Site>,
     ) {
-        self.sites.insert(community_id, sites);
+        // Extract site IDs for the community index
+        let site_ids: Vec<SiteId> =
+            sites.iter().map(|site| site.site_id).collect();
+
+        // Store individual sites in the canonical store
+        for site in sites {
+            self.individual_sites.insert(site.site_id, site);
+        }
+
+        // Update the community index
+        self.sites_by_community.insert(community_id, site_ids);
     }
 
-    pub fn clear_sites(&mut self) {
-        self.sites.clear();
+    pub fn clear_sites_for_community(&mut self) {
+        self.sites_by_community.clear();
+        // Note: We don't clear individual_sites here as they might be used by use_site
+        // Individual sites will be cleared on logout
+    }
+
+    pub fn has_site_loaded(&self, site_id: SiteId) -> bool {
+        self.individual_sites.contains_key(&site_id)
+    }
+
+    pub fn get_site(&self, site_id: SiteId) -> Option<&responses::Site> {
+        self.individual_sites.get(&site_id)
+    }
+
+    pub fn set_site(&mut self, site_id: SiteId, site: responses::Site) {
+        self.individual_sites.insert(site_id, site);
+    }
+
+    pub fn clear_individual_sites(&mut self) {
+        self.individual_sites.clear();
     }
 
     pub fn has_members_loaded_for_community(
@@ -123,7 +166,8 @@ impl State {
     pub fn logout(&mut self) {
         self.auth_state = AuthState::LoggedOut;
         self.clear_communities();
-        self.clear_sites();
+        self.clear_sites_for_community();
+        self.clear_individual_sites();
         self.clear_members();
         // Future: clear other user-specific state here
     }

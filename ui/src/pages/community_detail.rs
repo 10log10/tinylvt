@@ -117,9 +117,12 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                                             </div>
 
                                             <div class="pt-2">
-                                                <button class="w-full bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-900 dark:text-neutral-100 px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                                                <Link<Route>
+                                                    to={Route::SiteDetail { id: site.site_id }}
+                                                    classes="w-full block text-center bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-900 dark:text-neutral-100 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                                >
                                                     {"View Site"}
-                                                </button>
+                                                </Link<Route>>
                                             </div>
                                         </div>
                                     </div>

@@ -1,4 +1,4 @@
-use payloads::{APIClient, CommunityId, InviteId};
+use payloads::{APIClient, CommunityId, InviteId, SiteId};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -18,7 +18,8 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
     CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
-    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAdminPage, TestPage,
+    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAdminPage,
+    SiteDetailPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -77,6 +78,10 @@ pub enum Route {
     CommunityInvites { id: CommunityId },
     #[at("/communities/:id/sites/new")]
     CreateSite { id: CommunityId },
+    #[at("/sites/:id")]
+    SiteDetail { id: SiteId },
+    #[at("/sites/:id/auctions")]
+    SiteAuctions { id: SiteId },
     #[at("/sites/:id/admin")]
     SiteAdmin { id: String }, // Site ID will be a string for now
     #[at("/test")]
@@ -106,6 +111,12 @@ fn switch(routes: Route) -> Html {
         }
         Route::CreateSite { id } => {
             html! { <CreateSitePage community_id={id} /> }
+        }
+        Route::SiteDetail { id } => {
+            html! { <SiteDetailPage site_id={id} /> }
+        }
+        Route::SiteAuctions { id: _ } => {
+            html! { <div class="text-center py-12"><p class="text-neutral-600 dark:text-neutral-400">{"Site auctions page coming soon"}</p></div> }
         }
         Route::SiteAdmin { id } => {
             html! { <SiteAdminPage site_id={id} /> }

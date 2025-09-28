@@ -509,10 +509,18 @@ impl std::str::FromStr for InviteId {
 pub struct TokenId(pub Uuid);
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct SiteId(pub Uuid);
+
+impl std::str::FromStr for SiteId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        uuid::Uuid::parse_str(s).map(SiteId)
+    }
+}
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
