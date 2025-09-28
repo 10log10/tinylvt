@@ -1,8 +1,9 @@
 use payloads::responses::Site;
 use yew::prelude::*;
 use yew_router::prelude::*;
+use yewdux::prelude::*;
 
-use crate::Route;
+use crate::{Route, State};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -18,8 +19,24 @@ pub enum ActiveTab {
 
 #[function_component]
 pub fn SiteTabHeader(props: &Props) -> Html {
+    let (state, _) = use_store::<State>();
+
+    // Get the community information for the back link
+    let community =
+        state.get_community_by_id(props.site.site_details.community_id);
+    let community_name =
+        community.map(|c| c.name.as_str()).unwrap_or("Community");
+
     html! {
         <div class="space-y-8">
+            // Back Navigation
+            <Link<Route>
+                to={Route::CommunityDetail { id: props.site.site_details.community_id }}
+                classes="inline-flex items-center text-sm text-neutral-600 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+            >
+                {format!("← Back to {}", community_name)}
+            </Link<Route>>
+
             // Header
             <div>
                 <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">

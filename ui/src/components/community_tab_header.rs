@@ -21,6 +21,14 @@ pub enum ActiveTab {
 pub fn CommunityTabHeader(props: &Props) -> Html {
     html! {
         <div class="space-y-8">
+            // Back Navigation
+            <Link<Route>
+                to={Route::Communities}
+                classes="inline-flex items-center text-sm text-neutral-600 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+            >
+                {"← Back to Communities"}
+            </Link<Route>>
+
             // Header
             <div>
                 <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">

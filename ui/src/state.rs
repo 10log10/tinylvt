@@ -67,6 +67,16 @@ impl State {
         &self.communities
     }
 
+    pub fn get_community_by_id(
+        &self,
+        community_id: CommunityId,
+    ) -> Option<&responses::CommunityWithRole> {
+        self.communities
+            .as_ref()?
+            .iter()
+            .find(|c| c.id == community_id)
+    }
+
     pub fn clear_communities(&mut self) {
         self.communities = None;
     }
