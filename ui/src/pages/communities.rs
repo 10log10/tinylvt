@@ -15,8 +15,6 @@ pub fn CommunitiesPage() -> Html {
         })
     };
 
-    tracing::info!("{:?}", communities_hook.communities);
-
     html! {
         <div class="space-y-8">
             <div class="flex justify-between items-center">
