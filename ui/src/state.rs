@@ -1,4 +1,4 @@
-use payloads::{CommunityId, SiteId, responses};
+use payloads::{CommunityId, SiteId, SpaceId, responses};
 use std::collections::HashMap;
 use yewdux::prelude::*;
 
@@ -39,6 +39,10 @@ pub struct State {
     // === Sites (canonical store - managed by use_sites + use_site) ===
     pub individual_sites: HashMap<SiteId, responses::Site>, // Single source of truth
     pub sites_by_community: HashMap<CommunityId, Vec<SiteId>>, // Community index
+
+    // === Spaces (canonical store - managed by use_spaces) ===
+    pub individual_spaces: HashMap<SpaceId, responses::Space>, // Single source of truth
+    pub spaces_by_site: HashMap<SiteId, Vec<SpaceId>>,         // Site index
 
     // === Members (managed by use_members) ===
     pub members: HashMap<CommunityId, Vec<responses::CommunityMember>>,
@@ -147,6 +151,62 @@ impl State {
         self.individual_sites.clear();
     }
 
+    pub fn has_spaces_loaded_for_site(&self, site_id: SiteId) -> bool {
+        self.spaces_by_site.contains_key(&site_id)
+    }
+
+    pub fn get_spaces_for_site(
+        &self,
+        site_id: SiteId,
+    ) -> Option<Vec<&responses::Space>> {
+        self.spaces_by_site.get(&site_id).map(|space_ids| {
+            space_ids
+                .iter()
+                .filter_map(|space_id| self.individual_spaces.get(space_id))
+                .collect()
+        })
+    }
+
+    pub fn set_spaces_for_site(
+        &mut self,
+        site_id: SiteId,
+        spaces: Vec<responses::Space>,
+    ) {
+        // Extract space IDs for the site index
+        let space_ids: Vec<SpaceId> =
+            spaces.iter().map(|space| space.space_id).collect();
+
+        // Store individual spaces in the canonical store
+        for space in spaces {
+            self.individual_spaces.insert(space.space_id, space);
+        }
+
+        // Update the site index
+        self.spaces_by_site.insert(site_id, space_ids);
+    }
+
+    pub fn clear_spaces_for_site(&mut self) {
+        self.spaces_by_site.clear();
+        // Note: We don't clear individual_spaces here as they might be used by other components
+        // Individual spaces will be cleared on logout
+    }
+
+    pub fn has_space_loaded(&self, space_id: SpaceId) -> bool {
+        self.individual_spaces.contains_key(&space_id)
+    }
+
+    pub fn get_space(&self, space_id: SpaceId) -> Option<&responses::Space> {
+        self.individual_spaces.get(&space_id)
+    }
+
+    pub fn set_space(&mut self, space_id: SpaceId, space: responses::Space) {
+        self.individual_spaces.insert(space_id, space);
+    }
+
+    pub fn clear_individual_spaces(&mut self) {
+        self.individual_spaces.clear();
+    }
+
     pub fn has_members_loaded_for_community(
         &self,
         community_id: CommunityId,
@@ -178,6 +238,8 @@ impl State {
         self.clear_communities();
         self.clear_sites_for_community();
         self.clear_individual_sites();
+        self.clear_spaces_for_site();
+        self.clear_individual_spaces();
         self.clear_members();
         // Future: clear other user-specific state here
     }

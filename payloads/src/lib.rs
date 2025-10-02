@@ -142,7 +142,7 @@ impl PartialEq for Site {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Space {
     pub site_id: SiteId,
     pub name: String,
@@ -394,7 +394,7 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Space {
         pub space_id: super::SpaceId,
         pub space_details: super::Space,
@@ -523,10 +523,17 @@ impl std::str::FromStr for SiteId {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct SpaceId(pub Uuid);
+impl std::str::FromStr for SpaceId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        uuid::Uuid::parse_str(s).map(SpaceId)
+    }
+}
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
