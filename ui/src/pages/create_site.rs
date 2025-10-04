@@ -136,10 +136,8 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                     Ok(site_id) => {
                         // Refresh sites in global state
                         refetch_sites.emit(());
-                        // Navigate to site admin page
-                        navigator.push(&Route::SiteAdmin {
-                            id: site_id.to_string(),
-                        });
+                        // Navigate to site detail page
+                        navigator.push(&Route::SiteDetail { id: site_id });
                     }
                     Err(ClientError::APIError(_, msg)) => {
                         error_message.set(Some(msg));

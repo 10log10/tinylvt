@@ -18,8 +18,8 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
     CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
-    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAdminPage,
-    SiteDetailPage, SiteSettingsPage, TestPage,
+    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteDetailPage,
+    SiteSettingsPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -84,8 +84,6 @@ pub enum Route {
     SiteAuctions { id: SiteId },
     #[at("/sites/:id/settings")]
     SiteSettings { id: SiteId },
-    #[at("/sites/:id/admin")]
-    SiteAdmin { id: String }, // Site ID will be a string for now
     #[at("/test")]
     Test,
     #[not_found]
@@ -122,9 +120,6 @@ fn switch(routes: Route) -> Html {
         }
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }
-        }
-        Route::SiteAdmin { id } => {
-            html! { <SiteAdminPage site_id={id} /> }
         }
         Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },

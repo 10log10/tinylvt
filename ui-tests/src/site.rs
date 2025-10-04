@@ -165,12 +165,12 @@ async fn test_create_new_site() -> Result<()> {
     info!("🔍 Verifying site creation success");
     let post_create_url = env.browser.current_url().await?;
 
-    // Should be redirected back to sites list or community dashboard
+    // Should be redirected to site detail page
     assert!(
-        (post_create_url.as_str().contains("/sites")
-            && !post_create_url.as_str().contains("/create"))
-            || post_create_url.as_str().contains("/community/"),
-        "Should be redirected to sites list or community dashboard after successful creation"
+        post_create_url.as_str().contains("/sites/")
+            && !post_create_url.as_str().contains("/create"),
+        "Should be redirected to site detail page after successful creation. Current URL: {}",
+        post_create_url
     );
 
     // Step 10: Verify the site appears in the UI
