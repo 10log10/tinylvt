@@ -160,7 +160,12 @@ async fn create_coworking_site(
             round_duration: Span::new().minutes(3), // Fast-paced desk auctions
             bid_increment: Decimal::new(150, 2),    // $1.50 increments
             activity_rule_params: ActivityRuleParams {
-                eligibility_progression: vec![(1, 1.0), (5, 0.9), (10, 0.8)],
+                eligibility_progression: vec![
+                    (0, 0.5),
+                    (10, 0.75),
+                    (20, 0.9),
+                    (30, 1.0),
+                ],
             },
         },
         possession_period: Span::new().hours(12), // How long the site is open
@@ -194,7 +199,7 @@ async fn create_meetup_site(
             round_duration: Span::new().minutes(10), // Longer rounds for bigger decisions
             bid_increment: Decimal::new(500, 2),     // $5.00 - higher stakes
             activity_rule_params: ActivityRuleParams {
-                eligibility_progression: vec![(1, 1.0), (3, 0.9), (5, 0.8)],
+                eligibility_progression: vec![(0, 0.8), (10, 0.9), (20, 1.0)],
             },
         },
         possession_period: Span::new().hours(4), // 4-hour meeting blocks

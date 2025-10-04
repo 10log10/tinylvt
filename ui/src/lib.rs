@@ -19,7 +19,7 @@ use pages::{
     AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
     CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
     CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAdminPage,
-    SiteDetailPage, TestPage,
+    SiteDetailPage, SiteSettingsPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -82,6 +82,8 @@ pub enum Route {
     SiteDetail { id: SiteId },
     #[at("/sites/:id/auctions")]
     SiteAuctions { id: SiteId },
+    #[at("/sites/:id/settings")]
+    SiteSettings { id: SiteId },
     #[at("/sites/:id/admin")]
     SiteAdmin { id: String }, // Site ID will be a string for now
     #[at("/test")]
@@ -117,6 +119,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::SiteAuctions { id: _ } => {
             html! { <div class="text-center py-12"><p class="text-neutral-600 dark:text-neutral-400">{"Site auctions page coming soon"}</p></div> }
+        }
+        Route::SiteSettings { id } => {
+            html! { <SiteSettingsPage site_id={id} /> }
         }
         Route::SiteAdmin { id } => {
             html! { <SiteAdminPage site_id={id} /> }

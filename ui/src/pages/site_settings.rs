@@ -1,43 +1,56 @@
 use payloads::{
-    ActivityRuleParams, AuctionParams, ClientError, CommunityId, Site,
-    responses::CommunityWithRole,
+    AuctionParams, ClientError, Site, SiteId, requests::UpdateSite,
+    responses::Site as SiteResponse,
 };
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::{Route, components::CommunityPageWrapper, hooks::use_sites};
+use crate::{
+    Route,
+    components::{
+        AuctionParamsEditor, SitePageWrapper, SiteTabHeader,
+        site_tab_header::ActiveTab,
+    },
+    hooks::use_site,
+};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub community_id: CommunityId,
+    pub site_id: SiteId,
 }
 
 #[function_component]
-pub fn CreateSitePage(props: &Props) -> Html {
-    let render_content = Callback::from(|community: CommunityWithRole| {
-        html! { <CreateSiteForm community={community} /> }
+pub fn SiteSettingsPage(props: &Props) -> Html {
+    let render_content = Callback::from(move |site: SiteResponse| {
+        html! {
+            <div>
+                <SiteTabHeader site={site.clone()} active_tab={ActiveTab::Settings} />
+                <div class="py-6">
+                    <SiteSettingsForm site={site} />
+                </div>
+            </div>
+        }
     });
 
     html! {
-        <CommunityPageWrapper
-            community_id={props.community_id}
+        <SitePageWrapper
+            site_id={props.site_id}
             children={render_content}
         />
     }
 }
 
 #[derive(Properties, PartialEq)]
-pub struct CreateSiteFormProps {
-    pub community: CommunityWithRole,
+pub struct SiteSettingsFormProps {
+    pub site: SiteResponse,
 }
 
 #[function_component]
-pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
+pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let navigator = use_navigator().unwrap();
-    let sites_hook = use_sites(props.community.id);
-    let community_id = props.community.id;
+    let site_hook = use_site(props.site.site_id);
 
     // Get user's detected timezone
     let user_timezone = jiff::tz::TimeZone::system()
@@ -51,18 +64,33 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
     let use_timezone_ref = use_node_ref();
 
     let error_message = use_state(|| None::<String>);
+    let success_message = use_state(|| None::<String>);
     let is_loading = use_state(|| false);
-    let use_timezone = use_state(|| true); // Default to enabled
+    let use_timezone = use_state(|| props.site.site_details.timezone.is_some());
+    // Note: AuctionParamsEditor relies on this being use_state so that calling
+    // .set() with unchanged params still triggers a re-render, which resets
+    // invalid input values back to their correct display values
+    let auction_params =
+        use_state(|| props.site.site_details.default_auction_params.clone());
 
-    let on_submit = {
+    let on_auction_params_change = {
+        let auction_params = auction_params.clone();
+        Callback::from(move |new_params: AuctionParams| {
+            auction_params.set(new_params);
+        })
+    };
+
+    let on_update = {
         let name_ref = name_ref.clone();
         let description_ref = description_ref.clone();
         let timezone_ref = timezone_ref.clone();
         let use_timezone_ref = use_timezone_ref.clone();
         let error_message = error_message.clone();
+        let success_message = success_message.clone();
         let is_loading = is_loading.clone();
-        let navigator = navigator.clone();
-        let refetch_sites = sites_hook.refetch.clone();
+        let site = props.site.clone();
+        let auction_params = auction_params.clone();
+        let refetch_site = site_hook.refetch.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -95,51 +123,99 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                 None
             };
 
-            // Create site object with sensible defaults
-            let site = Site {
-                community_id,
+            // Create updated site object
+            let updated_site = Site {
+                community_id: site.site_details.community_id,
                 name,
                 description,
-                default_auction_params: AuctionParams {
-                    round_duration: jiff::Span::new().minutes(5),
-                    bid_increment: rust_decimal::Decimal::new(100, 2), // $1.00
-                    activity_rule_params: ActivityRuleParams {
-                        eligibility_progression: vec![
-                            (0, 0.5),
-                            (10, 0.75),
-                            (20, 0.9),
-                            (30, 1.0),
-                        ],
-                    },
-                },
-                // Default values for MVP - auctions will be manually created
-                possession_period: jiff::Span::new().days(7), // Default 7 days
-                auction_lead_time: jiff::Span::new().hours(24), // Default 24 hours
-                proxy_bidding_lead_time: jiff::Span::new().hours(12), // Default 12 hours
-                open_hours: None,
-                auto_schedule: false, // MVP uses manual auction creation
+                default_auction_params: (*auction_params).clone(),
+                // Keep existing values for MVP fields
+                possession_period: site.site_details.possession_period,
+                auction_lead_time: site.site_details.auction_lead_time,
+                proxy_bidding_lead_time: site
+                    .site_details
+                    .proxy_bidding_lead_time,
+                open_hours: site.site_details.open_hours.clone(),
+                auto_schedule: site.site_details.auto_schedule,
                 timezone,
-                site_image_id: None,
+                site_image_id: site.site_details.site_image_id,
             };
+
+            let error_message = error_message.clone();
+            let success_message = success_message.clone();
+            let is_loading = is_loading.clone();
+            let site_id = site.site_id;
+            let refetch_site = refetch_site.clone();
+
+            yew::platform::spawn_local(async move {
+                is_loading.set(true);
+                error_message.set(None);
+                success_message.set(None);
+
+                let update_request = UpdateSite {
+                    site_id,
+                    site_details: updated_site,
+                };
+
+                let api_client = crate::get_api_client();
+                match api_client.update_site(&update_request).await {
+                    Ok(_) => {
+                        success_message.set(Some(
+                            "Site updated successfully!".to_string(),
+                        ));
+                        // Refresh site data
+                        refetch_site.emit(());
+                    }
+                    Err(ClientError::APIError(_, msg)) => {
+                        error_message.set(Some(msg));
+                    }
+                    Err(ClientError::Network(_)) => {
+                        error_message.set(Some(
+                            "Network error. Please check your connection."
+                                .to_string(),
+                        ));
+                    }
+                }
+
+                is_loading.set(false);
+            });
+        })
+    };
+
+    let on_delete = {
+        let error_message = error_message.clone();
+        let is_loading = is_loading.clone();
+        let navigator = navigator.clone();
+        let site = props.site.clone();
+
+        Callback::from(move |_| {
+            let confirmed = web_sys::window()
+                .unwrap()
+                .confirm_with_message(&format!(
+                    "Are you sure you want to delete the site '{}'? This action cannot be undone.",
+                    site.site_details.name
+                ))
+                .unwrap_or(false);
+
+            if !confirmed {
+                return;
+            }
 
             let error_message = error_message.clone();
             let is_loading = is_loading.clone();
             let navigator = navigator.clone();
-            let refetch_sites = refetch_sites.clone();
+            let site_id = site.site_id;
+            let community_id = site.site_details.community_id;
 
             yew::platform::spawn_local(async move {
                 is_loading.set(true);
                 error_message.set(None);
 
                 let api_client = crate::get_api_client();
-                match api_client.create_site(&site).await {
-                    Ok(site_id) => {
-                        // Refresh sites in global state
-                        refetch_sites.emit(());
-                        // Navigate to site admin page
-                        navigator.push(&Route::SiteAdmin {
-                            id: site_id.to_string(),
-                        });
+                match api_client.delete_site(&site_id).await {
+                    Ok(_) => {
+                        navigator
+                            .push(&Route::CommunityDetail { id: community_id });
                     }
                     Err(ClientError::APIError(_, msg)) => {
                         error_message.set(Some(msg));
@@ -168,27 +244,34 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
 
     let on_cancel = {
         let navigator = navigator.clone();
+        let site_id = props.site.site_id;
         Callback::from(move |_| {
-            navigator.push(&Route::CommunityDetail { id: community_id });
+            navigator.push(&Route::SiteDetail { id: site_id });
         })
     };
 
     html! {
-        <div class="max-w-2xl mx-auto py-8 px-4">
+        <div class="max-w-4xl mx-auto py-8 px-4">
             <div class="bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-md">
                 <div class="mb-8 text-center">
                     <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-                        {"Create New Site"}
+                        {"Site Settings"}
                     </h1>
                     <p class="text-neutral-600 dark:text-neutral-400">
-                        {"Set up a new site for your community."}
+                        {"Configure site details and auction parameters"}
                     </p>
                 </div>
 
-                <form onsubmit={on_submit} class="space-y-6">
+                <form onsubmit={on_update} class="space-y-8">
                     if let Some(error) = &*error_message {
                         <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                             <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
+                        </div>
+                    }
+
+                    if let Some(success) = &*success_message {
+                        <div class="p-4 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                            <p class="text-sm text-green-700 dark:text-green-400">{success}</p>
                         </div>
                     }
 
@@ -207,12 +290,15 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                                 type="text"
                                 id="site-name"
                                 name="name"
+                                value={props.site.site_details.name.clone()}
                                 required={true}
+                                disabled={*is_loading}
                                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm bg-white dark:bg-neutral-700 
+                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
                                        text-neutral-900 dark:text-neutral-100
                                        focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
-                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
+                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400
+                                       disabled:opacity-50 disabled:cursor-not-allowed"
                                 placeholder="Enter site name"
                             />
                         </div>
@@ -226,21 +312,23 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                                 type="text"
                                 id="site-description"
                                 name="description"
+                                value={props.site.site_details.description.clone().unwrap_or_default()}
+                                disabled={*is_loading}
                                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm bg-white dark:bg-neutral-700 
+                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
                                        text-neutral-900 dark:text-neutral-100
                                        focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
-                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
+                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400
+                                       disabled:opacity-50 disabled:cursor-not-allowed"
                                 placeholder="Optional description"
                             />
                         </div>
                     </div>
 
-
-                    // Optional Settings Section
+                    // Timezone Section
                     <div class="space-y-4">
                         <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-                            {"Optional Settings"}
+                            {"Timezone Settings"}
                         </h3>
 
                         <div class="space-y-3">
@@ -252,7 +340,8 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                                     name="use_timezone"
                                     checked={*use_timezone}
                                     onchange={on_timezone_toggle}
-                                    class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded"
+                                    disabled={*is_loading}
+                                    class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded disabled:opacity-50"
                                 />
                                 <label for="use-timezone" class="ml-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
                                     {"Set a timezone for this site"}
@@ -267,12 +356,12 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                                     ref={timezone_ref}
                                     id="timezone"
                                     name="timezone"
-                                    disabled={!*use_timezone}
+                                    disabled={!*use_timezone || *is_loading}
                                     class={classes!(
                                         "w-full", "px-3", "py-2", "border", "rounded-md", "shadow-sm",
                                         "focus:outline-none", "focus:ring-2", "focus:ring-neutral-500", "focus:border-neutral-500",
                                         "dark:focus:ring-neutral-400", "dark:focus:border-neutral-400",
-                                        if *use_timezone {
+                                        if *use_timezone && !*is_loading {
                                             "border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
                                         } else {
                                             "border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 cursor-not-allowed"
@@ -281,17 +370,28 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                                 >
                                     {jiff::tz::db().available().map(|tz_name| {
                                         let tz_string = tz_name.to_string();
-                                        let is_selected = tz_string == user_timezone;
+                                        let is_selected = props.site.site_details.timezone.as_ref()
+                                            .map(|tz| tz == &tz_string)
+                                            .unwrap_or(tz_string == user_timezone);
                                         html! {
                                             <option value={tz_string.clone()} selected={is_selected}>{tz_string}</option>
                                         }
                                     }).collect::<Html>()}
                                 </select>
-                                <p class={classes!("text-xs", "mt-1", if *use_timezone { "text-neutral-500 dark:text-neutral-400" } else { "text-neutral-400 dark:text-neutral-500" })}>
-                                    {"Timezone for this site (defaults to your detected timezone)"}
-                                </p>
                             </div>
                         </div>
+                    </div>
+
+                    // Auction Parameters Section
+                    <div class="space-y-6">
+                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+                            {"Default Auction Parameters"}
+                        </h3>
+                        <AuctionParamsEditor
+                            auction_params={(*auction_params).clone()}
+                            on_change={on_auction_params_change}
+                            disabled={*is_loading}
+                        />
                     </div>
 
                     <div class="flex space-x-3 pt-6 border-t border-neutral-200 dark:border-neutral-700">
@@ -310,20 +410,34 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                         </button>
 
                         <button
+                            type="button"
+                            onclick={on_delete}
+                            disabled={*is_loading}
+                            class="py-2 px-4 border border-red-300 dark:border-red-600
+                                   rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
+                                   bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
+                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
+                                   disabled:opacity-50 disabled:cursor-not-allowed
+                                   transition-colors duration-200"
+                        >
+                            {"Delete Site"}
+                        </button>
+
+                        <button
                             type="submit"
                             disabled={*is_loading}
                             class="flex-1 flex justify-center py-2 px-4 border border-transparent
                                    rounded-md shadow-sm text-sm font-medium text-white
-                                   bg-neutral-900 hover:bg-neutral-800 
+                                   bg-neutral-900 hover:bg-neutral-800
                                    dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200
                                    focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
                                    disabled:opacity-50 disabled:cursor-not-allowed
                                    transition-colors duration-200"
                         >
                             if *is_loading {
-                                {"Creating Site..."}
+                                {"Updating Site..."}
                             } else {
-                                {"Create Site"}
+                                {"Update Site"}
                             }
                         </button>
                     </div>

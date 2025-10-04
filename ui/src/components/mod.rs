@@ -1,4 +1,5 @@
 pub mod auction_info;
+pub mod auction_params_editor;
 pub mod community_page_wrapper;
 pub mod community_tab_header;
 pub mod dark_mode_toggle;
@@ -9,6 +10,7 @@ pub mod site_tab_header;
 pub mod toast;
 
 pub use auction_info::AuctionInfo;
+pub use auction_params_editor::AuctionParamsEditor;
 pub use community_page_wrapper::CommunityPageWrapper;
 pub use community_tab_header::{ActiveTab, CommunityTabHeader};
 pub use dark_mode_toggle::DarkModeToggle;

@@ -15,6 +15,7 @@ pub struct Props {
 pub enum ActiveTab {
     Spaces,
     Auctions,
+    Settings,
 }
 
 #[function_component]
@@ -81,6 +82,19 @@ pub fn SiteTabHeader(props: &Props) -> Html {
                         ))}
                     >
                         {"Auctions"}
+                    </Link<Route>>
+                    <Link<Route>
+                        to={Route::SiteSettings { id: props.site.site_id }}
+                        classes={classes!(format!(
+                            "py-2 px-1 border-b-2 font-medium text-sm {}",
+                            if props.active_tab == ActiveTab::Settings {
+                                "border-neutral-500 text-neutral-600 dark:text-neutral-400"
+                            } else {
+                                "border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-300"
+                            }
+                        ))}
+                    >
+                        {"Settings"}
                     </Link<Route>>
                 </nav>
             </div>
