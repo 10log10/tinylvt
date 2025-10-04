@@ -1,8 +1,8 @@
-use payloads::{SiteId, responses::Site};
+use payloads::SiteId;
 use yew::prelude::*;
 
 use crate::components::{
-    SitePageWrapper, SiteTabHeader, site_tab_header::ActiveTab,
+    SitePageWrapper, SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
 };
 use crate::hooks::use_spaces;
 
@@ -13,12 +13,12 @@ pub struct Props {
 
 #[function_component]
 pub fn SiteDetailPage(props: &Props) -> Html {
-    let render_content = Callback::from(|site: Site| {
+    let render_content = Callback::from(|site_with_role: SiteWithRole| {
         html! {
             <div>
-                <SiteTabHeader site={site.clone()} active_tab={ActiveTab::Spaces} />
+                <SiteTabHeader site={site_with_role.site.clone()} active_tab={ActiveTab::Spaces} />
                 <div class="py-6">
-                    <SpacesTab site_id={site.site_id} />
+                    <SpacesTab site_id={site_with_role.site.site_id} />
                 </div>
             </div>
         }

@@ -1,5 +1,6 @@
 pub mod auction_info;
 pub mod auction_params_editor;
+pub mod auction_params_viewer;
 pub mod community_page_wrapper;
 pub mod community_tab_header;
 pub mod dark_mode_toggle;
@@ -11,10 +12,11 @@ pub mod toast;
 
 pub use auction_info::AuctionInfo;
 pub use auction_params_editor::AuctionParamsEditor;
+pub use auction_params_viewer::AuctionParamsViewer;
 pub use community_page_wrapper::CommunityPageWrapper;
 pub use community_tab_header::{ActiveTab, CommunityTabHeader};
 pub use dark_mode_toggle::DarkModeToggle;
 pub use login_form::LoginForm;
-pub use site_page_wrapper::SitePageWrapper;
+pub use site_page_wrapper::{SitePageWrapper, SiteWithRole};
 pub use site_tab_header::SiteTabHeader;
 pub use toast::ToastContainer;
