@@ -6,7 +6,8 @@ use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 use crate::components::{
-    SitePageWrapper, SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
+    CreateSpaceModal, SitePageWrapper, SiteTabHeader, SiteWithRole,
+    site_tab_header::ActiveTab,
 };
 use crate::hooks::use_spaces;
 
@@ -50,6 +51,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     let spaces_hook = use_spaces(props.site_id);
     let can_edit = props.user_role.is_ge_coleader();
     let is_editing = use_state(|| false);
+    let show_create_modal = use_state(|| false);
 
     let on_toggle_edit = {
         let is_editing = is_editing.clone();
@@ -58,95 +60,137 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         })
     };
 
-    if spaces_hook.is_loading {
-        return html! {
+    let on_show_create_modal = {
+        let show_create_modal = show_create_modal.clone();
+        Callback::from(move |_| {
+            show_create_modal.set(true);
+        })
+    };
+
+    let on_close_create_modal = {
+        let show_create_modal = show_create_modal.clone();
+        Callback::from(move |_| {
+            show_create_modal.set(false);
+        })
+    };
+
+    let on_space_created = {
+        let refetch = spaces_hook.refetch.clone();
+        Callback::from(move |_| {
+            refetch.emit(());
+        })
+    };
+
+    let spaces_content = if spaces_hook.is_loading {
+        html! {
             <div class="text-center py-12">
                 <p class="text-neutral-600 dark:text-neutral-400">{"Loading spaces..."}</p>
             </div>
-        };
-    }
-
-    if let Some(error) = &spaces_hook.error {
-        return html! {
+        }
+    } else if let Some(error) = &spaces_hook.error {
+        html! {
             <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                 <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
             </div>
-        };
-    }
-
-    match &spaces_hook.spaces {
-        Some(spaces) => {
-            if spaces.is_empty() {
-                html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400 mb-4">
-                            {"No spaces have been created for this site yet."}
-                        </p>
-                        {if can_edit {
-                            html! {
-                                <button class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
-                                    {"Create First Space"}
-                                </button>
-                            }
-                        } else {
-                            html! {}
-                        }}
-                    </div>
-                }
-            } else {
-                html! {
-                    <div>
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-                                {"Spaces"}
-                            </h2>
+        }
+    } else {
+        match &spaces_hook.spaces {
+            Some(spaces) => {
+                if spaces.is_empty() {
+                    html! {
+                        <div class="text-center py-12">
+                            <p class="text-neutral-600 dark:text-neutral-400 mb-4">
+                                {"No spaces have been created for this site yet."}
+                            </p>
                             {if can_edit {
                                 html! {
-                                    <div class="flex gap-2">
-                                        <button
-                                            onclick={on_toggle_edit}
-                                            class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
-                                                   rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                                   bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                                   transition-colors duration-200"
-                                        >
-                                            {if *is_editing { "Done Editing" } else { "Edit Spaces" }}
-                                        </button>
-                                        <button class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
-                                            {"Create New Space"}
-                                        </button>
-                                    </div>
+                                    <button
+                                        onclick={on_show_create_modal.clone()}
+                                        class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                    >
+                                        {"Create First Space"}
+                                    </button>
                                 }
                             } else {
                                 html! {}
                             }}
                         </div>
+                    }
+                } else {
+                    html! {
+                        <div>
+                            <div class="flex justify-between items-center mb-6">
+                                <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                                    {"Spaces"}
+                                </h2>
+                                {if can_edit {
+                                    html! {
+                                        <div class="flex gap-2">
+                                            <button
+                                                onclick={on_toggle_edit}
+                                                class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
+                                                   rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
+                                                   bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
+                                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
+                                                   transition-colors duration-200"
+                                            >
+                                                {if *is_editing { "Done Editing" } else { "Edit Spaces" }}
+                                            </button>
+                                            <button
+                                                onclick={on_show_create_modal.clone()}
+                                                class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                            >
+                                                {"Create New Space"}
+                                            </button>
+                                        </div>
+                                    }
+                                } else {
+                                    html! {}
+                                }}
+                            </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {spaces.iter().map(|space| {
-                                let refetch = spaces_hook.refetch.clone();
-                                html! {
-                                    <SpaceCard
-                                        key={space.space_id.to_string()}
-                                        space={space.clone()}
-                                        is_editing={*is_editing}
-                                        on_updated={Callback::from(move |_| refetch.emit(()))}
-                                    />
-                                }
-                            }).collect::<Html>()}
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {spaces.iter().map(|space| {
+                                    let refetch = spaces_hook.refetch.clone();
+                                    html! {
+                                        <SpaceCard
+                                            key={space.space_id.to_string()}
+                                            space={space.clone()}
+                                            is_editing={*is_editing}
+                                            on_updated={Callback::from(move |_| refetch.emit(()))}
+                                        />
+                                    }
+                                }).collect::<Html>()}
+                            </div>
                         </div>
+                    }
+                }
+            }
+            None => {
+                html! {
+                    <div class="text-center py-12">
+                        <p class="text-neutral-600 dark:text-neutral-400">{"No spaces data available"}</p>
                     </div>
                 }
             }
         }
-        None => {
-            html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">{"No spaces data available"}</p>
-                </div>
-            }
-        }
+    };
+
+    html! {
+        <>
+            {spaces_content}
+            {if *show_create_modal {
+                html! {
+                    <CreateSpaceModal
+                        site_id={props.site_id}
+                        on_close={on_close_create_modal}
+                        on_space_created={on_space_created}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+        </>
     }
 }
 
