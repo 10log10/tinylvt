@@ -264,14 +264,8 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
                         // Refetch the issued invites to show the new invite
                         on_invite_created.emit(());
                     }
-                    Err(payloads::ClientError::APIError(_, msg)) => {
-                        error.set(Some(msg));
-                    }
-                    Err(payloads::ClientError::Network(_)) => {
-                        error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error.set(Some(e.to_string()));
                     }
                 }
 

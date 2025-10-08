@@ -1,4 +1,4 @@
-use payloads::{ClientError, SiteId, Space};
+use payloads::{SiteId, Space};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
@@ -155,14 +155,8 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                             avail_elem.set_checked(true);
                         }
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error.set(Some(e.to_string()));
                     }
                 }
 

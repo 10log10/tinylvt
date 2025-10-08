@@ -1,4 +1,4 @@
-use payloads::{ClientError, requests};
+use payloads::requests;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -54,14 +54,8 @@ pub fn CreateCommunityPage() -> Html {
                         // Navigate back to communities page
                         navigator.push(&Route::Communities);
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error_message.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error_message.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 

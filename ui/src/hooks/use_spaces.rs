@@ -1,4 +1,4 @@
-use payloads::{ClientError, SiteId, responses};
+use payloads::{SiteId, responses};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
@@ -52,14 +52,8 @@ pub fn use_spaces(site_id: SiteId) -> SpacesHookReturn {
                         });
                         error.set(None);
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error.set(Some(e.to_string()));
                     }
                 }
 

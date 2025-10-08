@@ -1,5 +1,5 @@
 use payloads::{
-    AuctionParams, ClientError, Role, Site, SiteId, requests::UpdateSite,
+    AuctionParams, Role, Site, SiteId, requests::UpdateSite,
     responses::Site as SiteResponse,
 };
 use wasm_bindgen::JsCast;
@@ -177,14 +177,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         // Exit edit mode
                         is_editing.set(false);
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error_message.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error_message.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 
@@ -228,14 +222,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         navigator
                             .push(&Route::CommunityDetail { id: community_id });
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error_message.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error_message.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 

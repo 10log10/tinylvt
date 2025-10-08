@@ -1,5 +1,5 @@
 use payloads::{
-    ActivityRuleParams, AuctionParams, ClientError, CommunityId, Site,
+    ActivityRuleParams, AuctionParams, CommunityId, Site,
     responses::CommunityWithRole,
 };
 use wasm_bindgen::JsCast;
@@ -139,14 +139,8 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                         // Navigate to site detail page
                         navigator.push(&Route::SiteDetail { id: site_id });
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error_message.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error_message.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 

@@ -1095,7 +1095,7 @@ pub enum ClientError {
     /// An unhandled API error to display, containing response text.
     #[error("{1}")]
     APIError(StatusCode, String),
-    #[error("Network error")]
+    #[error("Network error. Please check your connection.")]
     Network(#[from] reqwest::Error),
 }
 

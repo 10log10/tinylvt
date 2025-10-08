@@ -1,4 +1,4 @@
-use payloads::{ClientError, requests, responses};
+use payloads::{requests, responses};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yewdux::prelude::*;
@@ -67,17 +67,11 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                             }
                         }
                     }
-                    Err(ClientError::APIError(_, msg)) => {
+                    Err(e) => {
                         dispatch.reduce_mut(|state| {
                             state.auth_state = AuthState::LoggedOut;
                         });
-                        error_message.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error_message.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 
@@ -191,14 +185,8 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                                     };
                                 perform_login.emit(login_credentials);
                             }
-                            Err(ClientError::APIError(_, msg)) => {
-                                error_message.set(Some(msg));
-                                is_loading.set(false);
-                            }
-                            Err(ClientError::Network(_)) => {
-                                error_message.set(Some(
-                                    "Network error. Please check your connection.".to_string(),
-                                ));
+                            Err(e) => {
+                                error_message.set(Some(e.to_string()));
                                 is_loading.set(false);
                             }
                         }

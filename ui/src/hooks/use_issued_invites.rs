@@ -1,4 +1,4 @@
-use payloads::{ClientError, CommunityId, responses};
+use payloads::{CommunityId, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
@@ -41,14 +41,8 @@ pub fn use_issued_invites(
                         invites.set(Some(issued_invites));
                         error.set(None);
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        error.set(Some(e.to_string()));
                     }
                 }
 

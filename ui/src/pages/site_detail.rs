@@ -1,5 +1,5 @@
 use payloads::{
-    ClientError, Role, SiteId, Space, SpaceId,
+    Role, SiteId, Space, SpaceId,
     requests::{UpdateSpace, UpdateSpaces},
     responses::Space as SpaceResponse,
 };
@@ -154,14 +154,8 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                         edit_states.set(HashMap::new());
                         refetch.emit(());
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        save_error.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        save_error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        save_error.set(Some(e.to_string()));
                     }
                 }
 
@@ -399,14 +393,8 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
                     Ok(_) => {
                         on_delete.emit(());
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        delete_error.set(Some(msg));
-                    }
-                    Err(ClientError::Network(_)) => {
-                        delete_error.set(Some(
-                            "Network error. Please check your connection."
-                                .to_string(),
-                        ));
+                    Err(e) => {
+                        delete_error.set(Some(e.to_string()));
                     }
                 }
 

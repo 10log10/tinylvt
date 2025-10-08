@@ -1,4 +1,4 @@
-use payloads::{ClientError, InviteId, responses};
+use payloads::{InviteId, responses};
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
@@ -87,14 +87,8 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                         // Navigate to communities page
                         navigator.push(&Route::Communities);
                     }
-                    Err(ClientError::APIError(_, msg)) => {
-                        error_message.set(Some(msg));
-                    }
-                    Err(err) => {
-                        error_message.set(Some(format!(
-                            "Failed to accept invite: {}",
-                            err
-                        )));
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
                     }
                 }
 
