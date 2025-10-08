@@ -1805,6 +1805,66 @@ pub async fn update_space(
     Ok(updated_space.into())
 }
 
+pub async fn update_spaces(
+    updates: &[payloads::requests::UpdateSpace],
+    user_id: &UserId,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::Space>, StoreError> {
+    if updates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Start a transaction
+    let mut tx = pool.begin().await?;
+
+    // Validate all spaces belong to the same site and user has permission
+    let first_site_id = updates[0].space_details.site_id;
+    for update in updates {
+        if update.space_details.site_id != first_site_id {
+            return Err(StoreError::UnexpectedError(anyhow::anyhow!(
+                "All spaces must belong to the same site"
+            )));
+        }
+        let (_, _) = get_validated_space(
+            &update.space_id,
+            user_id,
+            PermissionLevel::Coleader,
+            pool,
+        )
+        .await?;
+    }
+
+    // Update all spaces
+    let mut updated_spaces = Vec::new();
+    for update in updates {
+        let updated_space = sqlx::query_as::<_, Space>(
+            "UPDATE spaces SET
+                name = $1,
+                description = $2,
+                eligibility_points = $3,
+                is_available = $4,
+                site_image_id = $5
+            WHERE id = $6
+            RETURNING *",
+        )
+        .bind(&update.space_details.name)
+        .bind(&update.space_details.description)
+        .bind(update.space_details.eligibility_points)
+        .bind(update.space_details.is_available)
+        .bind(update.space_details.site_image_id)
+        .bind(update.space_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        updated_spaces.push(updated_space.into());
+    }
+
+    // Commit the transaction
+    tx.commit().await?;
+
+    Ok(updated_spaces)
+}
+
 pub async fn delete_space(
     space_id: &SpaceId,
     user_id: &UserId,

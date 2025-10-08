@@ -262,6 +262,12 @@ pub mod requests {
         pub space_details: super::Space,
     }
 
+    /// Batch update multiple spaces at once
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateSpaces {
+        pub spaces: Vec<UpdateSpace>,
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct UserValue {
         pub space_id: super::SpaceId,
@@ -830,6 +836,14 @@ impl APIClient {
         details: &requests::UpdateSpace,
     ) -> Result<responses::Space, ClientError> {
         let response = self.post("space", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn update_spaces(
+        &self,
+        details: &requests::UpdateSpaces,
+    ) -> Result<Vec<responses::Space>, ClientError> {
+        let response = self.post("spaces_batch", details).await?;
         ok_body(response).await
     }
 

@@ -51,6 +51,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::create_space)
         .service(site::get_space)
         .service(site::update_space)
+        .service(site::update_spaces)
         .service(site::delete_space)
         .service(site::list_spaces)
         .service(auction::create_auction)
