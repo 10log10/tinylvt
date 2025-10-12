@@ -86,14 +86,13 @@ pub async fn schedule_tick(
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
     // Update active states from schedule
-    let _ = store::update_is_active_from_schedule(pool, time_source)
-        .await
-        .map_err(log_error);
+    // TODO: revisit this after MVP
+    // let _ = store::update_is_active_from_schedule(pool, time_source)
+    // .await
+    // .map_err(log_error);
 
     // Process auctions without ongoing rounds
-    let auctions =
-        get_auctions_without_ongoing_round(pool, time_source).await?;
-    process_auctions_without_rounds(pool, auctions).await?;
+    process_auctions_without_rounds(pool, time_source).await?;
 
     // Process proxy bidding for active rounds
     process_proxy_bidding_for_active_rounds(pool, time_source).await?;
@@ -101,15 +100,83 @@ pub async fn schedule_tick(
     Ok(())
 }
 
-/// Get all auctions that have started but don't have an ongoing round.
+/// Process all auctions that don't have ongoing rounds sequentially.
+/// Uses row-level locking to prevent concurrent processing by multiple
+/// scheduler instances.
 #[tracing::instrument(skip(pool, time_source))]
-async fn get_auctions_without_ongoing_round(
+async fn process_auctions_without_rounds(
     pool: &PgPool,
     time_source: &TimeSource,
-) -> anyhow::Result<Vec<store::Auction>> {
-    // Get all auctions where the start time is in the past, the auction hasn't
-    // yet concluded, and there is not an ongoing auction round (the end time in
-    // the future).
+) -> anyhow::Result<()> {
+    loop {
+        match process_next_auction(pool, time_source).await {
+            Ok(true) => continue, // Processed one, try for more
+            Ok(false) => break,   // No more auctions to process
+            Err(e) => {
+                // Log error but continue to next auction
+                tracing::error!("Failed to process auction: {:#}", e);
+                continue;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Lock and process the next auction that needs updating.
+/// Returns Ok(true) if an auction was processed, Ok(false) if no auctions
+/// available.
+#[tracing::instrument(skip(pool, time_source))]
+async fn process_next_auction(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // Lock one auction atomically
+    let auction =
+        match lock_next_auction_needing_update(&mut tx, time_source).await? {
+            Some(a) => a,
+            None => return Ok(false), // No auctions available
+        };
+
+    let auction_id = auction.id;
+
+    // Process the auction within the transaction
+    match process_locked_auction(&auction, &mut tx).await {
+        Ok(()) => {
+            tx.commit().await?;
+            Ok(true)
+        }
+        Err(e) => {
+            // Rollback the transaction
+            let _ = tx.rollback().await;
+
+            // Record the failure in a separate transaction
+            let _ = handle_auction_processing_failure(
+                auction_id,
+                pool,
+                time_source,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to record auction failure: {:#}", err);
+            });
+
+            Err(e)
+        }
+    }
+}
+
+/// Lock the next auction that needs updating, using FOR UPDATE SKIP LOCKED
+/// to prevent blocking and enable concurrent scheduler instances.
+/// Uses exponential backoff to avoid repeatedly processing failing auctions.
+#[tracing::instrument(skip(tx, time_source))]
+async fn lock_next_auction_needing_update(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    time_source: &TimeSource,
+) -> anyhow::Result<Option<store::Auction>> {
+    // Exponential backoff: 5 minutes * 2^failure_count, capped at 5 failures
+    // (which gives max backoff of ~2.5 hours)
     sqlx::query_as::<_, store::Auction>(
         "SELECT * FROM auctions
         WHERE $1 >= start_at
@@ -118,107 +185,84 @@ async fn get_auctions_without_ongoing_round(
                 SELECT 1 FROM auction_rounds
                 WHERE auction_id = auctions.id
                 AND $1 < end_at
-            )",
+            )
+            AND (
+                scheduler_failure_count = 0
+                OR scheduler_last_failed_at IS NULL
+                OR $1 > scheduler_last_failed_at +
+                    INTERVAL '5 minutes' * POW(2, LEAST(scheduler_failure_count, 5))
+            )
+        ORDER BY random()
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED",
     )
     .bind(time_source.now().to_sqlx())
-    .fetch_all(pool)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(Into::into)
 }
 
-/// Process all auctions that don't have ongoing rounds in parallel.
-#[tracing::instrument(skip(pool, auctions))]
-async fn process_auctions_without_rounds(
+/// Record a failure to process an auction.
+#[tracing::instrument(skip(pool, time_source))]
+async fn handle_auction_processing_failure(
+    auction_id: payloads::AuctionId,
     pool: &PgPool,
-    auctions: Vec<store::Auction>,
+    time_source: &TimeSource,
 ) -> anyhow::Result<()> {
-    let mut handles = Vec::new();
-
-    for auction in auctions {
-        let pool = pool.clone();
-
-        let handle = tokio::spawn(
-            async move {
-                let _ = process_auction_without_round(&pool, auction)
-                    .await
-                    .map_err(log_error);
-            }
-            // attach this future to the existing span
-            .in_current_span(),
-        );
-
-        handles.push(handle);
-    }
-
-    // Wait for all auction processing to complete
-    for handle in handles {
-        let _ = handle.await.map_err(|e| log_error(anyhow::Error::from(e)));
-    }
+    sqlx::query(
+        "UPDATE auctions
+        SET scheduler_failure_count = scheduler_failure_count + 1,
+            scheduler_last_failed_at = $1
+        WHERE id = $2",
+    )
+    .bind(time_source.now().to_sqlx())
+    .bind(auction_id)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
 
-/// Process a single auction that doesn't have an ongoing round.
-/// This function handles creating new rounds and updating results for the auction.
-#[tracing::instrument(skip(pool, auction))]
-async fn process_auction_without_round(
-    pool: &PgPool,
-    auction: store::Auction,
+/// Process a locked auction within an existing transaction.
+/// This function handles updating results for previous rounds and creating new
+/// rounds.
+#[tracing::instrument(skip(tx, auction))]
+async fn process_locked_auction(
+    auction: &store::Auction,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
     let previous_round = sqlx::query_as::<_, store::AuctionRound>(
-        "SELECT * FROM auction_rounds 
-        WHERE auction_id = $1 
+        "SELECT * FROM auction_rounds
+        WHERE auction_id = $1
         ORDER BY round_num DESC
         LIMIT 1",
     )
     .bind(auction.id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to query for concluded round")?;
 
-    // If there's a previous round, check if it had activity
-    if let Some(previous_round) = &previous_round
-        && let Ok(false) = update_round_space_results_for_auction(
-            &auction,
-            previous_round,
-            pool,
-        )
-        .await
-        .map_err(log_error)
-    {
-        // auction has concluded
-        return Ok(());
+    // If there's a previous round, update its results and check if auction
+    // concluded
+    if let Some(ref previous_round) = previous_round {
+        let auction_continues =
+            update_round_space_results_within_tx(auction, previous_round, tx)
+                .await?;
+
+        if !auction_continues {
+            // Auction has concluded, no more rounds to create
+            return Ok(());
+        }
     }
 
-    // Create next round and update eligibilities atomically
-    let mut tx = pool.begin().await?;
-    match add_subsequent_rounds_for_auction(&auction, &previous_round, &mut tx)
-        .await
-        .map_err(log_error)
-    {
-        Ok(new_round_id) => {
-            // Update eligibilities only if there was a previous round
-            if let Some(previous_round) = &previous_round
-                && let Err(e) = update_user_eligibilities(
-                    &auction,
-                    previous_round,
-                    &new_round_id,
-                    &mut tx,
-                )
-                .await
-            {
-                log_error(e);
-                let _ = tx.rollback().await;
-                return Ok(());
-            }
+    // Create next round
+    let new_round_id =
+        add_subsequent_rounds_for_auction(auction, &previous_round, tx).await?;
 
-            if let Err(e) = tx.commit().await {
-                log_error(anyhow::Error::from(e));
-            }
-        }
-        Err(_) => {
-            let _ = tx.rollback().await;
-        }
+    // Update eligibilities only if there was a previous round
+    if let Some(ref previous_round) = previous_round {
+        update_user_eligibilities(auction, previous_round, &new_round_id, tx)
+            .await?;
     }
 
     Ok(())
@@ -239,23 +283,19 @@ async fn process_auction_without_round(
 /// If all space values remain the same in a new round, the auction is
 /// concluded by defining end_at in the auction table with the current time.
 ///
-/// This function only fails early if it cannot read the auctions that need
-/// updating. If updating a specific auction, errors are logged, but do not
-/// prevent updates to other auctions in the queue.
-///
 /// Returns whether the auction is still ongoing.
-#[tracing::instrument(skip(pool))]
-pub async fn update_round_space_results_for_auction(
+#[tracing::instrument(skip(tx))]
+async fn update_round_space_results_within_tx(
     auction: &store::Auction,
     previous_round: &store::AuctionRound,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<bool> {
     // Get the auction params to know the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
         "SELECT * FROM auction_params WHERE id = $1",
     )
     .bind(&auction.auction_params_id)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await
     .context("failed to get auction params")?;
 
@@ -264,22 +304,21 @@ pub async fn update_round_space_results_for_auction(
         "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
     )
     .bind(auction.site_id)
-    .fetch_all(pool)
+    .fetch_all(&mut **tx)
     .await
     .context("failed to get available spaces for site")?;
 
-    let mut tx = pool.begin().await.context("failed to begin transaction")?;
     let mut any_bids = false;
 
     for space in &spaces {
         // Check how many bids exist for this space in the concluded round
         let bid_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM bids 
+            "SELECT COUNT(*) FROM bids
             WHERE space_id = $1 AND round_id = $2",
         )
         .bind(space.id)
         .bind(previous_round.id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .with_context(|| {
             format!("failed to get bid count for space {}", space.id)
@@ -290,15 +329,15 @@ pub async fn update_round_space_results_for_auction(
 
         // Get previous value if it exists
         let prev_value = sqlx::query_scalar::<_, rust_decimal::Decimal>(
-            "SELECT value FROM round_space_results 
-            WHERE space_id = $1 
+            "SELECT value FROM round_space_results
+            WHERE space_id = $1
             AND round_id IN (
-                SELECT id FROM auction_rounds 
-                WHERE auction_id = $2 
+                SELECT id FROM auction_rounds
+                WHERE auction_id = $2
                 AND round_num < $3
             )
             ORDER BY (
-                SELECT round_num FROM auction_rounds 
+                SELECT round_num FROM auction_rounds
                 WHERE id = round_id
             ) DESC
             LIMIT 1",
@@ -306,7 +345,7 @@ pub async fn update_round_space_results_for_auction(
         .bind(space.id)
         .bind(auction.id)
         .bind(previous_round.round_num)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .with_context(|| {
             format!("failed to get previous value for space {}", space.id)
@@ -315,14 +354,14 @@ pub async fn update_round_space_results_for_auction(
         let (new_value, winning_user_id) = if bid_count > 0 {
             // With any bids, increase the value if there was a previous value
             let winner = sqlx::query_scalar::<_, payloads::UserId>(
-                "SELECT user_id FROM bids 
-                WHERE space_id = $1 AND round_id = $2 
-                ORDER BY random() 
+                "SELECT user_id FROM bids
+                WHERE space_id = $1 AND round_id = $2
+                ORDER BY random()
                 LIMIT 1",
             )
             .bind(space.id)
             .bind(previous_round.id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .with_context(|| {
                 format!("failed to select winning bid for space {}", space.id)
@@ -338,23 +377,23 @@ pub async fn update_round_space_results_for_auction(
             // No bids, carry over the winner and value from the previous round
             let prev_winner =
                 sqlx::query_scalar::<_, Option<payloads::UserId>>(
-                    "SELECT winning_user_id FROM round_space_results 
-                    WHERE space_id = $1 
-                    AND round_id IN (
-                        SELECT id FROM auction_rounds 
-                        WHERE auction_id = $2 
-                        AND round_num < $3
-                    )
-                    ORDER BY (
-                        SELECT round_num FROM auction_rounds 
-                        WHERE id = round_id
-                    ) DESC
-                    LIMIT 1",
+                    "SELECT winning_user_id FROM round_space_results
+                WHERE space_id = $1
+                AND round_id IN (
+                    SELECT id FROM auction_rounds
+                    WHERE auction_id = $2
+                    AND round_num < $3
+                )
+                ORDER BY (
+                    SELECT round_num FROM auction_rounds
+                    WHERE id = round_id
+                ) DESC
+                LIMIT 1",
                 )
                 .bind(space.id)
                 .bind(auction.id)
                 .bind(previous_round.round_num)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .with_context(|| {
                     format!(
@@ -372,7 +411,7 @@ pub async fn update_round_space_results_for_auction(
         // Create space round entry
         sqlx::query(
             "INSERT INTO round_space_results (
-                space_id, 
+                space_id,
                 round_id,
                 winning_user_id,
                 value
@@ -382,7 +421,7 @@ pub async fn update_round_space_results_for_auction(
         .bind(previous_round.id)
         .bind(winning_user_id)
         .bind(new_value)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .with_context(|| {
             format!("failed to create space round entry for space {}", space.id)
@@ -392,20 +431,18 @@ pub async fn update_round_space_results_for_auction(
     // Conclude the auction if there are no more bids
     if !any_bids {
         sqlx::query(
-            "UPDATE auctions 
-            SET end_at = $1 
+            "UPDATE auctions
+            SET end_at = $1
             WHERE id = $2",
         )
         .bind(previous_round.end_at.to_sqlx())
         .bind(auction.id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .with_context(|| {
             format!("failed to conclude auction {}", auction.id)
         })?;
     }
-
-    tx.commit().await.context("failed to commit transaction")?;
 
     Ok(any_bids)
 }

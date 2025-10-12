@@ -202,6 +202,9 @@ CREATE TABLE auctions (
     end_at TIMESTAMPTZ, -- Filled in when the auction completes.
     -- The auction params used in this auction.
     auction_params_id UUID NOT NULL REFERENCES auction_params (id),
+    -- Scheduler failure tracking for debugging and backoff
+    scheduler_failure_count INTEGER NOT NULL DEFAULT 0,
+    scheduler_last_failed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );

@@ -267,6 +267,9 @@ pub struct Auction {
     #[sqlx(try_from = "OptionalTimestamp")]
     pub end_at: Option<Timestamp>,
     pub auction_params_id: AuctionParamsId,
+    pub scheduler_failure_count: i32,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub scheduler_last_failed_at: Option<Timestamp>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
