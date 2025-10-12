@@ -17,9 +17,9 @@ use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
-    CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
-    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAuctionsPage,
-    SiteDetailPage, SiteSettingsPage, TestPage,
+    CommunityInvitesPage, CommunityMembersPage, CreateAuctionPage,
+    CreateCommunityPage, CreateSitePage, HomePage, LoginPage, NotFoundPage,
+    SiteAuctionsPage, SiteDetailPage, SiteSettingsPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -82,6 +82,8 @@ pub enum Route {
     SiteDetail { id: SiteId },
     #[at("/sites/:id/auctions")]
     SiteAuctions { id: SiteId },
+    #[at("/sites/:id/auctions/new")]
+    CreateAuction { id: SiteId },
     #[at("/sites/:id/settings")]
     SiteSettings { id: SiteId },
     #[at("/test")]
@@ -117,6 +119,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::SiteAuctions { id } => {
             html! { <SiteAuctionsPage site_id={id} /> }
+        }
+        Route::CreateAuction { id } => {
+            html! { <CreateAuctionPage site_id={id} /> }
         }
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }

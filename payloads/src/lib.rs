@@ -156,8 +156,18 @@ pub struct Space {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Auction {
     pub site_id: SiteId,
+    /// The possession period is the only time that is localized to the
+    /// site's timezone (if the site has a timezone). This reflects how
+    /// possession is for a physical space at the site's location, and that
+    /// possession timing is coordinated between community members who need a
+    /// common timezone to reference.
     pub possession_start_at: Timestamp,
     pub possession_end_at: Timestamp,
+    /// Auction times are localized to the user's current timezone, since it
+    /// should be clear to the user when auctions take place relative to now.
+    /// They know when the auction will start, even if the site they're bidding
+    /// for is located in a different timezone, with a possession period in the
+    /// future.
     pub start_at: Timestamp,
     pub auction_params: AuctionParams,
 }

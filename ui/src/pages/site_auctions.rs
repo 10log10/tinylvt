@@ -1,12 +1,16 @@
 use jiff::Timestamp;
-use payloads::{SiteId, responses};
+use payloads::{Role, SiteId, responses};
 use yew::prelude::*;
+use yew_router::prelude::*;
 
-use crate::components::{
-    SitePageWrapper, SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
+use crate::{
+    Route,
+    components::{
+        SitePageWrapper, SiteTabHeader, SiteWithRole, TimestampDisplay,
+        site_tab_header::ActiveTab,
+    },
+    hooks::use_auctions,
 };
-use crate::hooks::use_auctions;
-use crate::utils::time::{format_zoned_timestamp, localize_timestamp};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -80,7 +84,10 @@ pub fn SiteAuctionsPage(props: &Props) -> Html {
                     active_tab={ActiveTab::Auctions}
                 />
                 <div class="py-6">
-                    <AuctionsTab site={site_with_role.site} />
+                    <AuctionsTab
+                        site={site_with_role.site}
+                        user_role={site_with_role.user_role}
+                    />
                 </div>
             </div>
         }
@@ -97,12 +104,14 @@ pub fn SiteAuctionsPage(props: &Props) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct AuctionsTabProps {
     pub site: responses::Site,
+    pub user_role: Role,
 }
 
 #[function_component]
 fn AuctionsTab(props: &AuctionsTabProps) -> Html {
     let site_id = props.site.site_id;
     let auctions_hook = use_auctions(site_id);
+    let can_edit = props.user_role.is_ge_coleader();
     let sort_field = use_state(|| SortField::AuctionStart);
     let sort_direction = use_state(|| SortDirection::Descending);
     let filter_upcoming = use_state(|| true);
@@ -233,6 +242,18 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                                 <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                                     {"Auctions"}
                                 </h2>
+                                {if can_edit {
+                                    html! {
+                                        <Link<Route>
+                                            to={Route::CreateAuction { id: site_id }}
+                                            classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                        >
+                                            {"Create New Auction"}
+                                        </Link<Route>>
+                                    }
+                                } else {
+                                    html! {}
+                                }}
                             </div>
 
                             // Filters and Sorting Controls
@@ -396,28 +417,8 @@ struct AuctionCardProps {
 fn AuctionCard(props: &AuctionCardProps) -> Html {
     let auction_details = &props.auction.auction_details;
     let site_details = &props.site.site_details;
-    let site_timezone = site_details.timezone.as_deref();
+    let site_timezone = site_details.timezone.clone();
     let status = AuctionStatus::from_auction(&props.auction);
-
-    // Format timestamps
-    let possession_start = format_zoned_timestamp(&localize_timestamp(
-        auction_details.possession_start_at,
-        site_timezone,
-    ));
-
-    let possession_end = format_zoned_timestamp(&localize_timestamp(
-        auction_details.possession_end_at,
-        site_timezone,
-    ));
-
-    let auction_start = format_zoned_timestamp(&localize_timestamp(
-        auction_details.start_at,
-        site_timezone,
-    ));
-
-    let auction_end = props.auction.end_at.map(|end_at| {
-        format_zoned_timestamp(&localize_timestamp(end_at, site_timezone))
-    });
 
     html! {
         <div class="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700">
@@ -438,8 +439,20 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                         {"Possession Period"}
                     </h4>
                     <div class="space-y-1 text-neutral-600 dark:text-neutral-400">
-                        <p>{"Start: "}{possession_start}</p>
-                        <p>{"End: "}{possession_end}</p>
+                        <p>
+                            {"Start: "}
+                            <TimestampDisplay
+                                timestamp={auction_details.possession_start_at}
+                                site_timezone={site_timezone.clone()}
+                            />
+                        </p>
+                        <p>
+                            {"End: "}
+                            <TimestampDisplay
+                                timestamp={auction_details.possession_end_at}
+                                site_timezone={site_timezone.clone()}
+                            />
+                        </p>
                     </div>
                 </div>
 
@@ -448,11 +461,19 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                         {"Auction Times"}
                     </h4>
                     <div class="space-y-1 text-neutral-600 dark:text-neutral-400">
-                        <p>{"Start: "}{auction_start}</p>
-                        {if let Some(end) = auction_end {
-                            html! {<p>{"End: "}{end}</p>}
+                        <p>
+                            {"Start: "}
+                            <TimestampDisplay timestamp={auction_details.start_at} />
+                        </p>
+                        {if let Some(end_at) = props.auction.end_at {
+                            html! {
+                                <p>
+                                    {"End: "}
+                                    <TimestampDisplay timestamp={end_at} />
+                                </p>
+                            }
                         } else {
-                            html! {<p>{"End: In progress"}</p>}
+                            html! {}
                         }}
                     </div>
                 </div>
