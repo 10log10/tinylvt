@@ -1,3 +1,4 @@
+pub mod use_auctions;
 pub mod use_authentication;
 pub mod use_communities;
 pub mod use_issued_invites;
@@ -8,6 +9,7 @@ pub mod use_sites;
 pub mod use_spaces;
 pub mod use_system_theme;
 
+pub use use_auctions::use_auctions;
 pub use use_authentication::use_authentication;
 pub use use_communities::use_communities;
 pub use use_issued_invites::use_issued_invites;

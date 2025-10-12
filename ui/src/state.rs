@@ -1,4 +1,4 @@
-use payloads::{CommunityId, SiteId, SpaceId, responses};
+use payloads::{AuctionId, CommunityId, SiteId, SpaceId, responses};
 use std::collections::HashMap;
 use yewdux::prelude::*;
 
@@ -43,6 +43,10 @@ pub struct State {
     // === Spaces (canonical store - managed by use_spaces) ===
     pub individual_spaces: HashMap<SpaceId, responses::Space>, // Single source of truth
     pub spaces_by_site: HashMap<SiteId, Vec<SpaceId>>,         // Site index
+
+    // === Auctions (canonical store - managed by use_auctions) ===
+    pub individual_auctions: HashMap<AuctionId, responses::Auction>, // Single source of truth
+    pub auctions_by_site: HashMap<SiteId, Vec<AuctionId>>, // Site index
 
     // === Members (managed by use_members) ===
     pub members: HashMap<CommunityId, Vec<responses::CommunityMember>>,
@@ -191,20 +195,69 @@ impl State {
         // Individual spaces will be cleared on logout
     }
 
+    #[allow(dead_code)]
     pub fn has_space_loaded(&self, space_id: SpaceId) -> bool {
         self.individual_spaces.contains_key(&space_id)
     }
 
+    #[allow(dead_code)]
     pub fn get_space(&self, space_id: SpaceId) -> Option<&responses::Space> {
         self.individual_spaces.get(&space_id)
     }
 
+    #[allow(dead_code)]
     pub fn set_space(&mut self, space_id: SpaceId, space: responses::Space) {
         self.individual_spaces.insert(space_id, space);
     }
 
     pub fn clear_individual_spaces(&mut self) {
         self.individual_spaces.clear();
+    }
+
+    pub fn has_auctions_loaded_for_site(&self, site_id: SiteId) -> bool {
+        self.auctions_by_site.contains_key(&site_id)
+    }
+
+    pub fn get_auctions_for_site(
+        &self,
+        site_id: SiteId,
+    ) -> Option<Vec<&responses::Auction>> {
+        self.auctions_by_site.get(&site_id).map(|auction_ids| {
+            auction_ids
+                .iter()
+                .filter_map(|auction_id| {
+                    self.individual_auctions.get(auction_id)
+                })
+                .collect()
+        })
+    }
+
+    pub fn set_auctions_for_site(
+        &mut self,
+        site_id: SiteId,
+        auctions: Vec<responses::Auction>,
+    ) {
+        // Extract auction IDs for the site index
+        let auction_ids: Vec<AuctionId> =
+            auctions.iter().map(|auction| auction.auction_id).collect();
+
+        // Store individual auctions in the canonical store
+        for auction in auctions {
+            self.individual_auctions.insert(auction.auction_id, auction);
+        }
+
+        // Update the site index
+        self.auctions_by_site.insert(site_id, auction_ids);
+    }
+
+    pub fn clear_auctions_for_site(&mut self) {
+        self.auctions_by_site.clear();
+        // Note: We don't clear individual_auctions here as they might be used by other components
+        // Individual auctions will be cleared on logout
+    }
+
+    pub fn clear_individual_auctions(&mut self) {
+        self.individual_auctions.clear();
     }
 
     pub fn has_members_loaded_for_community(
@@ -240,6 +293,8 @@ impl State {
         self.clear_individual_sites();
         self.clear_spaces_for_site();
         self.clear_individual_spaces();
+        self.clear_auctions_for_site();
+        self.clear_individual_auctions();
         self.clear_members();
         // Future: clear other user-specific state here
     }

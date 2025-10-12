@@ -18,8 +18,8 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
     CommunityInvitesPage, CommunityMembersPage, CreateCommunityPage,
-    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteDetailPage,
-    SiteSettingsPage, TestPage,
+    CreateSitePage, HomePage, LoginPage, NotFoundPage, SiteAuctionsPage,
+    SiteDetailPage, SiteSettingsPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -115,8 +115,8 @@ fn switch(routes: Route) -> Html {
         Route::SiteDetail { id } => {
             html! { <SiteDetailPage site_id={id} /> }
         }
-        Route::SiteAuctions { id: _ } => {
-            html! { <div class="text-center py-12"><p class="text-neutral-600 dark:text-neutral-400">{"Site auctions page coming soon"}</p></div> }
+        Route::SiteAuctions { id } => {
+            html! { <SiteAuctionsPage site_id={id} /> }
         }
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }
