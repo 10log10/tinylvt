@@ -308,6 +308,11 @@ pub struct AuctionRound {
     #[sqlx(try_from = "SqlxTs")]
     pub end_at: Timestamp,
     pub eligibility_threshold: f64, // fractional eligibility; 0-1
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub proxy_bidding_last_processed_at: Option<Timestamp>,
+    pub proxy_bidding_failure_count: i32,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub proxy_bidding_last_failed_at: Option<Timestamp>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -575,6 +580,8 @@ pub struct UseProxyBidding {
     pub max_items: i32,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    pub updated_at: Timestamp,
 }
 
 impl From<UseProxyBidding> for payloads::responses::UseProxyBidding {
@@ -788,26 +795,11 @@ pub async fn update_user_profile(
     display_name: &Option<String>,
     pool: &PgPool,
 ) -> Result<User, StoreError> {
-    let updated_user = sqlx::query_as!(
-        User,
-        r#"
-        UPDATE users SET
-            display_name = $2
-        WHERE id = $1
-        RETURNING
-            id as "id: UserId",
-            username,
-            email,
-            password_hash,
-            display_name,
-            email_verified,
-            balance,
-            created_at as "created_at: SqlxTs",
-            updated_at as "updated_at: SqlxTs"
-        "#,
-        user_id.0,
-        display_name.as_ref(),
+    let updated_user = sqlx::query_as::<_, User>(
+        "UPDATE users SET display_name = $2 WHERE id = $1 RETURNING *",
     )
+    .bind(user_id.0)
+    .bind(display_name.as_ref())
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
@@ -2198,6 +2190,21 @@ pub async fn create_bid(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
+    let mut tx = pool.begin().await?;
+    create_bid_tx(space_id, round_id, user_id, &mut tx, time_source, pool)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn create_bid_tx(
+    space_id: &SpaceId,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    time_source: &TimeSource,
+    pool: &PgPool, // for get_validated_space
+) -> Result<(), StoreError> {
     // Get the space to validate user permissions and check availability
     let (space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
@@ -2213,7 +2220,7 @@ pub async fn create_bid(
         "SELECT * FROM auction_rounds WHERE id = $1",
     )
     .bind(round_id)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
@@ -2231,26 +2238,26 @@ pub async fn create_bid(
     // Check if user is already the standing high bidder from the previous round
     if round.round_num > 0 {
         let previous_round = sqlx::query_as::<_, AuctionRound>(
-            "SELECT * FROM auction_rounds 
+            "SELECT * FROM auction_rounds
             WHERE auction_id = $1 AND round_num = $2",
         )
         .bind(round.auction_id)
         .bind(round.round_num - 1)
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await?;
 
         let is_winning = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (
-                SELECT 1 FROM round_space_results 
-                WHERE round_id = $1 
-                AND space_id = $2 
+                SELECT 1 FROM round_space_results
+                WHERE round_id = $1
+                AND space_id = $2
                 AND winning_user_id = $3
             )",
         )
         .bind(previous_round.id)
         .bind(space_id)
         .bind(user_id)
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await?;
 
         if is_winning {
@@ -2262,19 +2269,19 @@ pub async fn create_bid(
     if round.round_num > 0 {
         // Get user's eligibility for this round
         let eligibility = sqlx::query_scalar::<_, f64>(
-            "SELECT eligibility FROM user_eligibilities 
+            "SELECT eligibility FROM user_eligibilities
             WHERE round_id = $1 AND user_id = $2",
         )
         .bind(round_id)
         .bind(user_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut **tx)
         .await?
         .ok_or(StoreError::NoEligibility)?;
 
         // Get all spaces this user is currently bidding on or winning in this round
         let active_spaces = sqlx::query_scalar::<_, SpaceId>(
             "SELECT space_id FROM (
-                SELECT space_id FROM bids 
+                SELECT space_id FROM bids
                 WHERE round_id = $1 AND user_id = $2
                 UNION
                 SELECT space_id FROM round_space_results rsr
@@ -2288,7 +2295,7 @@ pub async fn create_bid(
         .bind(user_id)
         .bind(round.auction_id)
         .bind(round.round_num - 1)
-        .fetch_all(pool)
+        .fetch_all(&mut **tx)
         .await?;
 
         // Calculate total eligibility points including the new space
@@ -2312,7 +2319,7 @@ pub async fn create_bid(
     .bind(space_id)
     .bind(round_id)
     .bind(user_id)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
 
     Ok(())

@@ -220,6 +220,10 @@ CREATE TABLE auction_rounds (
     end_at TIMESTAMPTZ NOT NULL,
     -- Fraction of the bidder's eligibility that must be met, e.g. 80%
     eligibility_threshold DOUBLE PRECISION NOT NULL,
+    -- Proxy bidding state tracking for scheduler
+    proxy_bidding_last_processed_at TIMESTAMPTZ,
+    proxy_bidding_failure_count INTEGER NOT NULL DEFAULT 0,
+    proxy_bidding_last_failed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     UNIQUE (auction_id, round_num),
@@ -309,6 +313,7 @@ CREATE TABLE use_proxy_bidding (
     auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
     max_items INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (user_id, auction_id)
 );
 CREATE INDEX idx_use_proxy_bidding_user_id ON use_proxy_bidding (user_id);
@@ -389,6 +394,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER user_values_set_updated_at
 BEFORE UPDATE ON user_values
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER use_proxy_bidding_set_updated_at
+BEFORE UPDATE ON use_proxy_bidding
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

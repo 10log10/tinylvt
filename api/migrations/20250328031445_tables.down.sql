@@ -11,6 +11,7 @@ DROP TRIGGER IF EXISTS site_images_set_updated_at ON site_images;
 DROP TRIGGER IF EXISTS auction_params_set_updated_at ON auction_params;
 DROP TRIGGER IF EXISTS bids_set_updated_at ON bids;
 DROP TRIGGER IF EXISTS user_values_set_updated_at ON user_values;
+DROP TRIGGER IF EXISTS use_proxy_bidding_set_updated_at ON use_proxy_bidding;
 
 -- Drop trigger function
 DROP FUNCTION IF EXISTS set_updated_at;
