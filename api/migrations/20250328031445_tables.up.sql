@@ -13,8 +13,8 @@ CREATE TABLE communities (
     name VARCHAR(255) NOT NULL,
     -- Whether new members are active (eligible for distributions) by default.
     new_members_default_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE users (
@@ -27,8 +27,8 @@ CREATE TABLE users (
     -- create or join communities
     email_verified BOOLEAN NOT NULL DEFAULT false,
     balance NUMERIC(20, 6) NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- Tokens are emailed and are specific to 'email_verification', 'password_reset'
@@ -39,8 +39,8 @@ CREATE TABLE tokens (
     action TOKEN_ACTION NOT NULL,
     used BOOLEAN NOT NULL DEFAULT false, -- can only be used once
     expires_at TIMESTAMPTZ NOT NULL, -- must be used before expiry
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE community_members (
@@ -51,8 +51,8 @@ CREATE TABLE community_members (
     -- An inactive member is ineligible to receive distributions.
     -- Can be set automatically by community_membership_schedule if user matches
     is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (community_id, user_id)
 );
 
@@ -67,7 +67,7 @@ CREATE TABLE community_invites (
     -- invite to anyone with the invite id.
     email VARCHAR(255),
     single_use BOOLEAN NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL
 );
 
 -- A future schedule of community membership that results in automatic
@@ -87,8 +87,8 @@ CREATE TABLE community_membership_schedule (
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ NOT NULL,
     email VARCHAR(255) NOT NULL,  -- email identifier
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- Auction parameters are immutable and copy-on-write if they are used in a
@@ -102,8 +102,8 @@ CREATE TABLE auction_params (
     -- Eligibility requirements as the auction progresses. Determines each
     -- round's eligibility_threshold
     activity_rule_params JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- Open hours for a site when possession takes place. Can be used for holidays
@@ -131,8 +131,8 @@ CREATE TABLE site_images (
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     image_data BYTEA NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     UNIQUE (community_id, name)
 );
 
@@ -168,8 +168,8 @@ CREATE TABLE sites (
 
     -- Image is optional if the location is otherwise well-described.
     site_image_id UUID REFERENCES site_images (id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     UNIQUE (community_id, name)
 );
 
@@ -185,8 +185,8 @@ CREATE TABLE spaces (
     is_available BOOLEAN NOT NULL DEFAULT true,
     -- Image is optional if the location is otherwise well-described.
     site_image_id UUID REFERENCES site_images (id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     UNIQUE (site_id, name),
     CHECK (eligibility_points >= 0.0)
 );
@@ -205,8 +205,8 @@ CREATE TABLE auctions (
     -- Scheduler failure tracking for debugging and backoff
     scheduler_failure_count INTEGER NOT NULL DEFAULT 0,
     scheduler_last_failed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- Not directly editable by users (only read/list), since the system manages
@@ -224,8 +224,8 @@ CREATE TABLE auction_rounds (
     proxy_bidding_last_processed_at TIMESTAMPTZ,
     proxy_bidding_failure_count INTEGER NOT NULL DEFAULT 0,
     proxy_bidding_last_failed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     UNIQUE (auction_id, round_num),
     -- Elibility requirements can be 0% or 100% of current user eligibility.
     -- 0% means no eligibility is required, whereas 100% prevents any demand
@@ -262,8 +262,8 @@ CREATE TABLE bids (
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users (id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (space_id, round_id, user_id)
 );
 CREATE INDEX idx_bids_user_id ON bids (user_id);
@@ -295,8 +295,8 @@ CREATE TABLE user_values (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     value NUMERIC(20, 6) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, space_id),
     CHECK (value >= 0)
 );
@@ -312,96 +312,14 @@ CREATE TABLE use_proxy_bidding (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
     max_items INTEGER NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, auction_id)
 );
 CREATE INDEX idx_use_proxy_bidding_user_id ON use_proxy_bidding (user_id);
 CREATE INDEX idx_use_proxy_bidding_auction_id ON use_proxy_bidding (auction_id);
 CREATE INDEX idx_use_proxy_bidding_user_id_auction_id ON use_proxy_bidding
 (user_id, auction_id);
-
-
--- Automatic update triggers
-
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = current_timestamp;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER communities_set_updated_at
-BEFORE UPDATE ON communities
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER users_set_updated_at
-BEFORE UPDATE ON users
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER tokens_set_updated_at
-BEFORE UPDATE ON tokens
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER community_members_set_updated_at
-BEFORE UPDATE ON community_members
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER community_membership_schedule_set_updated_at
-BEFORE UPDATE ON community_membership_schedule
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER sites_set_updated_at
-BEFORE UPDATE ON sites
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER spaces_set_updated_at
-BEFORE UPDATE ON spaces
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER site_images_set_updated_at
-BEFORE UPDATE ON site_images
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER auction_params_set_updated_at
-BEFORE UPDATE ON auction_params
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER auctions_set_updated_at
-BEFORE UPDATE ON auctions
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER auction_rounds_set_updated_at
-BEFORE UPDATE ON auction_rounds
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER bids_set_updated_at
-BEFORE UPDATE ON bids
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER user_values_set_updated_at
-BEFORE UPDATE ON user_values
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER use_proxy_bidding_set_updated_at
-BEFORE UPDATE ON use_proxy_bidding
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
 
 -- Audit log
 
@@ -413,5 +331,5 @@ CREATE TABLE audit_log (
     target_table TEXT,
     target_id UUID,
     details JSONB, -- anything relevant: old/new values, diffs, etc.
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    created_at TIMESTAMPTZ NOT NULL
 );

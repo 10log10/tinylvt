@@ -81,7 +81,7 @@ pub async fn create_account(
     time_source: web::Data<TimeSource>,
     config: web::Data<Config>,
 ) -> Result<HttpResponse, APIError> {
-    let user_id = create_user(new_user_details.0, &pool).await?;
+    let user_id = create_user(new_user_details.0, &pool, &time_source).await?;
 
     // Read the user back to get the full User struct
     let user = store::read_user(&pool, &user_id).await?;
@@ -93,6 +93,7 @@ pub async fn create_account(
         TokenAction::EmailVerification,
         expires_at,
         &pool,
+        &time_source,
     )
     .await?;
 
@@ -137,7 +138,7 @@ pub async fn verify_email(
     .await?;
 
     // Mark email as verified
-    store::verify_user_email(&user_id, &pool).await?;
+    store::verify_user_email(&user_id, &pool, &time_source).await?;
 
     let response = payloads::responses::SuccessMessage {
         message: "Email has been verified successfully.".to_string(),
@@ -178,6 +179,7 @@ pub async fn forgot_password(
         TokenAction::PasswordReset,
         expires_at,
         &pool,
+        &time_source,
     )
     .await;
 
@@ -263,6 +265,7 @@ pub async fn resend_verification_email(
         TokenAction::EmailVerification,
         expires_at,
         &pool,
+        &time_source,
     )
     .await;
 
@@ -370,12 +373,13 @@ pub async fn user_profile(
     Ok(HttpResponse::Ok().json(profile))
 }
 
-#[tracing::instrument(skip(user, request, pool))]
+#[tracing::instrument(skip(user, request, pool, time_source))]
 #[post("/update_profile")]
 pub async fn update_profile(
     user: Identity,
     request: web::Json<payloads::requests::UpdateProfile>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
 
@@ -389,9 +393,13 @@ pub async fn update_profile(
         )));
     }
 
-    let updated_user =
-        store::update_user_profile(&user_id, &request.display_name, &pool)
-            .await?;
+    let updated_user = store::update_user_profile(
+        &user_id,
+        &request.display_name,
+        &pool,
+        &time_source,
+    )
+    .await?;
 
     let profile = payloads::responses::UserProfile {
         username: updated_user.username,

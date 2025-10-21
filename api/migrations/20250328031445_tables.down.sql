@@ -1,21 +1,3 @@
--- Drop triggers
-DROP TRIGGER IF EXISTS communities_set_updated_at ON communities;
-DROP TRIGGER IF EXISTS users_set_updated_at ON users;
-DROP TRIGGER IF EXISTS tokens_set_updated_at ON tokens;
-DROP TRIGGER IF EXISTS community_members_set_updated_at ON community_members;
-DROP TRIGGER IF EXISTS community_membership_schedule_set_updated_at ON
-community_membership_schedule;
-DROP TRIGGER IF EXISTS sites_set_updated_at ON sites;
-DROP TRIGGER IF EXISTS spaces_set_updated_at ON spaces;
-DROP TRIGGER IF EXISTS site_images_set_updated_at ON site_images;
-DROP TRIGGER IF EXISTS auction_params_set_updated_at ON auction_params;
-DROP TRIGGER IF EXISTS bids_set_updated_at ON bids;
-DROP TRIGGER IF EXISTS user_values_set_updated_at ON user_values;
-DROP TRIGGER IF EXISTS use_proxy_bidding_set_updated_at ON use_proxy_bidding;
-
--- Drop trigger function
-DROP FUNCTION IF EXISTS set_updated_at;
-
 -- Drop indexes
 DROP INDEX IF EXISTS one_leader_per_community;
 DROP INDEX IF EXISTS idx_round_space_results_space_id;

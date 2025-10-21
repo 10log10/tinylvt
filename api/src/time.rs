@@ -2,7 +2,7 @@ use jiff::Timestamp;
 #[cfg(feature = "mock-time")]
 use std::sync::{Arc, Mutex};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TimeSource {
     #[cfg(feature = "mock-time")]
     time: Arc<Mutex<Timestamp>>,

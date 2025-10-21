@@ -6,17 +6,20 @@ use crate::store;
 
 use super::{APIError, get_user_id, get_validated_member};
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_site")]
 pub async fn create_site(
     user: Identity,
     details: web::Json<payloads::Site>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.0.community_id, &pool).await?;
-    let site = store::create_site(&details, &validated_member, &pool).await?;
+    let site =
+        store::create_site(&details, &validated_member, &pool, &time_source)
+            .await?;
     // return the community id so we can start using for other things
     Ok(HttpResponse::Ok().json(site.id))
 }
@@ -36,18 +39,20 @@ pub async fn get_site(
     Ok(HttpResponse::Ok().json(site))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/site")]
 pub async fn update_site(
     user: Identity,
     details: web::Json<payloads::requests::UpdateSite>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let community_id =
         store::get_site_community_id(&details.site_id, &pool).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
-    let site = store::update_site(&details, &actor, &pool).await?;
+    let site =
+        store::update_site(&details, &actor, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().json(site))
 }
 
@@ -79,16 +84,18 @@ pub async fn list_sites(
 
 // Site Image Routes
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_site_image")]
 pub async fn create_site_image(
     user: Identity,
     details: web::Json<payloads::requests::CreateSiteImage>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let site_image_id =
-        store::create_site_image(&details, &user_id, &pool).await?;
+        store::create_site_image(&details, &user_id, &pool, &time_source)
+            .await?;
     Ok(HttpResponse::Ok().json(site_image_id))
 }
 
@@ -105,16 +112,18 @@ pub async fn get_site_image(
     Ok(HttpResponse::Ok().json(site_image))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/update_site_image")]
 pub async fn update_site_image(
     user: Identity,
     details: web::Json<payloads::requests::UpdateSiteImage>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let site_image =
-        store::update_site_image(&details, &user_id, &pool).await?;
+        store::update_site_image(&details, &user_id, &pool, &time_source)
+            .await?;
     Ok(HttpResponse::Ok().json(site_image))
 }
 
@@ -145,15 +154,17 @@ pub async fn list_site_images(
 
 // Space Routes
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_space")]
 pub async fn create_space(
     user: Identity,
     details: web::Json<payloads::Space>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let space = store::create_space(&details, &user_id, &pool).await?;
+    let space =
+        store::create_space(&details, &user_id, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().json(space.id))
 }
 
@@ -169,12 +180,13 @@ pub async fn get_space(
     Ok(HttpResponse::Ok().json(space))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/space")]
 pub async fn update_space(
     user: Identity,
     details: web::Json<payloads::requests::UpdateSpace>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let space = store::update_space(
@@ -182,20 +194,24 @@ pub async fn update_space(
         &details.space_details,
         &user_id,
         &pool,
+        &time_source,
     )
     .await?;
     Ok(HttpResponse::Ok().json(space))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/spaces_batch")]
 pub async fn update_spaces(
     user: Identity,
     details: web::Json<payloads::requests::UpdateSpaces>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let spaces = store::update_spaces(&details.spaces, &user_id, &pool).await?;
+    let spaces =
+        store::update_spaces(&details.spaces, &user_id, &pool, &time_source)
+            .await?;
     Ok(HttpResponse::Ok().json(spaces))
 }
 

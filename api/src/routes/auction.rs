@@ -6,15 +6,17 @@ use sqlx::PgPool;
 use crate::routes::{APIError, get_user_id};
 use crate::{store, time::TimeSource};
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_auction")]
 pub async fn create_auction(
     user: Identity,
     details: web::Json<payloads::Auction>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let auction_id = store::create_auction(&details, &user_id, &pool).await?;
+    let auction_id =
+        store::create_auction(&details, &user_id, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().json(auction_id))
 }
 

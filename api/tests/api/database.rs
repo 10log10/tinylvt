@@ -34,10 +34,11 @@ async fn test_community() -> Result<(), Error> {
     let conn = app.db_pool;
     let name = "community".to_string();
     let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name, new_members_default_active)
-        VALUES ($1, false) RETURNING *;",
+        "INSERT INTO communities (name, new_members_default_active, created_at, updated_at)
+        VALUES ($1, false, $2, $2) RETURNING *;",
     )
     .bind(name)
+    .bind(app.time_source.now().to_sqlx())
     .fetch_one(&conn)
     .await?;
 
@@ -62,24 +63,31 @@ async fn test_populate() -> Result<(), StoreError> {
     let conn = &app.db_pool;
 
     let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name) VALUES ($1) RETURNING *;",
+        "INSERT INTO communities (name, created_at, updated_at) VALUES ($1, $2, $2) RETURNING *;",
     )
     .bind("Test Community")
+    .bind(app.time_source.now().to_sqlx())
     .fetch_one(conn)
     .await?;
     println!("1");
-    let _users = populate_users(conn, &community.id).await?;
+    let _users = populate_users(conn, &community.id, &app.time_source).await?;
     println!("2");
     // check that we get a unique constaint error if attempting to populate the
     // same usernames
-    let result = populate_users(conn, &community.id).await;
+    let result = populate_users(conn, &community.id, &app.time_source).await;
     assert!(matches!(result, Err(StoreError::NotUnique(_))));
     let open_hours = populate_open_hours(conn).await?;
-    let auction_params = populate_auction_params(conn).await?;
-    let site =
-        populate_site(conn, &community.id, &auction_params.id, &open_hours.id)
-            .await?;
-    let _spaces = populate_spaces(conn, &site.id).await?;
+    let auction_params =
+        populate_auction_params(conn, &app.time_source).await?;
+    let site = populate_site(
+        conn,
+        &community.id,
+        &auction_params.id,
+        &open_hours.id,
+        &app.time_source,
+    )
+    .await?;
+    let _spaces = populate_spaces(conn, &site.id, &app.time_source).await?;
 
     Ok(())
 }
@@ -87,6 +95,7 @@ async fn test_populate() -> Result<(), StoreError> {
 async fn populate_users(
     conn: &PgPool,
     community_id: &CommunityId,
+    time_source: &api::time::TimeSource,
 ) -> Result<Vec<User>, StoreError> {
     use payloads::Role;
     let roles = [Role::Leader, Role::Coleader, Role::Member];
@@ -97,23 +106,27 @@ async fn populate_users(
             &format!("{role}_user"),
             &format!("{role}@example.com"),
             &format!("hashed_pw_{i}"),
+            time_source,
         )
         .await?;
         user.display_name = Some(format!("{role} user"));
         user.email_verified = true;
         user.balance = dec!(1000.000000);
-        store::update_user(conn, &user).await?;
+        store::update_user(conn, &user, time_source).await?;
 
         sqlx::query(
             "INSERT INTO community_members (
                 community_id,
                 user_id,
-                role
-          ) VALUES ($1, $2, $3);",
+                role,
+                created_at,
+                updated_at
+          ) VALUES ($1, $2, $3, $4, $4);",
         )
         .bind(community_id)
         .bind(user.id)
         .bind(role)
+        .bind(time_source.now().to_sqlx())
         .execute(conn)
         .await?;
     }
@@ -152,13 +165,16 @@ async fn populate_open_hours(conn: &PgPool) -> Result<OpenHours, Error> {
 
 async fn populate_auction_params(
     conn: &PgPool,
+    time_source: &api::time::TimeSource,
 ) -> Result<AuctionParams, Error> {
     sqlx::query_as::<_, AuctionParams>(
         "INSERT INTO auction_params (
             round_duration,
             bid_increment,
-            activity_rule_params
-        ) VALUES ($1, $2, $3) RETURNING *;",
+            activity_rule_params,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $4) RETURNING *;",
     )
     .bind(PgInterval {
         microseconds: 100_000, // 100 ms, for fast testing
@@ -169,6 +185,7 @@ async fn populate_auction_params(
         serde_json::Value::from_str(r#"{"eligibility_progression":[]}"#)
             .unwrap(),
     )
+    .bind(time_source.now().to_sqlx())
     .fetch_one(conn)
     .await
 }
@@ -178,6 +195,7 @@ async fn populate_site(
     community_id: &CommunityId,
     auction_params_id: &AuctionParamsId,
     open_hours_id: &OpenHoursId,
+    time_source: &api::time::TimeSource,
 ) -> Result<Site, Error> {
     sqlx::query_as::<_, Site>(
         "INSERT INTO sites (
@@ -188,8 +206,10 @@ async fn populate_site(
             auction_lead_time,
             proxy_bidding_lead_time,
             open_hours_id,
-            timezone
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;",
+            timezone,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING *;",
     )
     .bind(community_id)
     .bind("Test Site")
@@ -208,6 +228,7 @@ async fn populate_site(
     })
     .bind(open_hours_id)
     .bind("America/Los_Angeles")
+    .bind(time_source.now().to_sqlx())
     .fetch_one(conn)
     .await
 }
@@ -215,6 +236,7 @@ async fn populate_site(
 async fn populate_spaces(
     conn: &PgPool,
     site_id: &SiteId,
+    time_source: &api::time::TimeSource,
 ) -> Result<Vec<Space>, Error> {
     let mut spaces = vec![];
     for i in 0..2 {
@@ -222,12 +244,15 @@ async fn populate_spaces(
             "INSERT INTO spaces (
                 site_id,
                 name,
-                eligibility_points
-            ) VALUES ($1, $2, $3) RETURNING *;",
+                eligibility_points,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $4) RETURNING *;",
         )
         .bind(site_id)
         .bind(format!("Space {i}"))
         .bind(100.0)
+        .bind(time_source.now().to_sqlx())
         .fetch_one(conn)
         .await?;
         spaces.push(space);

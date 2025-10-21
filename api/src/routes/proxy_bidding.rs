@@ -6,15 +6,17 @@ use sqlx::PgPool;
 use super::{APIError, get_user_id};
 use crate::store;
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_or_update_user_value")]
 pub async fn create_or_update_user_value(
     user: Identity,
     details: web::Json<payloads::requests::UserValue>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    store::create_or_update_user_value(&details, &user_id, &pool).await?;
+    store::create_or_update_user_value(&details, &user_id, &pool, &time_source)
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
@@ -54,15 +56,22 @@ pub async fn list_user_values(
     Ok(HttpResponse::Ok().json(values))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_or_update_proxy_bidding")]
 pub async fn create_or_update_proxy_bidding(
     user: Identity,
     details: web::Json<payloads::requests::UseProxyBidding>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    store::create_or_update_proxy_bidding(&details, &user_id, &pool).await?;
+    store::create_or_update_proxy_bidding(
+        &details,
+        &user_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
 

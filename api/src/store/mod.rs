@@ -478,6 +478,7 @@ pub async fn create_or_update_user_value(
     details: &payloads::requests::UserValue,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Verify the space exists and user has access to it
     let (_, _) = get_validated_space(
@@ -489,14 +490,15 @@ pub async fn create_or_update_user_value(
     .await?;
 
     sqlx::query(
-        "INSERT INTO user_values (user_id, space_id, value)
-        VALUES ($1, $2, $3)
+        "INSERT INTO user_values (user_id, space_id, value, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, space_id)
-        DO UPDATE SET value = EXCLUDED.value",
+        DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
     )
     .bind(user_id)
     .bind(details.space_id)
     .bind(details.value)
+    .bind(time_source.now().to_sqlx())
     .execute(pool)
     .await?;
 
@@ -598,6 +600,7 @@ pub async fn create_or_update_proxy_bidding(
     details: &payloads::requests::UseProxyBidding,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Verify user has access to the auction
     let (_, _) = get_validated_auction(
@@ -609,14 +612,15 @@ pub async fn create_or_update_proxy_bidding(
     .await?;
 
     sqlx::query(
-        "INSERT INTO use_proxy_bidding (user_id, auction_id, max_items)
-        VALUES ($1, $2, $3)
+        "INSERT INTO use_proxy_bidding (user_id, auction_id, max_items, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, auction_id)
-        DO UPDATE SET max_items = EXCLUDED.max_items",
+        DO UPDATE SET max_items = EXCLUDED.max_items, updated_at = EXCLUDED.updated_at",
     )
     .bind(user_id)
     .bind(details.auction_id)
     .bind(details.max_items)
+    .bind(time_source.now().to_sqlx())
     .execute(pool)
     .await?;
 
@@ -694,6 +698,7 @@ pub async fn create_community(
     details: &requests::CreateCommunity,
     user_id: UserId, // initial leader of community
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<Community, StoreError> {
     let user = read_user(pool, &user_id).await?;
     if !user.email_verified {
@@ -707,21 +712,25 @@ pub async fn create_community(
     let community = sqlx::query_as::<_, Community>(
         "INSERT INTO communities (
             name,
-            new_members_default_active
-        ) VALUES ($1, $2) RETURNING *;",
+            new_members_default_active,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $3) RETURNING *;",
     )
     .bind(&details.name)
     .bind(details.new_members_default_active)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;
 
     sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role)
-        VALUES ($1, $2, $3);",
+        "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4);",
     )
     .bind(community.id)
     .bind(user_id)
     .bind(Role::Leader)
+    .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await?;
 
@@ -736,6 +745,7 @@ pub async fn create_user(
     username: &str,
     email: &str,
     password_hash: &str,
+    time_source: &TimeSource,
 ) -> Result<User, StoreError> {
     if username.len() > payloads::requests::USERNAME_MAX_LEN {
         return Err(StoreError::FieldTooLong);
@@ -747,14 +757,17 @@ pub async fn create_user(
         "INSERT INTO users (
                 username,
                 email,
-                password_hash
+                password_hash,
+                created_at,
+                updated_at
             )
-            VALUES ($1, $2, $3)
+            VALUES ($1, $2, $3, $4, $4)
             RETURNING *;",
     )
     .bind(username)
     .bind(email)
     .bind(password_hash)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
     Ok(user)
@@ -773,12 +786,17 @@ pub async fn read_user(pool: &PgPool, id: &UserId) -> Result<User, StoreError> {
 }
 
 /// Update fields that are not in the signup process.
-pub async fn update_user(pool: &PgPool, user: &User) -> Result<User, Error> {
+pub async fn update_user(
+    pool: &PgPool,
+    user: &User,
+    time_source: &TimeSource,
+) -> Result<User, Error> {
     sqlx::query_as::<_, User>(
         "UPDATE users
             SET display_name = $1,
                 email_verified = $2,
-                balance = $3
+                balance = $3,
+                updated_at = $5
             WHERE id = $4
             RETURNING *;",
     )
@@ -786,6 +804,7 @@ pub async fn update_user(pool: &PgPool, user: &User) -> Result<User, Error> {
     .bind(user.email_verified)
     .bind(user.balance)
     .bind(user.id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await
 }
@@ -794,12 +813,14 @@ pub async fn update_user_profile(
     user_id: &UserId,
     display_name: &Option<String>,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<User, StoreError> {
     let updated_user = sqlx::query_as::<_, User>(
-        "UPDATE users SET display_name = $2 WHERE id = $1 RETURNING *",
+        "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1 RETURNING *",
     )
     .bind(user_id.0)
     .bind(display_name.as_ref())
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
@@ -818,23 +839,25 @@ pub async fn delete_user(conn: &PgPool, id: &UserId) -> Result<User, Error> {
 }
 
 /// Create a token for email verification or password reset
-#[tracing::instrument(skip(pool))]
+#[tracing::instrument(skip(pool, time_source))]
 pub async fn create_token(
     user_id: &UserId,
     action: TokenAction,
     expires_at: Timestamp,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<TokenId, StoreError> {
     let token_id = sqlx::query_as::<_, TokenId>(
         r#"
-        INSERT INTO tokens (user_id, action, expires_at)
-        VALUES ($1, $2, $3)
+        INSERT INTO tokens (user_id, action, expires_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4)
         RETURNING id
         "#,
     )
     .bind(user_id)
     .bind(action)
     .bind(expires_at.to_sqlx())
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await
     .context("Failed to create token")?;
@@ -882,15 +905,16 @@ pub async fn consume_token(
         return Err(StoreError::TokenExpired);
     }
 
-    // Mark token as used (updated_at handled by DB trigger)
+    // Mark token as used
     sqlx::query(
         r#"
-        UPDATE tokens 
-        SET used = true
+        UPDATE tokens
+        SET used = true, updated_at = $2
         WHERE id = $1
         "#,
     )
     .bind(token_id)
+    .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await
     .context("Failed to mark token as used")?;
@@ -906,19 +930,21 @@ pub async fn consume_token(
 }
 
 /// Mark user's email as verified
-#[tracing::instrument(skip(pool))]
+#[tracing::instrument(skip(pool, time_source))]
 pub async fn verify_user_email(
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     let rows_affected = sqlx::query(
         r#"
-        UPDATE users 
-        SET email_verified = true
+        UPDATE users
+        SET email_verified = true, updated_at = $2
         WHERE id = $1
         "#,
     )
     .bind(user_id)
+    .bind(time_source.now().to_sqlx())
     .execute(pool)
     .await
     .context("Failed to verify user email")?
@@ -993,17 +1019,19 @@ pub async fn invite_community_member(
     new_member_email: &Option<String>,
     single_use: bool,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<InviteId, StoreError> {
     if !actor.0.role.is_ge_moderator() {
         return Err(StoreError::RequiresModeratorPermissions);
     }
     let invite = sqlx::query_as::<_, CommunityInvite>(
-        "INSERT INTO community_invites (community_id, email, single_use)
-        VALUES ($1, $2, $3) RETURNING *;",
+        "INSERT INTO community_invites (community_id, email, single_use, created_at)
+        VALUES ($1, $2, $3, $4) RETURNING *;",
     )
     .bind(actor.0.community_id)
     .bind(new_member_email)
     .bind(single_use)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
     Ok(invite.id)
@@ -1034,6 +1062,7 @@ pub async fn accept_invite(
     user_id: &UserId,
     invite_id: &payloads::InviteId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     let user = read_user(pool, user_id).await?;
     if !user.email_verified {
@@ -1057,12 +1086,13 @@ pub async fn accept_invite(
     let mut tx = pool.begin().await?;
 
     let result = sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role)
-        VALUES ($1, $2, $3);",
+        "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4);",
     )
     .bind(invite.community_id)
     .bind(user_id)
     .bind(Role::Member)
+    .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await;
 
@@ -1218,6 +1248,7 @@ pub async fn set_membership_schedule(
     actor: &ValidatedMember,
     schedule: &[payloads::MembershipSchedule],
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_moderator() {
         return Err(StoreError::RequiresModeratorPermissions);
@@ -1239,13 +1270,16 @@ pub async fn set_membership_schedule(
                 community_id,
                 start_at,
                 end_at,
-                email
-            ) VALUES ($1, $2, $3, $4);",
+                email,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $5);",
         )
         .bind(actor.0.community_id)
         .bind(sched_elem.start_at.to_sqlx())
         .bind(sched_elem.end_at.to_sqlx())
         .bind(&sched_elem.email)
+        .bind(time_source.now().to_sqlx())
         .execute(&mut *tx)
         .await?;
     }
@@ -1311,12 +1345,13 @@ pub async fn update_is_active_from_schedule(
             SET is_active = EXISTS (
                 SELECT 1
                 FROM community_membership_schedule a
-                WHERE 
+                WHERE
                     a.email = $1
                     AND a.community_id = $2
                     AND a.start_at <= $3
                     AND a.end_at > $3
-            )
+            ),
+            updated_at = $5
             WHERE
                 m.user_id = $4
                 AND m.community_id = $2",
@@ -1325,6 +1360,7 @@ pub async fn update_is_active_from_schedule(
         .bind(community_member.community_id)
         .bind(now)
         .bind(community_member.user_id)
+        .bind(time_source.now().to_sqlx())
         .execute(&mut *tx)
         .await?;
     }
@@ -1338,6 +1374,7 @@ pub async fn create_site(
     details: &payloads::Site,
     actor: &ValidatedMember,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<Site, StoreError> {
     if !actor.0.role.is_ge_coleader() {
         return Err(StoreError::InsufficientPermissions {
@@ -1350,8 +1387,12 @@ pub async fn create_site(
         Some(hours) => Some(create_open_hours(hours, &mut tx).await?),
         None => None,
     };
-    let auction_params_id =
-        create_auction_params(&details.default_auction_params, &mut tx).await?;
+    let auction_params_id = create_auction_params(
+        &details.default_auction_params,
+        &mut tx,
+        time_source,
+    )
+    .await?;
 
     let site = sqlx::query_as::<_, Site>(
         "INSERT INTO sites (
@@ -1365,8 +1406,10 @@ pub async fn create_site(
             open_hours_id,
             auto_schedule,
             timezone,
-            site_image_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
+            site_image_id,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING *",
     )
     .bind(actor.0.community_id)
     .bind(&details.name)
@@ -1379,6 +1422,7 @@ pub async fn create_site(
     .bind(details.auto_schedule)
     .bind(&details.timezone)
     .bind(details.site_image_id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1428,17 +1472,21 @@ async fn insert_open_hours_weekdays(
 async fn create_auction_params(
     params: &payloads::AuctionParams,
     tx: &mut Transaction<'_, Postgres>,
+    time_source: &TimeSource,
 ) -> Result<AuctionParamsId, StoreError> {
     Ok(sqlx::query_as::<_, AuctionParamsId>(
         "INSERT INTO auction_params (
                 round_duration,
                 bid_increment,
-                activity_rule_params
-            ) VALUES ($1, $2, $3) RETURNING id",
+                activity_rule_params,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $4) RETURNING id",
     )
     .bind(span_to_interval(&params.round_duration)?)
     .bind(params.bid_increment)
     .bind(Json(params.activity_rule_params.clone()))
+    .bind(time_source.now().to_sqlx())
     .fetch_one(&mut **tx)
     .await?)
 }
@@ -1518,6 +1566,7 @@ pub async fn update_site(
     update_site: &payloads::requests::UpdateSite,
     actor: &ValidatedMember,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<responses::Site, StoreError> {
     if !actor.0.role.is_ge_coleader() {
         return Err(StoreError::RequiresColeaderPermissions);
@@ -1540,8 +1589,12 @@ pub async fn update_site(
     )
     .await?;
 
-    let new_auction_params_id =
-        create_auction_params(&details.default_auction_params, &mut tx).await?;
+    let new_auction_params_id = create_auction_params(
+        &details.default_auction_params,
+        &mut tx,
+        time_source,
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE sites SET
@@ -1554,7 +1607,8 @@ pub async fn update_site(
             open_hours_id = $7,
             auto_schedule = $8,
             timezone = $9,
-            site_image_id = $10
+            site_image_id = $10,
+            updated_at = $12
         WHERE id = $11",
     )
     .bind(&details.name)
@@ -1568,6 +1622,7 @@ pub async fn update_site(
     .bind(&details.timezone)
     .bind(details.site_image_id)
     .bind(existing_site.id)
+    .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await?;
 
@@ -1719,6 +1774,7 @@ pub async fn create_space(
     details: &payloads::Space,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<Space, StoreError> {
     // Get the site and validate user permissions
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
@@ -1741,8 +1797,10 @@ pub async fn create_space(
             description,
             eligibility_points,
             is_available,
-            site_image_id
-        ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            site_image_id,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *",
     )
     .bind(details.site_id)
     .bind(&details.name)
@@ -1750,6 +1808,7 @@ pub async fn create_space(
     .bind(details.eligibility_points)
     .bind(details.is_available)
     .bind(details.site_image_id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
 
@@ -1773,6 +1832,7 @@ pub async fn update_space(
     details: &payloads::Space,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<payloads::responses::Space, StoreError> {
     let (_, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
@@ -1784,7 +1844,8 @@ pub async fn update_space(
             description = $2,
             eligibility_points = $3,
             is_available = $4,
-            site_image_id = $5
+            site_image_id = $5,
+            updated_at = $7
         WHERE id = $6
         RETURNING *",
     )
@@ -1794,6 +1855,7 @@ pub async fn update_space(
     .bind(details.is_available)
     .bind(details.site_image_id)
     .bind(space_id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
 
@@ -1804,6 +1866,7 @@ pub async fn update_spaces(
     updates: &[payloads::requests::UpdateSpace],
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<Vec<payloads::responses::Space>, StoreError> {
     if updates.is_empty() {
         return Ok(Vec::new());
@@ -1838,7 +1901,8 @@ pub async fn update_spaces(
                 description = $2,
                 eligibility_points = $3,
                 is_available = $4,
-                site_image_id = $5
+                site_image_id = $5,
+                updated_at = $7
             WHERE id = $6
             RETURNING *",
         )
@@ -1848,6 +1912,7 @@ pub async fn update_spaces(
         .bind(update.space_details.is_available)
         .bind(update.space_details.site_image_id)
         .bind(update.space_id)
+        .bind(time_source.now().to_sqlx())
         .fetch_one(&mut *tx)
         .await?;
 
@@ -1934,6 +1999,7 @@ pub async fn create_auction(
     details: &payloads::Auction,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<payloads::AuctionId, StoreError> {
     // Get the site and validate user permissions
     let community_id = get_site_community_id(&details.site_id, pool).await?;
@@ -1949,7 +2015,8 @@ pub async fn create_auction(
 
     // Create auction params first
     let auction_params_id =
-        create_auction_params(&details.auction_params, &mut tx).await?;
+        create_auction_params(&details.auction_params, &mut tx, time_source)
+            .await?;
 
     let auction_id = sqlx::query_as::<_, Auction>(
         "INSERT INTO auctions (
@@ -1957,14 +2024,17 @@ pub async fn create_auction(
             possession_start_at,
             possession_end_at,
             start_at,
-            auction_params_id
-        ) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            auction_params_id,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING *",
     )
     .bind(details.site_id)
     .bind(details.possession_start_at.to_sqlx())
     .bind(details.possession_end_at.to_sqlx())
     .bind(details.start_at.to_sqlx())
     .bind(auction_params_id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?
     .id;
@@ -2314,11 +2384,12 @@ pub async fn create_bid_tx(
 
     // Create the bid
     sqlx::query(
-        "INSERT INTO bids (space_id, round_id, user_id) VALUES ($1, $2, $3)",
+        "INSERT INTO bids (space_id, round_id, user_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
     )
     .bind(space_id)
     .bind(round_id)
     .bind(user_id)
+    .bind(time_source.now().to_sqlx())
     .execute(&mut **tx)
     .await?;
 
@@ -2426,6 +2497,7 @@ pub async fn create_site_image(
     details: &payloads::requests::CreateSiteImage,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<payloads::SiteImageId, StoreError> {
     // Validate user is a member of the community
     let actor =
@@ -2437,13 +2509,14 @@ pub async fn create_site_image(
     }
 
     let site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "INSERT INTO site_images (community_id, name, image_data) 
-         VALUES ($1, $2, $3) 
+        "INSERT INTO site_images (community_id, name, image_data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $4)
          RETURNING *",
     )
     .bind(details.community_id)
     .bind(&details.name)
     .bind(&details.image_data)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
 
@@ -2477,6 +2550,7 @@ pub async fn update_site_image(
     details: &payloads::requests::UpdateSiteImage,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<payloads::responses::SiteImage, StoreError> {
     // First, get the existing site image to check permissions
     let existing_site_image =
@@ -2502,15 +2576,17 @@ pub async fn update_site_image(
     // Update the site image
     let updated_site_image =
         sqlx::query_as::<_, payloads::responses::SiteImage>(
-            "UPDATE site_images 
-         SET name = COALESCE($2, name), 
-             image_data = COALESCE($3, image_data)
-         WHERE id = $1 
+            "UPDATE site_images
+         SET name = COALESCE($2, name),
+             image_data = COALESCE($3, image_data),
+             updated_at = $4
+         WHERE id = $1
          RETURNING *",
         )
         .bind(details.id)
         .bind(&details.name)
         .bind(&details.image_data)
+        .bind(time_source.now().to_sqlx())
         .fetch_one(pool)
         .await?;
 

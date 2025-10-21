@@ -126,12 +126,13 @@ pub struct NewUserDetails {
 
 #[tracing::instrument(
     name = "Create user",
-    skip(new_user_details, pool),
+    skip(new_user_details, pool, time_source),
     fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
 )]
 pub async fn create_user(
     new_user_details: NewUserDetails,
     pool: &PgPool,
+    time_source: &crate::time::TimeSource,
 ) -> Result<payloads::UserId, StoreError> {
     let password_hash = spawn_blocking_with_tracing(move || {
         compute_password_hash(new_user_details.password)
@@ -144,6 +145,7 @@ pub async fn create_user(
         &new_user_details.username,
         &new_user_details.email,
         password_hash.expose_secret(),
+        time_source,
     )
     .await?
     .id;

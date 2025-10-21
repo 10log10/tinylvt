@@ -10,15 +10,17 @@ use crate::store;
 
 use super::{APIError, get_user_id, get_validated_member};
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_community")]
 pub async fn create_community(
     user: Identity,
     details: web::Json<CreateCommunity>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let community = store::create_community(&details, user_id, &pool).await?;
+    let community =
+        store::create_community(&details, user_id, &pool, &time_source).await?;
     // return the community id so we can start using for other things
     Ok(HttpResponse::Ok().json(community.id))
 }
@@ -36,7 +38,10 @@ pub async fn get_communities(
     Ok(HttpResponse::Ok().json(communities))
 }
 
-#[tracing::instrument(skip(user, pool, email_service, config), ret)]
+#[tracing::instrument(
+    skip(user, pool, email_service, config, time_source),
+    ret
+)]
 #[post("/invite_member")]
 pub async fn invite_community_member(
     user: Identity,
@@ -44,6 +49,7 @@ pub async fn invite_community_member(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     config: web::Data<crate::Config>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
@@ -53,6 +59,7 @@ pub async fn invite_community_member(
         &details.0.new_member_email,
         details.0.single_use,
         &pool,
+        &time_source,
     )
     .await?;
 
@@ -130,15 +137,16 @@ pub async fn get_invite_community_name(
     Ok(HttpResponse::Ok().json(community_name))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/accept_invite/{invite_id}")]
 pub async fn accept_invite(
     user: Identity,
     path: web::Path<payloads::InviteId>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    store::accept_invite(&user_id, &path, &pool).await?;
+    store::accept_invite(&user_id, &path, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
 }
 
@@ -157,18 +165,24 @@ pub async fn get_members(
 }
 
 /// Set the community schedule all at once.
-#[tracing::instrument(skip(user, pool), ret)]
+#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/membership_schedule")]
 pub async fn set_membership_schedule(
     user: Identity,
     details: web::Json<requests::SetMembershipSchedule>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
-    store::set_membership_schedule(&validated_member, &details.schedule, &pool)
-        .await?;
+    store::set_membership_schedule(
+        &validated_member,
+        &details.schedule,
+        &pool,
+        &time_source,
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
