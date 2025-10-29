@@ -5,6 +5,7 @@ use yewdux::prelude::*;
 use crate::{State, get_api_client};
 
 /// Hook return type for spaces data
+#[derive(Debug)]
 pub struct SpacesHookReturn {
     pub spaces: Option<Vec<responses::Space>>,
     pub is_loading: bool,

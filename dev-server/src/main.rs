@@ -7,6 +7,7 @@
 //! Usage: cargo run -p dev-server
 
 use anyhow::Result;
+use api::scheduler::Scheduler;
 use jiff::Timestamp;
 use std::time::Duration;
 use test_helpers::mock::DevDataset;
@@ -31,6 +32,11 @@ async fn main() -> Result<()> {
     info!("📊 Setting up development test data...");
     let dataset = DevDataset::create(&app).await?;
 
+    // Start scheduler to process auction rounds and proxy bidding
+    info!("⏲️  Starting auction scheduler...");
+    start_scheduler(&app);
+    info!("✅ Scheduler active - auctions will progress automatically");
+
     // Start background task to sync mocked time with real time every second
     info!("🕐 Starting real-time synchronization...");
     start_time_sync_task(&app);
@@ -51,6 +57,21 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     info!("🛑 Shutting down development server");
     Ok(())
+}
+
+/// Starts the auction scheduler in the background to process auction
+/// rounds and proxy bidding.
+fn start_scheduler(app: &test_helpers::TestApp) {
+    let scheduler = Scheduler::new(
+        app.db_pool.clone(),
+        app.time_source.clone(),
+        Duration::from_secs(1), // Tick every second for development
+    );
+
+    tokio::spawn(async move {
+        info!("⏲️  Scheduler task started - processing auctions");
+        scheduler.run().await;
+    });
 }
 
 /// Starts a background task that continuously syncs the mocked time source

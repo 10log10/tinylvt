@@ -421,35 +421,51 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
     let status = AuctionStatus::from_auction(&props.auction);
 
     html! {
-        <div class="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700">
+        <Link<Route>
+            to={Route::AuctionDetail { id: props.auction.auction_id }}
+            classes="block bg-white dark:bg-neutral-800 p-6 rounded-lg \
+                     shadow-md border border-neutral-200 \
+                     dark:border-neutral-700 hover:shadow-lg \
+                     transition-shadow cursor-pointer"
+        >
             <div class="flex justify-between items-start mb-4">
                 <div class="flex-1">
-                    <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                    <h3 class="text-lg font-semibold text-neutral-900 \
+                               dark:text-neutral-100">
                         {"Auction for "}{&site_details.name}
                     </h3>
                 </div>
-                <span class={format!("px-3 py-1 rounded-full text-xs font-medium {}", status.badge_classes())}>
+                <span class={format!(
+                    "px-3 py-1 rounded-full text-xs font-medium {}",
+                    status.badge_classes()
+                )}>
                     {status.label()}
                 </span>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
-                    <h4 class="font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                    <h4 class="font-medium text-neutral-700 \
+                               dark:text-neutral-300 mb-2">
                         {"Possession Period"}
                     </h4>
-                    <div class="space-y-1 text-neutral-600 dark:text-neutral-400">
+                    <div class="space-y-1 text-neutral-600 \
+                                dark:text-neutral-400">
                         <p>
                             {"Start: "}
                             <TimestampDisplay
-                                timestamp={auction_details.possession_start_at}
+                                timestamp={
+                                    auction_details.possession_start_at
+                                }
                                 site_timezone={site_timezone.clone()}
                             />
                         </p>
                         <p>
                             {"End: "}
                             <TimestampDisplay
-                                timestamp={auction_details.possession_end_at}
+                                timestamp={
+                                    auction_details.possession_end_at
+                                }
                                 site_timezone={site_timezone.clone()}
                             />
                         </p>
@@ -457,13 +473,17 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                 </div>
 
                 <div>
-                    <h4 class="font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                    <h4 class="font-medium text-neutral-700 \
+                               dark:text-neutral-300 mb-2">
                         {"Auction Times"}
                     </h4>
-                    <div class="space-y-1 text-neutral-600 dark:text-neutral-400">
+                    <div class="space-y-1 text-neutral-600 \
+                                dark:text-neutral-400">
                         <p>
                             {"Start: "}
-                            <TimestampDisplay timestamp={auction_details.start_at} />
+                            <TimestampDisplay
+                                timestamp={auction_details.start_at}
+                            />
                         </p>
                         {if let Some(end_at) = props.auction.end_at {
                             html! {
@@ -478,6 +498,6 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                     </div>
                 </div>
             </div>
-        </div>
+        </Link<Route>>
     }
 }

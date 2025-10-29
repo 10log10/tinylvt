@@ -14,6 +14,7 @@
 
 use crate::TestApp;
 use anyhow::Result;
+use api::scheduler;
 use jiff::{Span, Timestamp};
 use payloads::{CommunityId, SiteId, requests, responses};
 use rust_decimal::Decimal;
@@ -27,10 +28,11 @@ pub struct DevDataset {
     pub bob_community_id: CommunityId,
     pub coworking_site: responses::Site,
     pub meetup_site: responses::Site,
-    pub desk_space: responses::Space,
-    pub conference_room: responses::Space,
     pub upcoming_auction: responses::Auction,
     pub ongoing_auction: responses::Auction,
+    pub ongoing_auction_space_a: responses::Space,
+    pub ongoing_auction_space_b: responses::Space,
+    pub ongoing_auction_space_c: responses::Space,
 }
 
 impl DevDataset {
@@ -38,21 +40,16 @@ impl DevDataset {
     pub async fn create(app: &TestApp) -> Result<Self> {
         app.time_source.set(Timestamp::now());
 
-        // === Alice's Community (Primary test user) ===
-        tracing::info!("👤 Creating Alice user and community");
-        app.create_alice_user().await?;
-        let alice_community_id = app.create_test_community().await?;
+        // === Alice's Community with Three Members ===
+        tracing::info!(
+            "👤 Creating three-person community (Alice, Bob, Charlie)"
+        );
+        let alice_community_id = app.create_three_person_community().await?;
 
         // Create multiple sites with different characteristics
         let coworking_site =
             create_coworking_site(app, &alice_community_id).await?;
         let meetup_site = create_meetup_site(app, &alice_community_id).await?;
-
-        // Create spaces in each site
-        let desk_space =
-            create_desk_space(app, &coworking_site.site_id).await?;
-        let conference_room =
-            create_conference_room(app, &meetup_site.site_id).await?;
 
         // === Create Auctions in Different States ===
         tracing::info!("🏛️ Creating auctions with realistic work schedules");
@@ -66,18 +63,25 @@ impl DevDataset {
         )
         .await?;
 
-        // Ongoing auction (started 1 hour ago, for tomorrow's work day)
-        let ongoing_auction = create_work_day_auction(
-            app,
-            &coworking_site.site_id,
-            1, // Tomorrow
-            "ongoing",
-        )
-        .await?;
+        // Ongoing auction with 12 processed rounds (three-bidders pattern)
+        let (
+            ongoing_auction,
+            ongoing_auction_space_a,
+            ongoing_auction_space_b,
+            ongoing_auction_space_c,
+        ) = create_ongoing_auction_with_rounds(app, &coworking_site.site_id)
+            .await?;
 
         // === Bob's Community (Secondary community for multi-community testing) ===
-        tracing::info!("👤 Creating Bob user and community");
-        let bob_community_id = create_bob_community(app).await?;
+        tracing::info!("👥 Creating Bob's secondary community");
+        // Bob already exists from three-person community, so just login and create
+        app.login_bob().await?;
+        let bob_community_body = requests::CreateCommunity {
+            name: "Tech Startup Collective".into(),
+            new_members_default_active: true,
+        };
+        let bob_community_id =
+            app.client.create_community(&bob_community_body).await?;
 
         // Create invite from Bob to Alice for cross-community testing
         create_cross_community_invite(app, &bob_community_id).await?;
@@ -92,10 +96,11 @@ impl DevDataset {
             bob_community_id,
             coworking_site,
             meetup_site,
-            desk_space,
-            conference_room,
             upcoming_auction,
             ongoing_auction,
+            ongoing_auction_space_a,
+            ongoing_auction_space_b,
+            ongoing_auction_space_c,
         })
     }
 
@@ -103,38 +108,45 @@ impl DevDataset {
     pub fn print_summary(&self) {
         tracing::info!("📋 Available test data:");
         tracing::info!(
-            "   📊 Alice's Community ({}):",
+            "   📊 Alice's Community ({}) - Three members: Alice, Bob, Charlie",
             self.alice_community_id
         );
         tracing::info!(
-            "      - {} ({}): Flexible desk spaces",
+            "      - {} ({}): Coworking site",
             self.coworking_site.site_details.name,
             self.coworking_site.site_id
         );
         tracing::info!(
-            "        └─ {} ({}): Hot desk",
-            self.desk_space.space_details.name,
-            self.desk_space.space_id
+            "        ├─ {} ({})",
+            self.ongoing_auction_space_a.space_details.name,
+            self.ongoing_auction_space_a.space_id
         );
         tracing::info!(
-            "      - {} ({}): Conference facilities",
+            "        ├─ {} ({})",
+            self.ongoing_auction_space_b.space_details.name,
+            self.ongoing_auction_space_b.space_id
+        );
+        tracing::info!(
+            "        └─ {} ({})",
+            self.ongoing_auction_space_c.space_details.name,
+            self.ongoing_auction_space_c.space_id
+        );
+        tracing::info!(
+            "      - {} ({}): Meeting rooms",
             self.meetup_site.site_details.name,
             self.meetup_site.site_id
         );
-        tracing::info!(
-            "        └─ {} ({}): AV-equipped room",
-            self.conference_room.space_details.name,
-            self.conference_room.space_id
-        );
         tracing::info!("   📊 Bob's Community ({}):", self.bob_community_id);
         tracing::info!("      - Basic community with invite to Alice");
-        tracing::info!("   ⏰ Auction States (9am-9pm work days):");
+        tracing::info!("   ⏰ Auctions:");
         tracing::info!(
-            "      - Upcoming ({}): Starts in ~3 hours, for day after tomorrow",
+            "      - Upcoming ({}): Starts in ~23 hours, for day after \
+             tomorrow",
             self.upcoming_auction.auction_id
         );
         tracing::info!(
-            "      - Ongoing ({}): Started ~1 hour ago, for tomorrow's work day",
+            "      - Ongoing ({}): Started 1 hour ago with 12 rounds of \
+             bidding, for tomorrow",
             self.ongoing_auction.auction_id
         );
         tracing::info!("      - (Concluded auctions: TODO - add in future)");
@@ -199,7 +211,12 @@ async fn create_meetup_site(
             round_duration: Span::new().minutes(10), // Longer rounds for bigger decisions
             bid_increment: Decimal::new(500, 2),     // $5.00 - higher stakes
             activity_rule_params: ActivityRuleParams {
-                eligibility_progression: vec![(0, 0.8), (10, 0.9), (20, 1.0)],
+                eligibility_progression: vec![
+                    (0, 0.5),
+                    (10, 0.75),
+                    (20, 0.9),
+                    (30, 1.0),
+                ],
             },
         },
         possession_period: Span::new().hours(4), // 4-hour meeting blocks
@@ -261,6 +278,207 @@ async fn create_conference_room(
     Ok(space_response)
 }
 
+/// Creates an ongoing auction with actual processed rounds following the
+/// three-bidders test pattern
+///
+/// This creates an auction in the past and processes multiple rounds to create
+/// realistic auction history for UI testing. The auction start time is
+/// calculated based on the round duration and number of rounds to process.
+async fn create_ongoing_auction_with_rounds(
+    app: &TestApp,
+    site_id: &SiteId,
+) -> Result<(
+    responses::Auction,
+    responses::Space,
+    responses::Space,
+    responses::Space,
+)> {
+    use payloads::{ActivityRuleParams, Auction, AuctionParams, Space};
+
+    // Configuration: how many rounds to process and duration per round
+    let round_duration = Span::new().minutes(2);
+    let num_rounds_to_process = 3;
+
+    // Save the real current time
+    let real_now = Timestamp::now();
+
+    // Calculate auction start time: far enough in the past to have processed
+    // all the rounds we want (round_duration * num_rounds_to_process)
+    let auction_start_offset = round_duration
+        .checked_mul(num_rounds_to_process)
+        .expect("round duration multiplication overflow");
+    app.time_source.set(real_now - auction_start_offset);
+
+    // Get LA timezone for proper work day calculation
+    let auction_start = app.time_source.now();
+    let auction_start_la = auction_start.in_tz(TZ)?;
+
+    // Calculate possession for tomorrow (9am-9pm LA time)
+    let possession_day = auction_start_la.date() + Span::new().days(1);
+    let possession_start_at =
+        possession_day.at(9, 0, 0, 0).in_tz(TZ)?.timestamp();
+    let possession_end_at =
+        possession_day.at(21, 0, 0, 0).in_tz(TZ)?.timestamp();
+
+    // Create auction starting at the calculated past time
+    let auction_details = Auction {
+        site_id: *site_id,
+        possession_start_at,
+        possession_end_at,
+        start_at: auction_start,
+        auction_params: AuctionParams {
+            round_duration,
+            bid_increment: Decimal::new(100, 2), // $1.00
+            activity_rule_params: ActivityRuleParams {
+                eligibility_progression: vec![
+                    (0, 0.5),
+                    (10, 0.75),
+                    (20, 0.9),
+                    (30, 1.0),
+                ],
+            },
+        },
+    };
+
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create three spaces for the auction
+    let space_a_details = Space {
+        site_id: *site_id,
+        name: "Hot Desk Alpha".to_string(),
+        description: Some("Prime desk with window view".to_string()),
+        eligibility_points: 8.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let space_a_id = app.client.create_space(&space_a_details).await?;
+    let space_a = app.client.get_space(&space_a_id).await?;
+
+    let space_b_details = Space {
+        site_id: *site_id,
+        name: "Hot Desk Beta".to_string(),
+        description: Some("Quiet corner desk".to_string()),
+        eligibility_points: 5.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let space_b_id = app.client.create_space(&space_b_details).await?;
+    let space_b = app.client.get_space(&space_b_id).await?;
+
+    let space_c_details = Space {
+        site_id: *site_id,
+        name: "Hot Desk Gamma".to_string(),
+        description: Some("Collaboration area desk".to_string()),
+        eligibility_points: 10.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let space_c_id = app.client.create_space(&space_c_details).await?;
+    let space_c = app.client.get_space(&space_c_id).await?;
+
+    // Set up proxy bidding for Alice: A=5, B=0, max_items=2
+    app.login_alice().await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_a.space_id,
+            value: Decimal::new(5, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_b.space_id,
+            value: Decimal::new(0, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_proxy_bidding(&payloads::requests::UseProxyBidding {
+            auction_id,
+            max_items: 2,
+        })
+        .await?;
+
+    // Set up proxy bidding for Bob: A=4, C=3, max_items=1
+    app.login_bob().await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_a.space_id,
+            value: Decimal::new(4, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_c.space_id,
+            value: Decimal::new(3, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_proxy_bidding(&payloads::requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+
+    // Set up proxy bidding for Charlie: B=2, C=9, max_items=1
+    app.login_charlie().await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_b.space_id,
+            value: Decimal::new(2, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_user_value(&payloads::requests::UserValue {
+            space_id: space_c.space_id,
+            value: Decimal::new(9, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_proxy_bidding(&payloads::requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+
+    tracing::info!(
+        "Processing {} auction rounds at {} each...",
+        num_rounds_to_process,
+        round_duration
+    );
+
+    // Process the configured number of rounds
+    for round_num in 0..num_rounds_to_process {
+        // Create round and process proxy bids
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+        // Advance time by round_duration + 1 second
+        let current_time = app.time_source.now();
+        app.time_source
+            .set(current_time + round_duration + Span::new().seconds(1));
+
+        tracing::debug!(
+            "Completed round {}/{}",
+            1 + round_num,
+            num_rounds_to_process
+        );
+    }
+
+    // Set time back to real current time
+    app.time_source.set(real_now);
+
+    // Get the updated auction response
+    let auction_response = app.client.get_auction(&auction_id).await?;
+
+    // Switch back to Alice for consistency
+    app.login_alice().await?;
+
+    tracing::info!(
+        "Ongoing auction created with {} rounds of bidding history",
+        num_rounds_to_process
+    );
+
+    Ok((auction_response, space_a, space_b, space_c))
+}
+
 /// Creates an auction for a work day (9am-9pm) with realistic scheduling
 async fn create_work_day_auction(
     app: &TestApp,
@@ -307,7 +525,12 @@ async fn create_work_day_auction(
             round_duration: Span::new().minutes(5),
             bid_increment: Decimal::new(250, 2), // $2.50
             activity_rule_params: ActivityRuleParams {
-                eligibility_progression: vec![(1, 1.0), (5, 0.8), (10, 0.6)],
+                eligibility_progression: vec![
+                    (0, 0.5),
+                    (10, 0.75),
+                    (20, 0.9),
+                    (30, 1.0),
+                ],
             },
         },
     };

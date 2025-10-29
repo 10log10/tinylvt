@@ -1,4 +1,4 @@
-use payloads::{APIClient, CommunityId, InviteId, SiteId};
+use payloads::{APIClient, AuctionId, CommunityId, InviteId, SiteId};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -16,10 +16,11 @@ use components::layout::MainLayout;
 use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
-    AcceptInvitePage, CommunitiesPage, CommunityDetailPage,
-    CommunityInvitesPage, CommunityMembersPage, CreateAuctionPage,
-    CreateCommunityPage, CreateSitePage, HomePage, LoginPage, NotFoundPage,
-    SiteAuctionsPage, SiteDetailPage, SiteSettingsPage, TestPage,
+    AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
+    CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
+    CreateAuctionPage, CreateCommunityPage, CreateSitePage, HomePage,
+    LoginPage, NotFoundPage, SiteAuctionsPage, SiteDetailPage,
+    SiteSettingsPage, TestPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -84,6 +85,10 @@ pub enum Route {
     SiteAuctions { id: SiteId },
     #[at("/sites/:id/auctions/new")]
     CreateAuction { id: SiteId },
+    #[at("/auctions/:id")]
+    AuctionDetail { id: AuctionId },
+    #[at("/auctions/:id/rounds")]
+    AuctionRounds { id: AuctionId },
     #[at("/sites/:id/settings")]
     SiteSettings { id: SiteId },
     #[at("/test")]
@@ -122,6 +127,12 @@ fn switch(routes: Route) -> Html {
         }
         Route::CreateAuction { id } => {
             html! { <CreateAuctionPage site_id={id} /> }
+        }
+        Route::AuctionDetail { id } => {
+            html! { <AuctionDetailPage auction_id={id} /> }
+        }
+        Route::AuctionRounds { id } => {
+            html! { <AuctionRoundsPage auction_id={id} /> }
         }
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }

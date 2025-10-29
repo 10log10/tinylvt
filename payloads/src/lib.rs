@@ -178,7 +178,7 @@ pub struct Auction {
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct AuctionRoundId(pub Uuid);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuctionRound {
     pub auction_id: AuctionId,
     pub round_num: i32,
@@ -427,7 +427,7 @@ pub mod responses {
         pub updated_at: Timestamp,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct AuctionRound {
         pub round_id: super::AuctionRoundId,
         pub round_details: super::AuctionRound,
@@ -556,6 +556,14 @@ impl std::str::FromStr for SpaceId {
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct AuctionId(pub Uuid);
+
+impl std::str::FromStr for AuctionId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        uuid::Uuid::parse_str(s).map(AuctionId)
+    }
+}
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
@@ -962,10 +970,9 @@ impl APIClient {
 
     pub async fn list_bids(
         &self,
-        space_id: &SpaceId,
         round_id: &AuctionRoundId,
     ) -> Result<Vec<Bid>, ClientError> {
-        let response = self.post("bids", &(space_id, round_id)).await?;
+        let response = self.post("bids", &round_id).await?;
         ok_body(response).await
     }
 

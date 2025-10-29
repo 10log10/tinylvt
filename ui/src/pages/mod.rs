@@ -1,4 +1,6 @@
 pub mod accept_invite;
+pub mod auction_detail;
+pub mod auction_rounds;
 pub mod communities;
 pub mod community_detail;
 pub mod community_invites;
@@ -17,6 +19,8 @@ pub mod site_settings;
 pub mod test;
 
 pub use accept_invite::AcceptInvitePage;
+pub use auction_detail::AuctionDetailPage;
+pub use auction_rounds::AuctionRoundsPage;
 pub use communities::CommunitiesPage;
 pub use community_detail::CommunityDetailPage;
 pub use community_invites::CommunityInvitesPage;

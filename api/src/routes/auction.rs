@@ -168,12 +168,11 @@ pub async fn get_bid(
 #[post("/bids")]
 pub async fn list_bids(
     user: Identity,
-    params: web::Json<(SpaceId, AuctionRoundId)>,
+    round_id: web::Json<AuctionRoundId>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let (space_id, round_id) = params.into_inner();
-    let bids = store::list_bids(&space_id, &round_id, &user_id, &pool).await?;
+    let bids = store::list_bids(&round_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(bids))
 }
 

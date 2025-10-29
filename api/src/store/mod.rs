@@ -2424,20 +2424,34 @@ pub async fn get_bid(
 }
 
 pub async fn list_bids(
-    space_id: &SpaceId,
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
 ) -> Result<Vec<Bid>, StoreError> {
-    // Get the space to validate user permissions
-    let (_, _) =
-        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
+    // Verify user has access to the auction round
+    let auction_round = sqlx::query_as::<_, AuctionRound>(
+        "SELECT * FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        e => e.into(),
+    })?;
+
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_round.auction_id)
+            .fetch_one(pool)
             .await?;
 
+    let community_id = get_site_community_id(&auction.site_id, pool).await?;
+    let _ = get_validated_member(user_id, &community_id, pool).await?;
+
     let bids = sqlx::query_as::<_, Bid>(
-        "SELECT * FROM bids WHERE space_id = $1 AND round_id = $2 AND user_id = $3",
+        "SELECT * FROM bids WHERE round_id = $2 AND user_id = $3",
     )
-    .bind(space_id)
     .bind(round_id)
     .bind(user_id)
     .fetch_all(pool)
