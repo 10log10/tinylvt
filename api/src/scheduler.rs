@@ -42,11 +42,7 @@ use sqlx::PgPool;
 use std::time::Duration;
 use tokio::time;
 
-use crate::{
-    store::{self},
-    telemetry::log_error,
-    time::TimeSource,
-};
+use crate::{store, telemetry::log_error, time::TimeSource};
 
 pub struct Scheduler {
     pool: PgPool,
@@ -357,8 +353,8 @@ async fn update_round_space_results_within_tx(
         any_bids = any_bids || bid_count > 0;
 
         // Get previous value if it exists
-        let prev_value = sqlx::query_scalar::<_, rust_decimal::Decimal>(
-            "SELECT value FROM round_space_results
+        let prev_result = sqlx::query_as::<_, store::RoundSpaceResult>(
+            "SELECT * FROM round_space_results
             WHERE space_id = $1
             AND round_id IN (
                 SELECT id FROM auction_rounds
@@ -396,45 +392,20 @@ async fn update_round_space_results_within_tx(
                 format!("failed to select winning bid for space {}", space.id)
             })?;
 
-            let new_value = match prev_value {
-                Some(prev) => prev + auction_params.bid_increment,
+            let new_value = match prev_result {
+                Some(prev) => prev.value + auction_params.bid_increment,
                 None => rust_decimal::Decimal::ZERO, // Start at zero in first round
             };
 
-            (new_value, Some(winner))
+            (new_value, winner)
         } else {
-            // No bids, carry over the winner and value from the previous round
-            let prev_winner =
-                sqlx::query_scalar::<_, Option<payloads::UserId>>(
-                    "SELECT winning_user_id FROM round_space_results
-                WHERE space_id = $1
-                AND round_id IN (
-                    SELECT id FROM auction_rounds
-                    WHERE auction_id = $2
-                    AND round_num < $3
-                )
-                ORDER BY (
-                    SELECT round_num FROM auction_rounds
-                    WHERE id = round_id
-                ) DESC
-                LIMIT 1",
-                )
-                .bind(space.id)
-                .bind(auction.id)
-                .bind(previous_round.round_num)
-                .fetch_optional(&mut **tx)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to get previous winner for space {}",
-                        space.id
-                    )
-                })?
-                .flatten(); // Handle Option<Option<UserId>>
-
-            let new_value = prev_value.unwrap_or(rust_decimal::Decimal::ZERO);
-
-            (new_value, prev_winner)
+            match prev_result {
+                // No new bids, keep the same value and winner
+                Some(result) => (result.value, result.winning_user_id),
+                // No previous winner, skip creating a round_space_result entry
+                // entirely (no activity yet)
+                None => continue,
+            }
         };
 
         // Create space round entry
@@ -1097,7 +1068,7 @@ async fn process_user_proxy_bidding(
     // Count the number of spaces the user is already the high bidder for
     let num_spaces_already_winning = prev_round_space_results
         .iter()
-        .filter(|rsr| rsr.winning_user_id == Some(settings.user_id))
+        .filter(|rsr| rsr.winning_user_id == settings.user_id)
         .count();
 
     // Calculate surpluses for spaces where user has set values

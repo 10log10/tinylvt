@@ -129,8 +129,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
 
     // Verify Alice wins space A for a price of 0 (no competition)
     assert_eq!(
-        space_a_result.winning_username.as_deref(),
-        Some("alice"),
+        space_a_result.winning_username, "alice",
         "Alice should win space A"
     );
     assert_eq!(
@@ -143,8 +142,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
     // max value + bid increment (The exact price depends on random winner
     // selection in rounds with multiple bids)
     assert_eq!(
-        space_b_result.winning_username.as_deref(),
-        Some("bob"),
+        space_b_result.winning_username, "bob",
         "Bob should win space B"
     );
 
@@ -441,9 +439,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
 
     // First pass: count spaces won by each bidder
     for result in &round_results {
-        if let Some(winner) = &result.winning_username {
-            *spaces_won.entry(winner).or_insert(0) += 1;
-        }
+        *spaces_won.entry(&result.winning_username).or_insert(0) += 1;
     }
 
     // Second pass: print results and check max_items constraints
@@ -455,31 +451,28 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
             _ => "Unknown",
         };
 
-        if let Some(winner) = &result.winning_username {
-            println!(
-                "Space {}: Winner = {}, Price = {}",
-                space_name, winner, result.value
-            );
+        let winner = &result.winning_username;
+        println!(
+            "Space {}: Winner = {}, Price = {}",
+            space_name, winner, result.value
+        );
 
-            // Check max_items constraint
-            let max_items = match winner.as_str() {
-                "alice" => 2,   // Alice's max_items
-                "bob" => 1,     // Bob's max_items
-                "charlie" => 1, // Charlie's max_items
-                _ => 0,
-            };
+        // Check max_items constraint
+        let max_items = match winner.as_str() {
+            "alice" => 2,   // Alice's max_items
+            "bob" => 1,     // Bob's max_items
+            "charlie" => 1, // Charlie's max_items
+            _ => 0,
+        };
 
-            let spaces = spaces_won.get(winner).copied().unwrap_or(0);
-            assert!(
-                spaces <= max_items,
-                "{} won {} spaces but max_items was set to {}",
-                winner,
-                spaces,
-                max_items
-            );
-        } else {
-            println!("Space {}: No winner", space_name);
-        }
+        let spaces = spaces_won.get(winner).copied().unwrap_or(0);
+        assert!(
+            spaces <= max_items,
+            "{} won {} spaces but max_items was set to {}",
+            winner,
+            spaces,
+            max_items
+        );
     }
 
     Ok(())

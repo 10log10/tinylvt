@@ -235,12 +235,14 @@ CREATE TABLE auction_rounds (
 
 -- The current winner (until the next round) of a space.
 --
--- Populated when a round concludes. `value` always exists, but winning_user
--- only exists if someone has big for the space.
+-- Populated when a round concludes. May not exist for a space that has no
+-- bidding activity. Once someone bids for a space, results exist for that
+-- space through to the end of the auction, since spaces can only be
+-- relinquished when outbid.
 CREATE TABLE round_space_results (
     space_id UUID NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
     round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
-    winning_user_id UUID REFERENCES users (id),
+    winning_user_id UUID REFERENCES users (id) NOT NULL,
     -- space value at the conclusion of this round
     value NUMERIC(20, 6) NOT NULL,
     PRIMARY KEY (space_id, round_id)

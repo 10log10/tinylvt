@@ -41,10 +41,10 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
     let filter_no_value = use_state(|| true);
 
     // Create price and winner lookup
-    let price_map: HashMap<SpaceId, (Decimal, Option<String>)> = props
+    let price_map: HashMap<SpaceId, RoundSpaceResult> = props
         .prices
         .iter()
-        .map(|r| (r.space_id, (r.value, r.winning_username.clone())))
+        .map(|r| (r.space_id, r.clone()))
         .collect();
 
     // Prepare space data
@@ -53,14 +53,15 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         .iter()
         .map(|space| {
             let space_id = space.space_id;
-            let (price, winning_username) = price_map
-                .get(&space_id)
-                .cloned()
-                .unwrap_or((Decimal::ZERO, None));
+            let result = price_map.get(&space_id);
+            let price_opt = result.map(|r| r.value);
+            let winning_username = result.map(|r| r.winning_username.clone());
             let user_value = props.user_values.get(&space_id).copied();
-            let surplus = user_value.map(|v| v - price);
+            // Calculate surplus using price of 0 if no previous price exists
+            let surplus =
+                user_value.map(|v| v - price_opt.unwrap_or(Decimal::ZERO));
 
-            (space, price, user_value, surplus, winning_username)
+            (space, price_opt, user_value, surplus, winning_username)
         })
         .collect();
 
@@ -73,13 +74,18 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         }
     });
 
-    // Sort (None values sort last for UserValue and Surplus)
+    // Sort (None values sort last for Price, UserValue and Surplus)
     space_data.sort_by(|a, b| {
         let comparison = match *sort_field {
             SortField::Name => {
                 a.0.space_details.name.cmp(&b.0.space_details.name)
             }
-            SortField::Price => a.1.cmp(&b.1),
+            SortField::Price => match (&a.1, &b.1) {
+                (Some(av), Some(bv)) => av.cmp(bv),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
             SortField::UserValue => match (&a.2, &b.2) {
                 (Some(av), Some(bv)) => av.cmp(bv),
                 (Some(_), None) => std::cmp::Ordering::Less,
@@ -288,7 +294,7 @@ fn SortButton(props: &SortButtonProps) -> Html {
 #[derive(Properties, PartialEq)]
 struct SpaceRowProps {
     space: responses::Space,
-    price: Decimal,
+    price: Option<Decimal>,
     bid_increment: Decimal,
     user_value: Option<Decimal>,
     surplus: Option<Decimal>,
@@ -309,8 +315,11 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
     let is_editing = use_state(|| false);
     let input_value = use_state(String::new);
 
-    // Calculate the bid price (current price + bid increment)
-    let bid_price = props.price + props.bid_increment;
+    // Calculate the bid price (current price + bid increment, or 0 for first bid)
+    let bid_price = match props.price {
+        Some(price) => price + props.bid_increment,
+        None => Decimal::ZERO,
+    };
 
     let on_bid_click = {
         let on_bid = props.on_bid.clone();
@@ -422,7 +431,10 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     </div>
                     <div class="text-sm font-medium text-neutral-900 \
                                 dark:text-white">
-                        {format!("${:.2}", props.price)}
+                        {match props.price {
+                            Some(price) => format!("${:.2}", price),
+                            None => "--".to_string(),
+                        }}
                     </div>
                 </div>
 

@@ -340,7 +340,7 @@ impl AuctionRound {
 pub struct RoundSpaceResult {
     pub space_id: SpaceId,
     pub round_id: AuctionRoundId,
-    pub winning_user_id: Option<UserId>,
+    pub winning_user_id: UserId,
     pub value: rust_decimal::Decimal,
 }
 

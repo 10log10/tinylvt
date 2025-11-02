@@ -207,62 +207,6 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_round_space_result_creation() -> anyhow::Result<()> {
-    let app = spawn_app().await;
-    let community_id = app.create_two_person_community().await?;
-    let site = app.create_test_site(&community_id).await?;
-
-    // Create a space in the site
-    let space = app.create_test_space(&site.site_id).await?;
-
-    // Create an auction that starts now
-    let start_time = app.time_source.now();
-    let mut auction_details =
-        test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
-    let auction_id = app.client.create_auction(&auction_details).await?;
-
-    // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
-    let rounds = app.client.list_auction_rounds(&auction_id).await?;
-    assert_eq!(rounds.len(), 1);
-    let round = &rounds[0];
-
-    let round_space_results = app
-        .client
-        .list_round_space_results_for_round(&round.round_id)
-        .await?;
-    assert_eq!(round_space_results.len(), 0);
-
-    // Advance time past the round end
-    app.time_source
-        .set(round.round_details.end_at + Span::new().seconds(1));
-
-    // Update space rounds - this should create entries with zero values since there are no bids
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
-
-    // Check space round was created
-    let round_space_results = app
-        .client
-        .list_round_space_results_for_round(&round.round_id)
-        .await?;
-    assert_eq!(round_space_results.len(), 1);
-    let round_space_result = &round_space_results[0];
-
-    // Verify space round properties
-    assert_eq!(round_space_result.space_id, space.space_id);
-    assert_eq!(round_space_result.round_id, round.round_id);
-    assert_eq!(round_space_result.winning_username, None);
-    assert_eq!(round_space_result.value, rust_decimal::Decimal::ZERO);
-
-    // Verify conclusion of the auction
-    let auction = app.client.get_auction(&auction_id).await?;
-    assert_eq!(auction.end_at, Some(round.round_details.end_at));
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_bid_crud() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
@@ -283,10 +227,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     let round = &rounds[0];
 
     // Initially no bids should exist
-    let bids = app
-        .client
-        .list_bids(&space.space_id, &round.round_id)
-        .await?;
+    let bids = app.client.list_bids(&round.round_id).await?;
     assert!(bids.is_empty());
 
     // Create a bid
@@ -300,10 +241,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     assert_eq!(bid.round_id, round.round_id);
 
     // Verify bid appears in list
-    let bids = app
-        .client
-        .list_bids(&space.space_id, &round.round_id)
-        .await?;
+    let bids = app.client.list_bids(&round.round_id).await?;
     assert_eq!(bids.len(), 1);
 
     assert_eq!(bids[0].space_id, space.space_id);
@@ -315,10 +253,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
         .await?;
 
     // Verify bid no longer exists
-    let bids = app
-        .client
-        .list_bids(&space.space_id, &round.round_id)
-        .await?;
+    let bids = app.client.list_bids(&round.round_id).await?;
     assert!(bids.is_empty());
 
     Ok(())
@@ -464,7 +399,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
         payloads::RoundSpaceResult {
             space_id: space.space_id,
             round_id: round.round_id,
-            winning_username: Some("bob".into()),
+            winning_username: "bob".into(),
             value: rust_decimal::Decimal::from(max_rounds),
         }
     );
@@ -551,8 +486,8 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .find(|r| r.space_id == space_b.space_id)
         .unwrap();
 
-    assert_eq!(space_a_result.winning_username.as_deref(), Some("alice"));
-    assert_eq!(space_b_result.winning_username.as_deref(), Some("bob"));
+    assert_eq!(space_a_result.winning_username, "alice");
+    assert_eq!(space_b_result.winning_username, "bob");
 
     // Alice cannot bid on space_a in round 1 since she's already winning it
     app.login_alice().await?;
@@ -623,7 +558,7 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     // Test get_eligibility for round 1
     let eligibility = app.client.get_eligibility(&round1.round_id).await?;
     assert!(
-        eligibility > 0.0,
+        eligibility.unwrap() > 0.0,
         "Expected non-zero eligibility for round 1"
     );
 
