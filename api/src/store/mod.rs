@@ -2450,7 +2450,7 @@ pub async fn list_bids(
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
     let bids = sqlx::query_as::<_, Bid>(
-        "SELECT * FROM bids WHERE round_id = $2 AND user_id = $3",
+        "SELECT * FROM bids WHERE round_id = $1 AND user_id = $2",
     )
     .bind(round_id)
     .bind(user_id)
