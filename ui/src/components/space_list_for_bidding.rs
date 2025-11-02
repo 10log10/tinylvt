@@ -32,6 +32,10 @@ pub struct Props {
     pub on_delete_value: Callback<SpaceId>,
     #[prop_or_default]
     pub auction_ended: bool,
+    #[prop_or_default]
+    pub auction_started: bool,
+    #[prop_or_default]
+    pub user_eligibility: Option<f64>,
 }
 
 #[function_component]
@@ -46,6 +50,27 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         .iter()
         .map(|r| (r.space_id, r.clone()))
         .collect();
+
+    // Calculate current activity: sum of points for spaces where user is
+    // high bidder or has placed a bid in this round
+    let current_activity: f64 = props
+        .spaces
+        .iter()
+        .filter(|space| {
+            let is_high_bidder = props
+                .current_username
+                .as_ref()
+                .and_then(|username| {
+                    price_map
+                        .get(&space.space_id)
+                        .map(|r| &r.winning_username == username)
+                })
+                .unwrap_or(false);
+            let has_bid = props.user_bid_space_ids.contains(&space.space_id);
+            is_high_bidder || has_bid
+        })
+        .map(|space| space.space_details.eligibility_points)
+        .sum();
 
     // Prepare space data
     let mut space_data: Vec<_> = props
@@ -213,6 +238,20 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 winning_username.as_ref().map(|winner| winner == username)
                             })
                             .unwrap_or(false);
+
+                        // Check if bidding on this space would exceed eligibility
+                        let would_exceed_eligibility = if let Some(eligibility) = props.user_eligibility {
+                            // If user doesn't have a bid on this space yet, check if adding it would exceed
+                            if !user_has_bid && !is_high_bidder {
+                                let new_activity = current_activity + space.space_details.eligibility_points;
+                                new_activity > eligibility
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
                         html! {
                             <SpaceRow
                                 key={space.space_id.0.to_string()}
@@ -229,7 +268,9 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 on_update_value={props.on_update_value.clone()}
                                 on_delete_value={props.on_delete_value.clone()}
                                 auction_ended={props.auction_ended}
+                                auction_started={props.auction_started}
                                 winning_username={winning_username.clone()}
+                                would_exceed_eligibility={would_exceed_eligibility}
                             />
                         }
                     }).collect::<Html>()
@@ -306,7 +347,9 @@ struct SpaceRowProps {
     on_update_value: Callback<(SpaceId, Decimal)>,
     on_delete_value: Callback<SpaceId>,
     auction_ended: bool,
+    auction_started: bool,
     winning_username: Option<String>,
+    would_exceed_eligibility: bool,
 }
 
 #[function_component]
@@ -563,6 +606,17 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                          dark:text-neutral-400 font-medium \
                                          text-right">
                                 {format!("Already bid at ${:.2}", bid_price)}
+                            </span>
+                        }
+                    } else if !props.auction_started {
+                        // Auction hasn't started yet - no bidding allowed
+                        html! {}
+                    } else if props.would_exceed_eligibility {
+                        // Cannot bid because it would exceed eligibility
+                        html! {
+                            <span class="text-xs text-neutral-600 \
+                                         dark:text-neutral-400 text-right">
+                                {"Insufficient eligibility"}
                             </span>
                         }
                     } else if !props.proxy_bidding_enabled {

@@ -586,6 +586,8 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 on_update_value={on_update_value}
                 on_delete_value={on_delete_value}
                 auction_ended={props.auction.end_at.is_some()}
+                auction_started={true}
+                user_eligibility={eligibility}
             />
         </div>
     }
