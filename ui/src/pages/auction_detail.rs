@@ -94,12 +94,21 @@ struct AuctionContentProps {
 fn AuctionContent(props: &AuctionContentProps) -> Html {
     let auction_id = props.auction.auction_id;
     let site_id = props.auction.auction_details.site_id;
+    let (state, _) = use_store::<State>();
 
     // Fetch all the data we need
     let current_round_hook = use_current_round(auction_id);
     let proxy_bidding_hook = use_proxy_bidding_settings(auction_id);
     let spaces_hook = use_spaces(site_id);
     let user_values_hook = use_user_space_values(site_id);
+
+    // Get current user's username
+    let current_username = match &state.auth_state {
+        crate::state::AuthState::LoggedIn(profile) => {
+            Some(profile.username.clone())
+        }
+        _ => None,
+    };
 
     // Set up exponential backoff refetch for round transitions
     // We need to refetch both the round AND the auction (for end_at)
@@ -234,6 +243,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
             auction={props.auction.clone()}
             site_timezone={props.site_timezone.clone()}
             current_round={current_round.clone()}
+            current_username={current_username}
             spaces={spaces}
             user_values={user_values}
             proxy_bidding_enabled={proxy_bidding_enabled}
@@ -253,6 +263,7 @@ struct AuctionRoundContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
     current_round: payloads::responses::AuctionRound,
+    current_username: Option<String>,
     spaces: Option<Vec<payloads::responses::Space>>,
     user_values: Option<std::collections::HashMap<SpaceId, Decimal>>,
     proxy_bidding_enabled: bool,
@@ -380,6 +391,46 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
         })
     };
 
+    // Callback for deleting a bid
+    let on_delete_bid = {
+        let round_id = props.current_round.round_id;
+        let round_prices_refetch = round_prices_hook.refetch.clone();
+        let eligibility_refetch = eligibility_hook.refetch.clone();
+        let rounds_refetch = rounds_hook.refetch.clone();
+        let user_bids_refetch = user_bids_hook.refetch.clone();
+
+        Callback::from(move |space_id: SpaceId| {
+            let round_id = round_id;
+            let round_prices_refetch = round_prices_refetch.clone();
+            let eligibility_refetch = eligibility_refetch.clone();
+            let rounds_refetch = rounds_refetch.clone();
+            let user_bids_refetch = user_bids_refetch.clone();
+
+            yew::platform::spawn_local(async move {
+                let api_client = crate::get_api_client();
+                match api_client.delete_bid(&space_id, &round_id).await {
+                    Ok(_) => {
+                        // Refresh the data to show the bid removal
+                        round_prices_refetch.emit(());
+                        eligibility_refetch.emit(());
+                        rounds_refetch.emit(());
+                        user_bids_refetch.emit(());
+                        tracing::info!(
+                            "Successfully removed bid on {:?}",
+                            space_id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to remove bid: {}", e);
+                        web_sys::console::error_1(
+                            &format!("Failed to remove bid: {}", e).into(),
+                        );
+                    }
+                }
+            });
+        })
+    };
+
     // Callback for updating user values
     let on_update_value = props.update_value.clone();
     let on_delete_value = props.delete_value.clone();
@@ -438,11 +489,14 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 user_values={user_values}
                 proxy_bidding_enabled={props.proxy_bidding_enabled}
                 user_bid_space_ids={user_bid_space_ids}
+                current_username={props.current_username.clone()}
+                bid_increment={props.auction.auction_details.auction_params.bid_increment}
                 current_eligibility={eligibility}
                 eligibility_threshold={
                     props.current_round.round_details.eligibility_threshold
                 }
                 on_bid={on_bid}
+                on_delete_bid={on_delete_bid}
                 on_update_value={on_update_value}
                 on_delete_value={on_delete_value}
                 auction_ended={props.auction.end_at.is_some()}

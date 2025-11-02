@@ -24,9 +24,12 @@ pub struct Props {
     pub user_values: HashMap<SpaceId, Decimal>,
     pub proxy_bidding_enabled: bool,
     pub user_bid_space_ids: HashSet<SpaceId>,
+    pub current_username: Option<String>,
+    pub bid_increment: Decimal,
     pub current_eligibility: f64,
     pub eligibility_threshold: f64,
     pub on_bid: Callback<SpaceId>,
+    pub on_delete_bid: Callback<SpaceId>,
     pub on_update_value: Callback<(SpaceId, Decimal)>,
     pub on_delete_value: Callback<SpaceId>,
     #[prop_or_default]
@@ -225,16 +228,24 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                 } else {
                     space_data.iter().map(|(space, price, user_value, surplus, winning_username)| {
                         let user_has_bid = props.user_bid_space_ids.contains(&space.space_id);
+                        let is_high_bidder = props.current_username.as_ref()
+                            .and_then(|username| {
+                                winning_username.as_ref().map(|winner| winner == username)
+                            })
+                            .unwrap_or(false);
                         html! {
                             <SpaceRow
                                 key={space.space_id.0.to_string()}
                                 space={(*space).clone()}
                                 price={*price}
+                                bid_increment={props.bid_increment}
                                 user_value={*user_value}
                                 surplus={*surplus}
                                 proxy_bidding_enabled={props.proxy_bidding_enabled}
                                 user_has_bid={user_has_bid}
+                                is_high_bidder={is_high_bidder}
                                 on_bid={props.on_bid.clone()}
+                                on_delete_bid={props.on_delete_bid.clone()}
                                 on_update_value={props.on_update_value.clone()}
                                 on_delete_value={props.on_delete_value.clone()}
                                 auction_ended={props.auction_ended}
@@ -304,11 +315,14 @@ fn SortButton(props: &SortButtonProps) -> Html {
 struct SpaceRowProps {
     space: responses::Space,
     price: Decimal,
+    bid_increment: Decimal,
     user_value: Option<Decimal>,
     surplus: Option<Decimal>,
     proxy_bidding_enabled: bool,
     user_has_bid: bool,
+    is_high_bidder: bool,
     on_bid: Callback<SpaceId>,
+    on_delete_bid: Callback<SpaceId>,
     on_update_value: Callback<(SpaceId, Decimal)>,
     on_delete_value: Callback<SpaceId>,
     auction_ended: bool,
@@ -320,6 +334,9 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
     let space_id = props.space.space_id;
     let is_editing = use_state(|| false);
     let input_value = use_state(String::new);
+
+    // Calculate the bid price (current price + bid increment)
+    let bid_price = props.price + props.bid_increment;
 
     let on_bid_click = {
         let on_bid = props.on_bid.clone();
@@ -522,11 +539,42 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 </span>
                             }
                         }
-                    } else if props.user_has_bid {
+                    } else if props.is_high_bidder {
+                        // User is currently the high bidder from previous round
                         html! {
                             <span class="text-xs text-neutral-600 \
                                          dark:text-neutral-400 font-medium">
-                                {"Already bid"}
+                                {"High bidder"}
+                            </span>
+                        }
+                    } else if props.user_has_bid && !props.proxy_bidding_enabled {
+                        // When user has bid and proxy bidding is off,
+                        // show button to remove bid
+                        let on_delete_bid_click = {
+                            let on_delete_bid = props.on_delete_bid.clone();
+                            Callback::from(move |_| {
+                                on_delete_bid.emit(space_id);
+                            })
+                        };
+                        html! {
+                            <button
+                                onclick={on_delete_bid_click}
+                                class="bg-neutral-900 hover:bg-neutral-800 \
+                                       dark:bg-neutral-100 \
+                                       dark:text-neutral-900 \
+                                       dark:hover:bg-neutral-200 text-white \
+                                       px-4 py-2 rounded-md text-sm \
+                                       font-medium transition-colors"
+                            >
+                                {format!("Remove bid at ${:.2}", bid_price)}
+                            </button>
+                        }
+                    } else if props.user_has_bid {
+                        // When proxy bidding is on and user has bid
+                        html! {
+                            <span class="text-xs text-neutral-600 \
+                                         dark:text-neutral-400 font-medium">
+                                {format!("Already bid at ${:.2}", bid_price)}
                             </span>
                         }
                     } else if !props.proxy_bidding_enabled {
@@ -540,7 +588,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                        px-4 py-2 rounded-md text-sm \
                                        font-medium transition-colors"
                             >
-                                {"Bid"}
+                                {format!("Bid at ${:.2}", bid_price)}
                             </button>
                         }
                     } else {
