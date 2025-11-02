@@ -21,13 +21,20 @@ pub fn CountdownTimer(props: &Props) -> Html {
         let on_complete = props.on_complete.clone();
 
         use_effect_with((), move |_| {
+            let callback_called = std::cell::Cell::new(false);
+
             let interval = Interval::new(1000, move || {
                 let remaining = calculate_time_remaining(target_time);
 
-                if remaining.is_past
-                    && let Some(callback) = &on_complete
-                {
-                    callback.emit(());
+                if remaining.is_past && !callback_called.get() {
+                    if let Some(callback) = &on_complete {
+                        tracing::info!(
+                            "CountdownTimer: countdown reached zero, \
+                             triggering on_complete callback"
+                        );
+                        callback.emit(());
+                        callback_called.set(true);
+                    }
                 }
 
                 time_remaining.set(remaining);

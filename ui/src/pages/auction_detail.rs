@@ -12,8 +12,8 @@ use crate::{
     },
     hooks::{
         use_auction_detail, use_auction_rounds, use_current_round,
-        use_proxy_bidding_settings, use_round_prices, use_spaces,
-        use_user_bids, use_user_eligibility, use_user_space_values,
+        use_exponential_refetch, use_proxy_bidding_settings, use_round_prices,
+        use_spaces, use_user_bids, use_user_eligibility, use_user_space_values,
     },
 };
 
@@ -99,6 +99,39 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     let spaces_hook = use_spaces(site_id);
     let user_values_hook = use_user_space_values(site_id);
 
+    // Set up exponential backoff refetch for round transitions
+    let (start_transition_refetch, cancel_transition_refetch, transition_error) =
+        use_exponential_refetch(current_round_hook.refetch.clone(), 1000, 16000);
+
+    // Cancel refetch when round data changes (successful refetch)
+    {
+        let cancel_refetch = cancel_transition_refetch.clone();
+        let current_round = current_round_hook.current_round.clone();
+
+        use_effect_with(current_round, move |_| {
+            // When round changes, cancel any pending refetch timeouts
+            cancel_refetch.emit(());
+            || ()
+        });
+    }
+
+    // Cancel refetch when auction ends
+    {
+        let cancel_refetch = cancel_transition_refetch.clone();
+        let auction_end_at = props.auction.end_at;
+
+        use_effect_with(auction_end_at, move |_| {
+            // When auction ends, cancel any pending refetch timeouts
+            if auction_end_at.is_some() {
+                tracing::info!(
+                    "Auction has ended, canceling transition refetch"
+                );
+                cancel_refetch.emit(());
+            }
+            || ()
+        });
+    }
+
     // Show loading state only for initial load (when data is None)
     // During refetches, keep the UI rendered and let data update smoothly
     if current_round_hook.current_round.is_none()
@@ -121,6 +154,8 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     // - Some(None): fetched, but no rounds exist
     // - Some(Some(round)): fetched with a round
     let Some(Some(current_round)) = &current_round_hook.current_round else {
+        let on_auction_start = start_transition_refetch.clone();
+
         return html! {
             <div class="space-y-6">
                 <AuctionToplineInfo
@@ -141,8 +176,24 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                                     dark:text-white">
                             <CountdownTimer
                                 target_time={props.auction.auction_details.start_at}
+                                on_complete={Some(on_auction_start)}
                             />
                         </div>
+                        {if let Some(error) = transition_error {
+                            html! {
+                                <div class="mt-4 p-3 bg-red-50 \
+                                            dark:bg-red-900/20 rounded-md \
+                                            border border-red-200 \
+                                            dark:border-red-800">
+                                    <p class="text-sm text-red-700 \
+                                              dark:text-red-400">
+                                        {error}
+                                    </p>
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </div>
                 </div>
             </div>
@@ -179,6 +230,8 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
             delete_value={delete_value}
             proxy_update={proxy_update}
             proxy_delete={proxy_delete}
+            on_round_end={start_transition_refetch}
+            transition_error={transition_error}
         />
     }
 }
@@ -196,6 +249,8 @@ struct AuctionRoundContentProps {
     delete_value: Callback<SpaceId>,
     proxy_update: Callback<i32>,
     proxy_delete: Callback<()>,
+    on_round_end: Callback<()>,
+    transition_error: Option<String>,
 }
 
 #[function_component]
@@ -329,7 +384,23 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             <RoundIndicator
                 round_num={props.current_round.round_details.round_num}
                 round_end_at={props.current_round.round_details.end_at}
+                auction_end_at={props.auction.end_at}
+                on_round_end={Some(props.on_round_end.clone())}
             />
+
+            // Show error if round transition failed
+            {if let Some(error) = &props.transition_error {
+                html! {
+                    <div class="p-4 bg-red-50 dark:bg-red-900/20 rounded-md \
+                                border border-red-200 dark:border-red-800">
+                        <p class="text-sm text-red-700 dark:text-red-400">
+                            {error}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
 
             // User eligibility
             <UserEligibilityDisplay
