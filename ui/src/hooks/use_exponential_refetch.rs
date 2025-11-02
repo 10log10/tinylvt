@@ -22,9 +22,13 @@ pub fn use_exponential_refetch(
         let error = error.clone();
 
         use_callback((), move |_, _| {
-            tracing::info!("Exponential refetch: canceling pending timeouts");
-            timeout_handle.set(None); // Drop the timeout, canceling it
-            error.set(None);
+            if timeout_handle.is_some() {
+                tracing::info!(
+                    "Exponential refetch: canceling pending timeouts"
+                );
+                timeout_handle.set(None); // Drop the timeout, canceling it
+                error.set(None);
+            }
         })
     };
 
