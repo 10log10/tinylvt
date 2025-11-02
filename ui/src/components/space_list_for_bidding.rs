@@ -29,6 +29,8 @@ pub struct Props {
     pub on_bid: Callback<SpaceId>,
     pub on_update_value: Callback<(SpaceId, Decimal)>,
     pub on_delete_value: Callback<SpaceId>,
+    #[prop_or_default]
+    pub auction_ended: bool,
 }
 
 #[function_component]
@@ -37,9 +39,12 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
     let sort_direction = use_state(|| SortDirection::Ascending);
     let filter_no_value = use_state(|| true);
 
-    // Create price lookup
-    let price_map: HashMap<SpaceId, Decimal> =
-        props.prices.iter().map(|r| (r.space_id, r.value)).collect();
+    // Create price and winner lookup
+    let price_map: HashMap<SpaceId, (Decimal, Option<String>)> = props
+        .prices
+        .iter()
+        .map(|r| (r.space_id, (r.value, r.winning_username.clone())))
+        .collect();
 
     // Prepare space data
     let mut space_data: Vec<_> = props
@@ -47,17 +52,19 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         .iter()
         .map(|space| {
             let space_id = space.space_id;
-            let price =
-                price_map.get(&space_id).copied().unwrap_or(Decimal::ZERO);
+            let (price, winning_username) = price_map
+                .get(&space_id)
+                .cloned()
+                .unwrap_or((Decimal::ZERO, None));
             let user_value = props.user_values.get(&space_id).copied();
             let surplus = user_value.map(|v| v - price);
 
-            (space, price, user_value, surplus)
+            (space, price, user_value, surplus, winning_username)
         })
         .collect();
 
     // Apply filters
-    space_data.retain(|(_, _, user_value, _)| {
+    space_data.retain(|(_, _, user_value, _, _)| {
         if *filter_no_value {
             user_value.is_some()
         } else {
@@ -216,7 +223,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                         </div>
                     }
                 } else {
-                    space_data.iter().map(|(space, price, user_value, surplus)| {
+                    space_data.iter().map(|(space, price, user_value, surplus, winning_username)| {
                         let user_has_bid = props.user_bid_space_ids.contains(&space.space_id);
                         html! {
                             <SpaceRow
@@ -230,6 +237,8 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 on_bid={props.on_bid.clone()}
                                 on_update_value={props.on_update_value.clone()}
                                 on_delete_value={props.on_delete_value.clone()}
+                                auction_ended={props.auction_ended}
+                                winning_username={winning_username.clone()}
                             />
                         }
                     }).collect::<Html>()
@@ -302,6 +311,8 @@ struct SpaceRowProps {
     on_bid: Callback<SpaceId>,
     on_update_value: Callback<(SpaceId, Decimal)>,
     on_delete_value: Callback<SpaceId>,
+    auction_ended: bool,
+    winning_username: Option<String>,
 }
 
 #[function_component]
@@ -488,7 +499,30 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                 </div>
 
                 <div class="flex justify-end">
-                    {if props.user_has_bid {
+                    {if props.auction_ended {
+                        // Show winner when auction has concluded
+                        if let Some(username) = &props.winning_username {
+                            html! {
+                                <div class="text-right">
+                                    <div class="text-xs text-neutral-500 \
+                                                dark:text-neutral-400">
+                                        {"Winner"}
+                                    </div>
+                                    <div class="text-sm font-medium \
+                                                text-neutral-900 dark:text-white">
+                                        {username}
+                                    </div>
+                                </div>
+                            }
+                        } else {
+                            html! {
+                                <span class="text-xs text-neutral-500 \
+                                             dark:text-neutral-400">
+                                    {"No winner"}
+                                </span>
+                            }
+                        }
+                    } else if props.user_has_bid {
                         html! {
                             <span class="text-xs text-neutral-600 \
                                          dark:text-neutral-400 font-medium">
