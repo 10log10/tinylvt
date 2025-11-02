@@ -76,8 +76,12 @@ pub fn use_round_prices(
 
     let current_prices = (*prices).clone();
     let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_prices.is_none() && current_error.is_none());
+    // If round_id is None, we're not loading - just return empty results
+    let current_is_loading = if round_id.is_none() {
+        false
+    } else {
+        *is_loading || (current_prices.is_none() && current_error.is_none())
+    };
 
     RoundPricesHookReturn {
         prices: current_prices,

@@ -370,7 +370,7 @@ pub async fn get_eligibility(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<f64, StoreError> {
+) -> Result<Option<f64>, StoreError> {
     // Verify the round exists and get auction info
     let round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
@@ -401,8 +401,7 @@ pub async fn get_eligibility(
     .bind(round_id)
     .bind(user_id)
     .fetch_optional(pool)
-    .await?
-    .unwrap_or(0.0); // Return 0 if no eligibility record exists
+    .await?;
 
     Ok(eligibility)
 }
@@ -412,7 +411,7 @@ pub async fn list_eligibility(
     auction_id: &AuctionId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<f64>, StoreError> {
+) -> Result<Vec<Option<f64>>, StoreError> {
     // Validate user has access to this auction's community
     let auction =
         sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
@@ -443,8 +442,7 @@ pub async fn list_eligibility(
         .bind(round.id)
         .bind(user_id)
         .fetch_optional(pool)
-        .await?
-        .unwrap_or(0.0); // Return 0 if no eligibility record exists
+        .await?;
 
         eligibilities.push(eligibility);
     }

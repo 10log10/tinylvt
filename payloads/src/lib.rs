@@ -988,7 +988,7 @@ impl APIClient {
     pub async fn get_eligibility(
         &self,
         round_id: &AuctionRoundId,
-    ) -> Result<f64, ClientError> {
+    ) -> Result<Option<f64>, ClientError> {
         let response = self.post("get_eligibility", &round_id).await?;
         ok_body(response).await
     }
@@ -996,7 +996,7 @@ impl APIClient {
     pub async fn list_eligibility(
         &self,
         auction_id: &AuctionId,
-    ) -> Result<Vec<f64>, ClientError> {
+    ) -> Result<Vec<Option<f64>>, ClientError> {
         let response = self.post("list_eligibility", &auction_id).await?;
         ok_body(response).await
     }

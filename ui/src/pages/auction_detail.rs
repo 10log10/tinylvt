@@ -166,13 +166,48 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         };
     }
 
-    // Handle case where auction hasn't started yet
+    // Handle case where auction hasn't started yet (no rounds exist)
     // current_round is Option<Option<AuctionRound>>:
     // - None: still loading (handled above)
     // - Some(None): fetched, but no rounds exist
     // - Some(Some(round)): fetched with a round
     let Some(Some(current_round)) = &current_round_hook.current_round else {
-        let on_auction_start = start_transition_refetch.clone();
+        // No rounds exist yet - show countdown with proxy bidding and space list
+        let spaces = spaces_hook.spaces.clone().unwrap_or_default();
+        let user_values = user_values_hook.values.clone().unwrap_or_default();
+        let proxy_bidding_enabled =
+            proxy_bidding_hook.settings.clone().flatten().is_some();
+        let proxy_max_items = proxy_bidding_hook
+            .settings
+            .clone()
+            .flatten()
+            .map(|s| s.max_items)
+            .unwrap_or(1);
+
+        // Callbacks for proxy bidding controls
+        let on_proxy_toggle = {
+            let proxy_update = proxy_bidding_hook.update.clone();
+            let proxy_delete = proxy_bidding_hook.delete.clone();
+            let max_items = proxy_max_items;
+            Callback::from(move |enabled: bool| {
+                if enabled {
+                    proxy_update.emit(max_items);
+                } else {
+                    proxy_delete.emit(());
+                }
+            })
+        };
+
+        let on_proxy_update = {
+            let proxy_update = proxy_bidding_hook.update.clone();
+            Callback::from(move |new_max_items: i32| {
+                proxy_update.emit(new_max_items);
+            })
+        };
+
+        // Bidding callbacks (no-ops before auction starts)
+        let on_bid = Callback::from(|_: SpaceId| {});
+        let on_delete_bid = Callback::from(|_: SpaceId| {});
 
         return html! {
             <div class="space-y-6">
@@ -194,10 +229,10 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                                     dark:text-white">
                             <CountdownTimer
                                 target_time={props.auction.auction_details.start_at}
-                                on_complete={Some(on_auction_start)}
+                                on_complete={Some(start_transition_refetch.clone())}
                             />
                         </div>
-                        {if let Some(error) = transition_error {
+                        {if let Some(error) = &transition_error {
                             html! {
                                 <div class="mt-4 p-3 bg-red-50 \
                                             dark:bg-red-900/20 rounded-md \
@@ -214,6 +249,31 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         }}
                     </div>
                 </div>
+
+                // Proxy bidding controls
+                <ProxyBiddingControls
+                    is_enabled={proxy_bidding_enabled}
+                    max_items={proxy_max_items}
+                    on_toggle={on_proxy_toggle}
+                    on_update={on_proxy_update}
+                    is_loading={false}
+                />
+
+                // Space list for setting values (bidding disabled)
+                <SpaceListForBidding
+                    spaces={spaces}
+                    prices={vec![]}
+                    user_values={user_values}
+                    proxy_bidding_enabled={proxy_bidding_enabled}
+                    user_bid_space_ids={std::collections::HashSet::new()}
+                    current_username={Option::<String>::None}
+                    bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                    on_bid={on_bid}
+                    on_delete_bid={on_delete_bid}
+                    on_update_value={user_values_hook.update_value.clone()}
+                    on_delete_value={user_values_hook.delete_value.clone()}
+                    auction_ended={false}
+                />
             </div>
         };
     };
@@ -335,7 +395,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
     let user_values = props.user_values.clone().unwrap_or_default();
     let spaces = props.spaces.clone().unwrap_or_default();
-    let eligibility = eligibility_hook.eligibility.unwrap_or(0.0);
+    let eligibility = eligibility_hook.eligibility;
     let user_bid_space_ids = user_bids_hook.bid_space_ids.unwrap_or_default();
 
     // Calculate current activity: sum of points for spaces where user is
@@ -501,7 +561,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 eligibility_threshold={
                     props.current_round.round_details.eligibility_threshold
                 }
-                current_activity={current_activity}
+                current_activity={Some(current_activity)}
             />
 
             // Proxy bidding controls
@@ -522,10 +582,6 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 user_bid_space_ids={user_bid_space_ids}
                 current_username={props.current_username.clone()}
                 bid_increment={props.auction.auction_details.auction_params.bid_increment}
-                current_eligibility={eligibility}
-                eligibility_threshold={
-                    props.current_round.round_details.eligibility_threshold
-                }
                 on_bid={on_bid}
                 on_delete_bid={on_delete_bid}
                 on_update_value={on_update_value}

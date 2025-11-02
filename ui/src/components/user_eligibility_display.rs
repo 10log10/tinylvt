@@ -2,27 +2,35 @@ use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub eligibility_points: f64,
+    pub eligibility_points: Option<f64>,
     pub eligibility_threshold: f64,
-    pub current_activity: f64,
+    pub current_activity: Option<f64>,
 }
 
 #[function_component]
 pub fn UserEligibilityDisplay(props: &Props) -> Html {
     let show_explanation = use_state(|| false);
 
-    // Minimum activity required to maintain current eligibility
-    let min_required_activity =
-        props.eligibility_points * props.eligibility_threshold;
+    // Calculate values only if eligibility_points is available
+    let min_required_activity = props
+        .eligibility_points
+        .map(|ep| ep * props.eligibility_threshold);
 
-    // Calculate next round eligibility: min(current, activity / threshold)
-    let calculated_next_eligibility = if props.eligibility_threshold > 0.0 {
-        props.current_activity / props.eligibility_threshold
-    } else {
-        0.0
-    };
-    let next_round_eligibility =
-        calculated_next_eligibility.min(props.eligibility_points);
+    // Calculate next round eligibility
+    // - If we have prior eligibility: min(current, activity / threshold)
+    // - If no prior eligibility (round 0): just activity / threshold
+    let next_round_eligibility = props.current_activity.map(|ca| {
+        let calculated = if props.eligibility_threshold > 0.0 {
+            ca / props.eligibility_threshold
+        } else {
+            0.0
+        };
+        // Only apply min() if we have prior eligibility
+        match props.eligibility_points {
+            Some(ep) => calculated.min(ep),
+            None => calculated,
+        }
+    });
 
     let toggle_explanation = {
         let show_explanation = show_explanation.clone();
@@ -48,7 +56,11 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {format!("{:.1}", props.eligibility_points)}
+                            {if let Some(ep) = props.eligibility_points {
+                                format!("{:.1}", ep)
+                            } else {
+                                "--".to_string()
+                            }}
                         </div>
                     </div>
 
@@ -70,7 +82,11 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {format!("{:.1}", min_required_activity)}
+                            {if let Some(mra) = min_required_activity {
+                                format!("{:.1}", mra)
+                            } else {
+                                "--".to_string()
+                            }}
                         </div>
                     </div>
                 </div>
@@ -81,15 +97,22 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"Current Activity"}
                         </div>
-                        <div class={format!(
-                            "text-2xl font-bold {}",
-                            if props.current_activity >= min_required_activity {
-                                "text-neutral-900 dark:text-white"
-                            } else {
-                                "text-neutral-500 dark:text-neutral-400"
+                        <div class={
+                            match (props.current_activity, min_required_activity) {
+                                (Some(ca), Some(mra)) if ca >= mra => {
+                                    "text-2xl font-bold text-neutral-900 dark:text-white"
+                                }
+                                (Some(_), Some(_)) => {
+                                    "text-2xl font-bold text-neutral-500 dark:text-neutral-400"
+                                }
+                                _ => "text-2xl font-bold text-neutral-900 dark:text-white"
                             }
-                        )}>
-                            {format!("{:.1}", props.current_activity)}
+                        }>
+                            {if let Some(ca) = props.current_activity {
+                                format!("{:.1}", ca)
+                            } else {
+                                "--".to_string()
+                            }}
                         </div>
                     </div>
 
@@ -103,7 +126,11 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {format!("{:.1}", next_round_eligibility)}
+                            {if let Some(nre) = next_round_eligibility {
+                                format!("{:.1}", nre)
+                            } else {
+                                "--".to_string()
+                            }}
                         </div>
                     </div>
                 </div>

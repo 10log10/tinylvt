@@ -26,8 +26,6 @@ pub struct Props {
     pub user_bid_space_ids: HashSet<SpaceId>,
     pub current_username: Option<String>,
     pub bid_increment: Decimal,
-    pub current_eligibility: f64,
-    pub eligibility_threshold: f64,
     pub on_bid: Callback<SpaceId>,
     pub on_delete_bid: Callback<SpaceId>,
     pub on_update_value: Callback<(SpaceId, Decimal)>,
@@ -127,10 +125,6 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         })
     };
 
-    // Calculate minimum points needed to maintain eligibility
-    let min_points_needed =
-        props.current_eligibility * props.eligibility_threshold;
-
     html! {
         <div class="space-y-4">
             <div class="flex items-center justify-between">
@@ -139,26 +133,6 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                     {"Spaces"}
                 </h3>
             </div>
-
-            // Eligibility requirement message
-            {if min_points_needed > 0.0 {
-                html! {
-                    <div class="p-3 bg-neutral-100 dark:bg-neutral-800 \
-                                rounded-md border border-neutral-200 \
-                                dark:border-neutral-700">
-                        <p class="text-sm text-neutral-700 dark:text-neutral-300">
-                            {"To maintain your current eligibility, bid on spaces \
-                             totaling "}
-                            <span class="font-semibold">
-                                {format!("{:.1}", min_points_needed)}
-                            </span>
-                            {" points or more."}
-                        </p>
-                    </div>
-                }
-            } else {
-                html! {}
-            }}
 
             // Filters and Sort
             <div class="flex gap-4 items-center flex-wrap">
@@ -543,7 +517,8 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         // User is currently the high bidder from previous round
                         html! {
                             <span class="text-xs text-neutral-600 \
-                                         dark:text-neutral-400 font-medium">
+                                         dark:text-neutral-400 font-medium \
+                                         text-right">
                                 {"High bidder"}
                             </span>
                         }
@@ -573,7 +548,8 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         // When proxy bidding is on and user has bid
                         html! {
                             <span class="text-xs text-neutral-600 \
-                                         dark:text-neutral-400 font-medium">
+                                         dark:text-neutral-400 font-medium \
+                                         text-right">
                                 {format!("Already bid at ${:.2}", bid_price)}
                             </span>
                         }

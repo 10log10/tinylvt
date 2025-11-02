@@ -296,8 +296,8 @@ async fn create_ongoing_auction_with_rounds(
     use payloads::{ActivityRuleParams, Auction, AuctionParams, Space};
 
     // Configuration: how many rounds to process and duration per round
-    let round_duration = Span::new().minutes(1);
-    let num_rounds_to_process = 3;
+    let round_duration = Span::new().seconds(30);
+    let num_rounds_to_process = -1;
 
     // Save the real current time
     let real_now = Timestamp::now();

@@ -23,6 +23,7 @@ pub struct UserEligibilityHookReturn {
 pub fn use_user_eligibility(
     round_id: AuctionRoundId,
 ) -> UserEligibilityHookReturn {
+    // Track as Option<Option<f64>> to distinguish "not fetched" from "fetched None"
     let eligibility = use_state(|| None);
     let error = use_state(|| None);
     let is_loading = use_state(|| false);
@@ -44,6 +45,7 @@ pub fn use_user_eligibility(
                 let api_client = get_api_client();
                 match api_client.get_eligibility(&round_id).await {
                     Ok(points) => {
+                        // API returns Option<f64>, wrap in Some to indicate we fetched
                         eligibility.set(Some(points));
                         error.set(None);
                     }
@@ -68,11 +70,12 @@ pub fn use_user_eligibility(
 
     let current_eligibility = *eligibility;
     let current_error = (*error).clone();
+    // If outer Option is None and there's no error, we haven't fetched yet
     let current_is_loading = *is_loading
         || (current_eligibility.is_none() && current_error.is_none());
 
     UserEligibilityHookReturn {
-        eligibility: current_eligibility,
+        eligibility: current_eligibility.flatten(),
         error: current_error,
         is_loading: current_is_loading,
         refetch: Callback::from(move |_| refetch.emit(round_id)),
