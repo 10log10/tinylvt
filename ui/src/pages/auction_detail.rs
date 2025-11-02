@@ -76,6 +76,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
                 <AuctionContent
                     auction={auction.clone()}
                     site_timezone={site_timezone}
+                    auction_refetch={auction_hook.refetch.clone()}
                 />
             </div>
         </div>
@@ -86,6 +87,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
 struct AuctionContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
+    auction_refetch: Callback<()>,
 }
 
 #[function_component]
@@ -100,8 +102,18 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     let user_values_hook = use_user_space_values(site_id);
 
     // Set up exponential backoff refetch for round transitions
+    // We need to refetch both the round AND the auction (for end_at)
+    let combined_refetch = {
+        let round_refetch = current_round_hook.refetch.clone();
+        let auction_refetch = props.auction_refetch.clone();
+        Callback::from(move |_| {
+            round_refetch.emit(());
+            auction_refetch.emit(());
+        })
+    };
+
     let (start_transition_refetch, cancel_transition_refetch, transition_error) =
-        use_exponential_refetch(current_round_hook.refetch.clone(), 1000, 16000);
+        use_exponential_refetch(combined_refetch, 1000, 16000);
 
     // Cancel refetch when round data changes (successful refetch)
     {

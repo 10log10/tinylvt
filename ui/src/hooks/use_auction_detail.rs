@@ -31,16 +31,13 @@ pub fn use_auction_detail(auction_id: AuctionId) -> AuctionDetailHookReturn {
         let dispatch = dispatch.clone();
         let auction = auction.clone();
         let error = error.clone();
-        let is_loading = is_loading.clone();
 
         use_callback(auction_id, move |auction_id, _| {
             let dispatch = dispatch.clone();
             let auction = auction.clone();
             let error = error.clone();
-            let is_loading = is_loading.clone();
 
             yew::platform::spawn_local(async move {
-                is_loading.set(true);
                 error.set(None);
 
                 let api_client = get_api_client();
@@ -58,8 +55,6 @@ pub fn use_auction_detail(auction_id: AuctionId) -> AuctionDetailHookReturn {
                         error.set(Some(e.to_string()));
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };
