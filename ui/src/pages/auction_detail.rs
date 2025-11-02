@@ -330,6 +330,28 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     let eligibility = eligibility_hook.eligibility.unwrap_or(0.0);
     let user_bid_space_ids = user_bids_hook.bid_space_ids.unwrap_or_default();
 
+    // Calculate current activity: sum of points for spaces where user is
+    // high bidder or has placed a bid in this round
+    let current_activity: f64 = spaces
+        .iter()
+        .filter(|space| {
+            let is_high_bidder = props
+                .current_username
+                .as_ref()
+                .and_then(|username| {
+                    prices
+                        .iter()
+                        .find(|p| p.space_id == space.space_id)
+                        .and_then(|p| p.winning_username.as_ref())
+                        .map(|winner| winner == username)
+                })
+                .unwrap_or(false);
+            let has_bid = user_bid_space_ids.contains(&space.space_id);
+            is_high_bidder || has_bid
+        })
+        .map(|space| space.space_details.eligibility_points)
+        .sum();
+
     // Callbacks for proxy bidding controls
     let on_proxy_toggle = {
         let update = props.proxy_update.clone();
@@ -471,6 +493,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 eligibility_threshold={
                     props.current_round.round_details.eligibility_threshold
                 }
+                current_activity={current_activity}
             />
 
             // Proxy bidding controls

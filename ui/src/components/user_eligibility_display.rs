@@ -4,11 +4,32 @@ use yew::prelude::*;
 pub struct Props {
     pub eligibility_points: f64,
     pub eligibility_threshold: f64,
+    pub current_activity: f64,
 }
 
 #[function_component]
 pub fn UserEligibilityDisplay(props: &Props) -> Html {
-    let is_eligible = props.eligibility_points >= props.eligibility_threshold;
+    let show_explanation = use_state(|| false);
+
+    // Minimum activity required to maintain current eligibility
+    let min_required_activity =
+        props.eligibility_points * props.eligibility_threshold;
+
+    // Calculate next round eligibility: min(current, activity / threshold)
+    let calculated_next_eligibility = if props.eligibility_threshold > 0.0 {
+        props.current_activity / props.eligibility_threshold
+    } else {
+        0.0
+    };
+    let next_round_eligibility =
+        calculated_next_eligibility.min(props.eligibility_points);
+
+    let toggle_explanation = {
+        let show_explanation = show_explanation.clone();
+        Callback::from(move |_| {
+            show_explanation.set(!*show_explanation);
+        })
+    };
 
     html! {
         <div class="border border-neutral-200 dark:border-neutral-700 \
@@ -19,15 +40,15 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                     {"Your Eligibility"}
                 </h3>
 
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-3 gap-4">
                     <div>
                         <div class="text-sm text-neutral-600 \
                                     dark:text-neutral-400 mb-1">
-                            {"Your Points"}
+                            {"Current Eligibility"}
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {format!("{:.2}", props.eligibility_points)}
+                            {format!("{:.1}", props.eligibility_points)}
                         </div>
                     </div>
 
@@ -38,32 +59,120 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {format!("{:.2}", props.eligibility_threshold)}
+                            {format!("{:.0}%", props.eligibility_threshold * 100.0)}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm text-neutral-600 \
+                                    dark:text-neutral-400 mb-1">
+                            {"To Maintain Eligibility"}
+                        </div>
+                        <div class="text-2xl font-bold text-neutral-900 \
+                                    dark:text-white">
+                            {format!("{:.1}", min_required_activity)}
                         </div>
                     </div>
                 </div>
 
-                <div class={format!(
-                    "px-4 py-3 rounded-md {}",
-                    if is_eligible {
-                        "bg-neutral-100 dark:bg-neutral-700 \
-                         border border-neutral-300 dark:border-neutral-600"
-                    } else {
-                        "bg-neutral-200 dark:bg-neutral-600 \
-                         border border-neutral-400 dark:border-neutral-500"
-                    }
-                )}>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium text-neutral-900 \
-                                     dark:text-white">
-                            {if is_eligible {
-                                "✓ You are eligible to bid on all spaces"
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <div class="text-sm text-neutral-600 \
+                                    dark:text-neutral-400 mb-1">
+                            {"Current Activity"}
+                        </div>
+                        <div class={format!(
+                            "text-2xl font-bold {}",
+                            if props.current_activity >= min_required_activity {
+                                "text-neutral-900 dark:text-white"
                             } else {
-                                "⚠ You can only bid on spaces where you \
-                                 currently hold the high bid"
-                            }}
-                        </span>
+                                "text-neutral-500 dark:text-neutral-400"
+                            }
+                        )}>
+                            {format!("{:.1}", props.current_activity)}
+                        </div>
                     </div>
+
+                    // Empty middle cell for alignment
+                    <div></div>
+
+                    <div>
+                        <div class="text-sm text-neutral-600 \
+                                    dark:text-neutral-400 mb-1">
+                            {"Next Round Eligibility"}
+                        </div>
+                        <div class="text-2xl font-bold text-neutral-900 \
+                                    dark:text-white">
+                            {format!("{:.1}", next_round_eligibility)}
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <button
+                        onclick={toggle_explanation}
+                        class="text-sm text-neutral-600 dark:text-neutral-400 \
+                               hover:text-neutral-900 dark:hover:text-white \
+                               transition-colors"
+                    >
+                        {if *show_explanation {
+                            "▼ Hide explanation"
+                        } else {
+                            "▶ How does eligibility work?"
+                        }}
+                    </button>
+
+                    {if *show_explanation {
+                        html! {
+                            <div class="mt-3 text-sm text-neutral-600 \
+                                        dark:text-neutral-400 space-y-2">
+                                <p>
+                                    <strong>{"Eligibility limits what you can bid on:"}</strong>
+                                    {" Your current eligibility determines the \
+                                     maximum total points you can bid for. You \
+                                     cannot have more activity (sum of points for \
+                                     spaces you're bidding on or winning) than \
+                                     your eligibility."}
+                                </p>
+                                <p>
+                                    <strong>{"How eligibility changes:"}</strong>
+                                    {" If your activity meets the requirement \
+                                     (shown above as 'To Maintain Eligibility'), \
+                                     your eligibility stays the same for the next \
+                                     round. If your activity falls below the \
+                                     requirement, your eligibility decreases. \
+                                     Specifically, it becomes your activity \
+                                     divided by the threshold, which will be \
+                                     lower than your current eligibility."}
+                                </p>
+                                <p>
+                                    <strong>{"Activity"}</strong>
+                                    {" is the sum of eligibility points for \
+                                     spaces where you were already the high \
+                                     bidder (from the previous round) or placed \
+                                     a bid in this round."}
+                                </p>
+                                <p>
+                                    <strong>{"Note:"}</strong>
+                                    {" You only need to maintain your current \
+                                     eligibility if you want to bid on spaces \
+                                     requiring that eligibility level in future \
+                                     rounds. If you only care about lower-point \
+                                     spaces, you can let your eligibility \
+                                     decrease naturally."}
+                                </p>
+                                <p>
+                                    <strong>{"Important:"}</strong>
+                                    {" Eligibility cannot increase once it has \
+                                     decreased. This ensures price discovery by \
+                                     preventing bidders from sitting out rounds \
+                                     of the auction."}
+                                </p>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
             </div>
         </div>
