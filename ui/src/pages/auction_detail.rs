@@ -144,9 +144,6 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         use_effect_with(auction_end_at, move |_| {
             // When auction ends, cancel any pending refetch timeouts
             if auction_end_at.is_some() {
-                tracing::info!(
-                    "Auction has ended, canceling transition refetch"
-                );
                 cancel_refetch.emit(());
             }
             || ()
@@ -285,6 +282,17 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
     // Fetch all rounds to find the previous one (for prices)
     let rounds_hook = use_auction_rounds(auction_id);
+
+    // Refetch rounds when current round changes (to get updated price data)
+    {
+        let rounds_refetch = rounds_hook.refetch.clone();
+        let current_round = props.current_round.clone();
+
+        use_effect_with(current_round, move |_| {
+            rounds_refetch.emit(());
+            || ()
+        });
+    }
 
     // Prices are stored in round_space_results for the PREVIOUS round
     // (when the scheduler processes a round, it stores results FOR that round,

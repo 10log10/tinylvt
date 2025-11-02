@@ -57,16 +57,12 @@ pub fn use_user_eligibility(
         })
     };
 
-    // Auto-load eligibility on mount
+    // Auto-load eligibility on mount and whenever round_id changes
     {
         let refetch = refetch.clone();
-        let eligibility = eligibility.clone();
-        let is_loading = is_loading.clone();
 
         use_effect_with(round_id, move |round_id| {
-            if eligibility.is_none() && !*is_loading {
-                refetch.emit(*round_id);
-            }
+            refetch.emit(*round_id);
         });
     }
 

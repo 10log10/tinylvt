@@ -332,6 +332,13 @@ async fn create_ongoing_auction_with_rounds(
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),
+                    (2, 0.55),
+                    (3, 0.60),
+                    (4, 0.65),
+                    (5, 0.70),
+                    (6, 0.71),
+                    (7, 0.73),
+                    (8, 0.74),
                     (10, 0.75),
                     (20, 0.9),
                     (30, 1.0),
