@@ -43,7 +43,9 @@
 //! - If encountered, treat as loading or error state
 
 pub mod use_auction_detail;
+pub mod use_auction_round_results;
 pub mod use_auction_rounds;
+pub mod use_auction_user_bids;
 pub mod use_auctions;
 pub mod use_authentication;
 pub mod use_communities;
@@ -63,7 +65,9 @@ pub mod use_user_eligibility;
 pub mod use_user_space_values;
 
 pub use use_auction_detail::use_auction_detail;
+pub use use_auction_round_results::use_auction_round_results;
 pub use use_auction_rounds::use_auction_rounds;
+pub use use_auction_user_bids::use_auction_user_bids;
 pub use use_auctions::use_auctions;
 pub use use_authentication::use_authentication;
 pub use use_communities::use_communities;

@@ -173,7 +173,7 @@ pub struct Auction {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct AuctionRoundId(pub Uuid);
