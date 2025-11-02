@@ -28,6 +28,7 @@ pub struct Props {
     pub eligibility_threshold: f64,
     pub on_bid: Callback<SpaceId>,
     pub on_update_value: Callback<(SpaceId, Decimal)>,
+    pub on_delete_value: Callback<SpaceId>,
 }
 
 #[function_component]
@@ -228,6 +229,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 user_has_bid={user_has_bid}
                                 on_bid={props.on_bid.clone()}
                                 on_update_value={props.on_update_value.clone()}
+                                on_delete_value={props.on_delete_value.clone()}
                             />
                         }
                     }).collect::<Html>()
@@ -299,16 +301,94 @@ struct SpaceRowProps {
     user_has_bid: bool,
     on_bid: Callback<SpaceId>,
     on_update_value: Callback<(SpaceId, Decimal)>,
+    on_delete_value: Callback<SpaceId>,
 }
 
 #[function_component]
 fn SpaceRow(props: &SpaceRowProps) -> Html {
     let space_id = props.space.space_id;
+    let is_editing = use_state(|| false);
+    let input_value = use_state(String::new);
 
     let on_bid_click = {
         let on_bid = props.on_bid.clone();
         Callback::from(move |_| {
             on_bid.emit(space_id);
+        })
+    };
+
+    let on_value_click = {
+        let is_editing = is_editing.clone();
+        let input_value = input_value.clone();
+        let user_value = props.user_value;
+        Callback::from(move |_| {
+            // Set input to current value when starting edit
+            let initial_text = match user_value {
+                Some(v) => format!("{:.2}", v),
+                None => String::new(),
+            };
+            input_value.set(initial_text);
+            is_editing.set(true);
+        })
+    };
+
+    let on_input_change = {
+        let input_value = input_value.clone();
+        Callback::from(move |e: yew::InputEvent| {
+            let target: web_sys::HtmlInputElement = e.target_unchecked_into();
+            input_value.set(target.value());
+        })
+    };
+
+    let save_value = {
+        let is_editing = is_editing.clone();
+        let input_value = input_value.clone();
+        let on_update_value = props.on_update_value.clone();
+        let on_delete_value = props.on_delete_value.clone();
+        move || {
+            let text = (*input_value).trim();
+            if text.is_empty() {
+                // Empty input means delete the value (set to None)
+                on_delete_value.emit(space_id);
+            } else {
+                // Try to parse as decimal
+                match text.parse::<Decimal>() {
+                    Ok(value) if value >= Decimal::ZERO => {
+                        on_update_value.emit((space_id, value));
+                    }
+                    _ => {
+                        // Invalid input, revert to original value
+                        tracing::warn!(
+                            "Invalid value input: '{}'. Must be \
+                             non-negative number.",
+                            text
+                        );
+                    }
+                }
+            }
+            is_editing.set(false);
+        }
+    };
+
+    let on_input_blur = {
+        let save_value = save_value.clone();
+        Callback::from(move |_| {
+            save_value();
+        })
+    };
+
+    let on_input_keydown = {
+        let save_value = save_value.clone();
+        let is_editing = is_editing.clone();
+        Callback::from(move |e: web_sys::KeyboardEvent| {
+            if e.key() == "Enter" {
+                e.prevent_default();
+                save_value();
+            } else if e.key() == "Escape" {
+                e.prevent_default();
+                // Cancel editing without saving
+                is_editing.set(false);
+            }
         })
     };
 
@@ -349,13 +429,40 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 dark:text-neutral-400">
                         {"Your Value"}
                     </div>
-                    <div class="text-sm font-medium text-neutral-900 \
-                                dark:text-white">
-                        {match props.user_value {
-                            Some(value) => format!("${:.2}", value),
-                            None => "$--".to_string(),
-                        }}
-                    </div>
+                    {if *is_editing {
+                        html! {
+                            <input
+                                type="text"
+                                value={(*input_value).clone()}
+                                oninput={on_input_change}
+                                onblur={on_input_blur}
+                                onkeydown={on_input_keydown}
+                                class="w-20 px-2 py-1 text-sm border \
+                                       border-neutral-300 dark:border-neutral-600 \
+                                       rounded bg-white dark:bg-neutral-900 \
+                                       text-neutral-900 dark:text-white \
+                                       focus:outline-none focus:ring-2 \
+                                       focus:ring-neutral-500"
+                                autofocus={true}
+                            />
+                        }
+                    } else {
+                        html! {
+                            <div
+                                onclick={on_value_click}
+                                class="text-sm font-medium text-neutral-900 \
+                                       dark:text-white cursor-pointer \
+                                       hover:bg-neutral-100 \
+                                       dark:hover:bg-neutral-700 px-2 py-1 \
+                                       rounded transition-colors"
+                            >
+                                {match props.user_value {
+                                    Some(value) => format!("${:.2}", value),
+                                    None => "$--".to_string(),
+                                }}
+                            </div>
+                        }
+                    }}
                 </div>
 
                 <div>

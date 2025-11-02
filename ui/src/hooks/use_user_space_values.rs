@@ -67,14 +67,15 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
     };
 
     let update_value = {
-        let values = values.clone();
+        let refetch = refetch.clone();
         let error = error.clone();
         let is_loading = is_loading.clone();
 
-        use_callback((), move |(space_id, value), _| {
-            let values = values.clone();
+        use_callback(site_id, move |(space_id, value), site_id| {
+            let refetch = refetch.clone();
             let error = error.clone();
             let is_loading = is_loading.clone();
+            let site_id = *site_id;
 
             yew::platform::spawn_local(async move {
                 is_loading.set(true);
@@ -85,33 +86,29 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
 
                 match api_client.create_or_update_user_value(&request).await {
                     Ok(_) => {
-                        // Update local state optimistically
-                        if let Some(current_values) = values.as_ref() {
-                            let mut updated = current_values.clone();
-                            updated.insert(space_id, value);
-                            values.set(Some(updated));
-                        }
                         error.set(None);
+                        // Refetch to ensure UI is updated with latest data
+                        refetch.emit(site_id);
                     }
                     Err(e) => {
                         error.set(Some(e.to_string()));
+                        is_loading.set(false);
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };
 
     let delete_value = {
-        let values = values.clone();
+        let refetch = refetch.clone();
         let error = error.clone();
         let is_loading = is_loading.clone();
 
-        use_callback((), move |space_id, _| {
-            let values = values.clone();
+        use_callback(site_id, move |space_id, site_id| {
+            let refetch = refetch.clone();
             let error = error.clone();
             let is_loading = is_loading.clone();
+            let site_id = *site_id;
 
             yew::platform::spawn_local(async move {
                 is_loading.set(true);
@@ -120,20 +117,15 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
                 let api_client = get_api_client();
                 match api_client.delete_user_value(&space_id).await {
                     Ok(_) => {
-                        // Update local state optimistically
-                        if let Some(current_values) = values.as_ref() {
-                            let mut updated = current_values.clone();
-                            updated.remove(&space_id);
-                            values.set(Some(updated));
-                        }
                         error.set(None);
+                        // Refetch to ensure UI is updated with latest data
+                        refetch.emit(site_id);
                     }
                     Err(e) => {
                         error.set(Some(e.to_string()));
+                        is_loading.set(false);
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };

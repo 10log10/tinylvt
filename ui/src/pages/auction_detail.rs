@@ -99,11 +99,12 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     let spaces_hook = use_spaces(site_id);
     let user_values_hook = use_user_space_values(site_id);
 
-    // Show loading state
-    if current_round_hook.is_loading
-        || proxy_bidding_hook.is_loading
-        || spaces_hook.is_loading
-        || user_values_hook.is_loading
+    // Show loading state only for initial load (when data is None)
+    // During refetches, keep the UI rendered and let data update smoothly
+    if current_round_hook.current_round.is_none()
+        || proxy_bidding_hook.settings.is_none()
+        || spaces_hook.spaces.is_none()
+        || user_values_hook.values.is_none()
     {
         return html! {
             <div class="text-center py-12">
@@ -160,6 +161,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         .map(|s| s.max_items)
         .unwrap_or(1);
     let update_value = user_values_hook.update_value.clone();
+    let delete_value = user_values_hook.delete_value.clone();
     let proxy_update = proxy_bidding_hook.update.clone();
     let proxy_delete = proxy_bidding_hook.delete.clone();
 
@@ -174,6 +176,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
             proxy_bidding_enabled={proxy_bidding_enabled}
             proxy_max_items={proxy_max_items}
             update_value={update_value}
+            delete_value={delete_value}
             proxy_update={proxy_update}
             proxy_delete={proxy_delete}
         />
@@ -190,6 +193,7 @@ struct AuctionRoundContentProps {
     proxy_bidding_enabled: bool,
     proxy_max_items: i32,
     update_value: Callback<(SpaceId, Decimal)>,
+    delete_value: Callback<SpaceId>,
     proxy_update: Callback<i32>,
     proxy_delete: Callback<()>,
 }
@@ -311,6 +315,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
     // Callback for updating user values
     let on_update_value = props.update_value.clone();
+    let on_delete_value = props.delete_value.clone();
 
     html! {
         <div class="space-y-6">
@@ -356,6 +361,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 }
                 on_bid={on_bid}
                 on_update_value={on_update_value}
+                on_delete_value={on_delete_value}
             />
         </div>
     }
