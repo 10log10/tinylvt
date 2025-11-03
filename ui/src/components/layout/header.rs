@@ -56,9 +56,6 @@ fn NavigationMenu(props: &NavigationMenuProps) -> Html {
                 <Link<Route> to={Route::Communities} classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
                     {"Communities"}
                 </Link<Route>>
-                <Link<Route> to={Route::Test} classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
-                    {"Test"}
-                </Link<Route>>
             </nav>
         }
     } else {

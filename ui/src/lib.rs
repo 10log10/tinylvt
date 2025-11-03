@@ -8,7 +8,6 @@ mod hooks;
 pub mod logs;
 mod pages;
 mod state;
-mod test_components;
 mod utils;
 
 use components::ToastContainer;
@@ -20,7 +19,7 @@ use pages::{
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, HomePage,
     LoginPage, NotFoundPage, SiteAuctionsPage, SiteDetailPage,
-    SiteSettingsPage, TestPage,
+    SiteSettingsPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -91,8 +90,6 @@ pub enum Route {
     AuctionRounds { id: AuctionId },
     #[at("/sites/:id/settings")]
     SiteSettings { id: SiteId },
-    #[at("/test")]
-    Test,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -137,7 +134,6 @@ fn switch(routes: Route) -> Html {
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }
         }
-        Route::Test => html! { <TestPage /> },
         Route::NotFound => html! { <NotFoundPage /> },
     }
 }

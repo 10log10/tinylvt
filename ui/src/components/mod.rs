@@ -1,4 +1,3 @@
-pub mod auction_info;
 pub mod auction_params_editor;
 pub mod auction_params_viewer;
 pub mod auction_tab_header;
@@ -19,7 +18,6 @@ pub mod timestamp_display;
 pub mod toast;
 pub mod user_eligibility_display;
 
-pub use auction_info::AuctionInfo;
 pub use auction_params_editor::AuctionParamsEditor;
 pub use auction_params_viewer::AuctionParamsViewer;
 pub use auction_tab_header::AuctionTabHeader;

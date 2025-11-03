@@ -16,7 +16,6 @@ pub mod not_found;
 pub mod site_auctions;
 pub mod site_detail;
 pub mod site_settings;
-pub mod test;
 
 pub use accept_invite::AcceptInvitePage;
 pub use auction_detail::AuctionDetailPage;
@@ -36,4 +35,3 @@ pub use not_found::NotFoundPage;
 pub use site_auctions::SiteAuctionsPage;
 pub use site_detail::SiteDetailPage;
 pub use site_settings::SiteSettingsPage;
-pub use test::TestPage;
