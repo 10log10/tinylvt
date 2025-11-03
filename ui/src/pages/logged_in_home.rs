@@ -1,18 +1,30 @@
-use payloads::responses;
 use yew::prelude::*;
 use yew_router::prelude::*;
+use yewdux::prelude::*;
 
-use crate::Route;
-
-#[derive(Properties, PartialEq)]
-pub struct Props {
-    pub profile: responses::UserProfile,
-}
+use crate::{AuthState, Route, State};
 
 #[function_component]
-pub fn LoggedInHomePage(props: &Props) -> Html {
-    let profile = &props.profile;
+pub fn LoggedInHomePage() -> Html {
+    let (state, _) = use_store::<State>();
     let navigator = use_navigator().unwrap();
+
+    // Redirect to landing page if not logged in
+    let profile = match &state.auth_state {
+        AuthState::LoggedIn(profile) => profile.clone(),
+        AuthState::LoggedOut => {
+            navigator.push(&Route::Landing);
+            return html! {};
+        }
+        AuthState::Unknown => {
+            return html! {
+                <div class="text-center space-y-4">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-neutral-900 dark:border-neutral-100"></div>
+                    <p class="text-neutral-600 dark:text-neutral-400">{"Checking authentication..."}</p>
+                </div>
+            };
+        }
+    };
 
     let on_view_communities = {
         let navigator = navigator.clone();

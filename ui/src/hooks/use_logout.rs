@@ -20,7 +20,7 @@ pub fn use_logout() -> Callback<MouseEvent> {
                 state.logout();
             });
 
-            navigator.push(&Route::Login);
+            navigator.push(&Route::Landing);
         });
     })
 }

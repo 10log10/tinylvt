@@ -1,6 +1,4 @@
-use crate::Route;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
@@ -16,17 +14,11 @@ pub fn LoggedOutHomePage() -> Html {
             </div>
 
             <div class="max-w-2xl mx-auto">
-                <p class="text-lg text-neutral-600 dark:text-neutral-400 mb-8">
+                <p class="text-lg text-neutral-600 dark:text-neutral-400">
                     {"TinyLVT implements land value taxation through auction-based allocation.
-                     Allocate spaces like coworking seats to highest-value uses while ensuring 
+                     Allocate spaces like coworking seats to highest-value uses while ensuring
                      users only pay the social cost of excluding others."}
                 </p>
-
-                <div class="space-x-4">
-                    <Link<Route> to={Route::Login} classes="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 transition-colors">
-                        {"Sign In"}
-                    </Link<Route>>
-                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-12">

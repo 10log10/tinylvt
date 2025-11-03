@@ -17,9 +17,9 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
-    CreateAuctionPage, CreateCommunityPage, CreateSitePage, HomePage,
-    LoginPage, NotFoundPage, SiteAuctionsPage, SiteDetailPage,
-    SiteSettingsPage,
+    CreateAuctionPage, CreateCommunityPage, CreateSitePage, LoggedInHomePage,
+    LoggedOutHomePage, LoginPage, NotFoundPage, SiteAuctionsPage,
+    SiteDetailPage, SiteSettingsPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -61,6 +61,8 @@ pub(crate) fn get_api_client() -> APIClient {
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
     #[at("/")]
+    Landing,
+    #[at("/home")]
     Home,
     #[at("/login")]
     Login,
@@ -97,7 +99,8 @@ pub enum Route {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Home => html! { <HomePage /> },
+        Route::Landing => html! { <LoggedOutHomePage /> },
+        Route::Home => html! { <LoggedInHomePage /> },
         Route::Login => html! { <LoginPage /> },
         Route::AcceptInvite { invite_id } => {
             html! { <AcceptInvitePage invite_id={invite_id} /> }
