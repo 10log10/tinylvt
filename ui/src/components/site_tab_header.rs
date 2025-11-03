@@ -58,19 +58,6 @@ pub fn SiteTabHeader(props: &Props) -> Html {
             <div class="border-b border-neutral-200 dark:border-neutral-700">
                 <nav class="-mb-px flex space-x-8">
                     <Link<Route>
-                        to={Route::SiteDetail { id: props.site.site_id }}
-                        classes={classes!(format!(
-                            "py-2 px-1 border-b-2 font-medium text-sm {}",
-                            if props.active_tab == ActiveTab::Spaces {
-                                "border-neutral-500 text-neutral-600 dark:text-neutral-400"
-                            } else {
-                                "border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-300"
-                            }
-                        ))}
-                    >
-                        {"Spaces"}
-                    </Link<Route>>
-                    <Link<Route>
                         to={Route::SiteAuctions { id: props.site.site_id }}
                         classes={classes!(format!(
                             "py-2 px-1 border-b-2 font-medium text-sm {}",
@@ -82,6 +69,19 @@ pub fn SiteTabHeader(props: &Props) -> Html {
                         ))}
                     >
                         {"Auctions"}
+                    </Link<Route>>
+                    <Link<Route>
+                        to={Route::SiteSpaces { id: props.site.site_id }}
+                        classes={classes!(format!(
+                            "py-2 px-1 border-b-2 font-medium text-sm {}",
+                            if props.active_tab == ActiveTab::Spaces {
+                                "border-neutral-500 text-neutral-600 dark:text-neutral-400"
+                            } else {
+                                "border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300 dark:text-neutral-400 dark:hover:text-neutral-300"
+                            }
+                        ))}
+                    >
+                        {"Spaces"}
                     </Link<Route>>
                     <Link<Route>
                         to={Route::SiteSettings { id: props.site.site_id }}

@@ -268,7 +268,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         let navigator = navigator.clone();
         let site_id = props.site.site_id;
         Callback::from(move |_| {
-            navigator.push(&Route::SiteDetail { id: site_id });
+            navigator.push(&Route::SiteAuctions { id: site_id });
         })
     };
 

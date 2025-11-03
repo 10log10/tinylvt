@@ -80,9 +80,9 @@ pub enum Route {
     #[at("/communities/:id/sites/new")]
     CreateSite { id: CommunityId },
     #[at("/sites/:id")]
-    SiteDetail { id: SiteId },
-    #[at("/sites/:id/auctions")]
     SiteAuctions { id: SiteId },
+    #[at("/sites/:id/spaces")]
+    SiteSpaces { id: SiteId },
     #[at("/sites/:id/auctions/new")]
     CreateAuction { id: SiteId },
     #[at("/auctions/:id")]
@@ -119,7 +119,7 @@ fn switch(routes: Route) -> Html {
         Route::CreateSite { id } => {
             html! { <CreateSitePage community_id={id} /> }
         }
-        Route::SiteDetail { id } => {
+        Route::SiteSpaces { id } => {
             html! { <SiteDetailPage site_id={id} /> }
         }
         Route::SiteAuctions { id } => {

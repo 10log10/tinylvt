@@ -137,7 +137,7 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                         // Refresh sites in global state
                         refetch_sites.emit(());
                         // Navigate to site detail page
-                        navigator.push(&Route::SiteDetail { id: site_id });
+                        navigator.push(&Route::SiteSpaces { id: site_id });
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
