@@ -175,184 +175,150 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
         }
     } else {
         match &auctions_hook.auctions {
-            Some(auctions) => {
-                if auctions.is_empty() {
-                    html! {
-                        <div class="text-center py-12">
-                            <p class="text-neutral-600 dark:text-neutral-400 mb-4">
-                                {"No auctions have been created for this site yet."}
-                            </p>
-                        </div>
-                    }
-                } else {
-                    // Filter auctions by status
-                    let mut filtered_auctions: Vec<_> = auctions
-                        .iter()
-                        .filter(|auction| {
-                            let status = AuctionStatus::from_auction(auction);
-                            match status {
-                                AuctionStatus::Upcoming => *filter_upcoming,
-                                AuctionStatus::Ongoing => *filter_ongoing,
-                                AuctionStatus::Finished => *filter_finished,
-                            }
-                        })
-                        .collect();
+            Some(auctions) if !auctions.is_empty() => {
+                // Filter auctions by status
+                let mut filtered_auctions: Vec<_> = auctions
+                    .iter()
+                    .filter(|auction| {
+                        let status = AuctionStatus::from_auction(auction);
+                        match status {
+                            AuctionStatus::Upcoming => *filter_upcoming,
+                            AuctionStatus::Ongoing => *filter_ongoing,
+                            AuctionStatus::Finished => *filter_finished,
+                        }
+                    })
+                    .collect();
 
-                    // Sort auctions
-                    filtered_auctions.sort_by(|a, b| {
-                        let comparison = match *sort_field {
-                            SortField::AuctionStart => a
+                // Sort auctions
+                filtered_auctions.sort_by(|a, b| {
+                    let comparison = match *sort_field {
+                        SortField::AuctionStart => a
+                            .auction_details
+                            .start_at
+                            .cmp(&b.auction_details.start_at),
+                        SortField::AuctionEnd => match (a.end_at, b.end_at) {
+                            (Some(a_end), Some(b_end)) => a_end.cmp(&b_end),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => a
                                 .auction_details
                                 .start_at
                                 .cmp(&b.auction_details.start_at),
-                            SortField::AuctionEnd => {
-                                match (a.end_at, b.end_at) {
-                                    (Some(a_end), Some(b_end)) => {
-                                        a_end.cmp(&b_end)
-                                    }
-                                    (Some(_), None) => std::cmp::Ordering::Less,
-                                    (None, Some(_)) => {
-                                        std::cmp::Ordering::Greater
-                                    }
-                                    (None, None) => a
-                                        .auction_details
-                                        .start_at
-                                        .cmp(&b.auction_details.start_at),
-                                }
-                            }
-                            SortField::PossessionStart => a
-                                .auction_details
-                                .possession_start_at
-                                .cmp(&b.auction_details.possession_start_at),
-                            SortField::PossessionEnd => a
-                                .auction_details
-                                .possession_end_at
-                                .cmp(&b.auction_details.possession_end_at),
-                        };
+                        },
+                        SortField::PossessionStart => a
+                            .auction_details
+                            .possession_start_at
+                            .cmp(&b.auction_details.possession_start_at),
+                        SortField::PossessionEnd => a
+                            .auction_details
+                            .possession_end_at
+                            .cmp(&b.auction_details.possession_end_at),
+                    };
 
-                        match *sort_direction {
-                            SortDirection::Ascending => comparison,
-                            SortDirection::Descending => comparison.reverse(),
-                        }
-                    });
+                    match *sort_direction {
+                        SortDirection::Ascending => comparison,
+                        SortDirection::Descending => comparison.reverse(),
+                    }
+                });
 
-                    html! {
-                        <div>
-                            <div class="flex justify-between items-center mb-6">
-                                <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-                                    {"Auctions"}
-                                </h2>
-                                {if can_edit {
+                html! {
+                    <div>
+                        // Filters and Sorting Controls
+                        <div class="mb-6 space-y-4">
+                            // Filter Controls
+                            <div class="flex gap-4 items-center">
+                                <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                                    {"Show:"}
+                                </span>
+                                {[
+                                    ("Upcoming", *filter_upcoming, on_filter_upcoming_toggle),
+                                    ("Ongoing", *filter_ongoing, on_filter_ongoing_toggle),
+                                    ("Finished", *filter_finished, on_filter_finished_toggle),
+                                ].iter().map(|(label, checked, callback)| {
                                     html! {
-                                        <Link<Route>
-                                            to={Route::CreateAuction { id: site_id }}
-                                            classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                        >
-                                            {"Create New Auction"}
-                                        </Link<Route>>
+                                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={*checked}
+                                                onchange={callback.clone()}
+                                                class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded"
+                                            />
+                                            <span class="text-sm text-neutral-700 dark:text-neutral-300">
+                                                {*label}
+                                            </span>
+                                        </label>
                                     }
-                                } else {
-                                    html! {}
-                                }}
+                                }).collect::<Html>()}
                             </div>
 
-                            // Filters and Sorting Controls
-                            <div class="mb-6 space-y-4">
-                                // Filter Controls
-                                <div class="flex gap-4 items-center">
-                                    <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                                        {"Show:"}
-                                    </span>
-                                    {[
-                                        ("Upcoming", *filter_upcoming, on_filter_upcoming_toggle),
-                                        ("Ongoing", *filter_ongoing, on_filter_ongoing_toggle),
-                                        ("Finished", *filter_finished, on_filter_finished_toggle),
-                                    ].iter().map(|(label, checked, callback)| {
+                            // Sort Controls
+                            <div class="flex gap-4 items-center">
+                                <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                                    {"Sort by:"}
+                                </span>
+                                <SortButton
+                                    label="Auction Start"
+                                    field={SortField::AuctionStart}
+                                    current_field={*sort_field}
+                                    current_direction={*sort_direction}
+                                    on_click={on_sort_field_change.clone()}
+                                />
+                                <SortButton
+                                    label="Auction End"
+                                    field={SortField::AuctionEnd}
+                                    current_field={*sort_field}
+                                    current_direction={*sort_direction}
+                                    on_click={on_sort_field_change.clone()}
+                                />
+                                <SortButton
+                                    label="Possession Start"
+                                    field={SortField::PossessionStart}
+                                    current_field={*sort_field}
+                                    current_direction={*sort_direction}
+                                    on_click={on_sort_field_change.clone()}
+                                />
+                                <SortButton
+                                    label="Possession End"
+                                    field={SortField::PossessionEnd}
+                                    current_field={*sort_field}
+                                    current_direction={*sort_direction}
+                                    on_click={on_sort_field_change.clone()}
+                                />
+                            </div>
+                        </div>
+
+                        // Auctions List
+                        {if filtered_auctions.is_empty() {
+                            html! {
+                                <div class="text-center py-12">
+                                    <p class="text-neutral-600 dark:text-neutral-400">
+                                        {"No auctions match the selected filters."}
+                                    </p>
+                                </div>
+                            }
+                        } else {
+                            html! {
+                                <div class="space-y-4">
+                                    {filtered_auctions.iter().map(|auction| {
                                         html! {
-                                            <label class="flex items-center gap-2 cursor-pointer select-none">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={*checked}
-                                                    onchange={callback.clone()}
-                                                    class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded"
-                                                />
-                                                <span class="text-sm text-neutral-700 dark:text-neutral-300">
-                                                    {*label}
-                                                </span>
-                                            </label>
+                                            <AuctionCard
+                                                key={auction.auction_id.to_string()}
+                                                auction={(*auction).clone()}
+                                                site={props.site.clone()}
+                                            />
                                         }
                                     }).collect::<Html>()}
                                 </div>
-
-                                // Sort Controls
-                                <div class="flex gap-4 items-center">
-                                    <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                                        {"Sort by:"}
-                                    </span>
-                                    <SortButton
-                                        label="Auction Start"
-                                        field={SortField::AuctionStart}
-                                        current_field={*sort_field}
-                                        current_direction={*sort_direction}
-                                        on_click={on_sort_field_change.clone()}
-                                    />
-                                    <SortButton
-                                        label="Auction End"
-                                        field={SortField::AuctionEnd}
-                                        current_field={*sort_field}
-                                        current_direction={*sort_direction}
-                                        on_click={on_sort_field_change.clone()}
-                                    />
-                                    <SortButton
-                                        label="Possession Start"
-                                        field={SortField::PossessionStart}
-                                        current_field={*sort_field}
-                                        current_direction={*sort_direction}
-                                        on_click={on_sort_field_change.clone()}
-                                    />
-                                    <SortButton
-                                        label="Possession End"
-                                        field={SortField::PossessionEnd}
-                                        current_field={*sort_field}
-                                        current_direction={*sort_direction}
-                                        on_click={on_sort_field_change.clone()}
-                                    />
-                                </div>
-                            </div>
-
-                            // Auctions List
-                            {if filtered_auctions.is_empty() {
-                                html! {
-                                    <div class="text-center py-12">
-                                        <p class="text-neutral-600 dark:text-neutral-400">
-                                            {"No auctions match the selected filters."}
-                                        </p>
-                                    </div>
-                                }
-                            } else {
-                                html! {
-                                    <div class="space-y-4">
-                                        {filtered_auctions.iter().map(|auction| {
-                                            html! {
-                                                <AuctionCard
-                                                    key={auction.auction_id.to_string()}
-                                                    auction={(*auction).clone()}
-                                                    site={props.site.clone()}
-                                                />
-                                            }
-                                        }).collect::<Html>()}
-                                    </div>
-                                }
-                            }}
-                        </div>
-                    }
+                            }
+                        }}
+                    </div>
                 }
             }
-            None => {
+            _ => {
                 html! {
                     <div class="text-center py-12">
                         <p class="text-neutral-600 dark:text-neutral-400">
-                            {"No auctions data available"}
+                            {"No auctions have been created for this site yet."}
                         </p>
                     </div>
                 }
@@ -361,7 +327,26 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
     };
 
     html! {
-        <>{auctions_content}</>
+        <div>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                    {"Auctions"}
+                </h2>
+                {if can_edit {
+                    html! {
+                        <Link<Route>
+                            to={Route::CreateAuction { id: site_id }}
+                            classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                        >
+                            {"Create New Auction"}
+                        </Link<Route>>
+                    }
+                } else {
+                    html! {}
+                }}
+            </div>
+            {auctions_content}
+        </div>
     }
 }
 
