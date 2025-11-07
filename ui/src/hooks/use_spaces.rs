@@ -14,6 +14,13 @@ pub struct SpacesHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl SpacesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.spaces.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage spaces data with lazy loading and global state caching
 ///
 /// Hook Architecture Rationale:

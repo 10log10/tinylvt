@@ -21,6 +21,15 @@ pub struct AuctionRoundResultsHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl AuctionRoundResultsHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading
+            && self.results_by_round.is_none()
+            && self.error.is_none()
+    }
+}
+
 /// Hook to fetch all round results across all rounds in an auction
 ///
 /// This is useful for the rounds page where we need to show high bidder

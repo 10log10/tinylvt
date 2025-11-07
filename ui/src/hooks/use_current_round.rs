@@ -21,6 +21,13 @@ pub struct CurrentRoundHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl CurrentRoundHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.current_round.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to fetch the current (or most recent) round for an auction
 ///
 /// This fetches all rounds and returns the latest one (highest round_num).
@@ -35,12 +42,15 @@ pub fn use_current_round(auction_id: AuctionId) -> CurrentRoundHookReturn {
     let refetch = {
         let current_round = current_round.clone();
         let error = error.clone();
+        let is_loading = is_loading.clone();
 
         use_callback(auction_id, move |auction_id, _| {
             let current_round = current_round.clone();
             let error = error.clone();
+            let is_loading = is_loading.clone();
 
             yew::platform::spawn_local(async move {
+                is_loading.set(true);
                 error.set(None);
 
                 let api_client = get_api_client();
@@ -58,6 +68,7 @@ pub fn use_current_round(auction_id: AuctionId) -> CurrentRoundHookReturn {
                         error.set(Some(e.to_string()));
                     }
                 }
+                is_loading.set(false);
             });
         })
     };

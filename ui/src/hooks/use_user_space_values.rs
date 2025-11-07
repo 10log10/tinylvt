@@ -20,6 +20,13 @@ pub struct UserSpaceValuesHookReturn {
     pub delete_value: Callback<SpaceId>,
 }
 
+impl UserSpaceValuesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.values.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage user's max values for spaces at a site
 ///
 /// Fetches all user values for a site and provides methods to update

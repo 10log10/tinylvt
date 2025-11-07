@@ -12,6 +12,13 @@ pub struct IssuedInvitesHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl IssuedInvitesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.invites.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage issued invites data with lazy loading
 #[hook]
 pub fn use_issued_invites(

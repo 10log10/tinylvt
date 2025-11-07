@@ -3,6 +3,8 @@ use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
 use yew::prelude::*;
 
+use crate::hooks::FetchState;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SortField {
     Name,
@@ -35,7 +37,7 @@ pub struct Props {
     #[prop_or_default]
     pub auction_started: bool,
     #[prop_or_default]
-    pub user_eligibility: Option<f64>,
+    pub user_eligibility: FetchState<Option<f64>>,
 }
 
 #[function_component]
@@ -240,7 +242,9 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                             .unwrap_or(false);
 
                         // Check if bidding on this space would exceed eligibility
-                        let would_exceed_eligibility = if let Some(eligibility) = props.user_eligibility {
+                        // Extract Option<f64> from FetchState
+                        let eligibility_value = props.user_eligibility.as_ref().cloned().flatten();
+                        let would_exceed_eligibility = if let Some(eligibility) = eligibility_value {
                             // If user doesn't have a bid on this space yet, check if adding it would exceed
                             if !user_has_bid && !is_high_bidder {
                                 let new_activity = current_activity + space.space_details.eligibility_points;

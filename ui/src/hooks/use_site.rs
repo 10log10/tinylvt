@@ -13,6 +13,13 @@ pub struct SiteHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl SiteHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.site.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage single site data with lazy loading and global state caching
 ///
 /// ## Hook Architecture Rationale

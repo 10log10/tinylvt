@@ -18,6 +18,13 @@ pub struct ProxyBiddingSettingsHookReturn {
     pub delete: Callback<()>,
 }
 
+impl ProxyBiddingSettingsHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.settings.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage proxy bidding settings for an auction
 ///
 /// Provides methods to get, update, and delete proxy bidding settings.

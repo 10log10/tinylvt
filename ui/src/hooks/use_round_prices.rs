@@ -15,6 +15,13 @@ pub struct RoundPricesHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl RoundPricesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.prices.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to fetch space prices (results) for a specific round
 ///
 /// Returns the winning bid value for each space in the round.

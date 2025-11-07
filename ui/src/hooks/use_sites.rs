@@ -13,6 +13,13 @@ pub struct SitesHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl SitesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.sites.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage sites data with lazy loading and global state caching
 #[hook]
 pub fn use_sites(community_id: CommunityId) -> SitesHookReturn {

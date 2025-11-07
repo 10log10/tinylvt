@@ -12,6 +12,13 @@ pub struct CommunitiesHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl CommunitiesHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.communities.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage communities data with lazy loading and global state caching
 #[hook]
 pub fn use_communities() -> CommunitiesHookReturn {

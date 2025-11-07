@@ -19,6 +19,13 @@ pub struct UserBidsHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl UserBidsHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.bid_space_ids.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to fetch the user's bids for a specific round
 ///
 /// Returns a set of space IDs that the user has placed bids on in the round.

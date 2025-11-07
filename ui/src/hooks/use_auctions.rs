@@ -13,6 +13,13 @@ pub struct AuctionsHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl AuctionsHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.auctions.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage auctions data with lazy loading and global state caching
 ///
 /// This follows the same pattern as use_spaces and use_sites, providing

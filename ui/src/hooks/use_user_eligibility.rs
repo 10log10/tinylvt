@@ -1,18 +1,32 @@
 use payloads::AuctionRoundId;
 use yew::prelude::*;
 
-use crate::get_api_client;
+use crate::{get_api_client, hooks::FetchState};
 
 /// Hook return type for user eligibility data
+///
+/// The `eligibility` field uses `FetchState<Option<f64>>` to distinguish:
+/// - `NotFetched`: Haven't called the API yet
+/// - `Fetched(None)`: API returned None (e.g., round 0 has no eligibility)
+/// - `Fetched(Some(0.5))`: API returned Some(0.5)
 ///
 /// See module-level documentation in `hooks/mod.rs` for state combination
 /// details.
 #[allow(dead_code)]
 pub struct UserEligibilityHookReturn {
-    pub eligibility: Option<f64>,
+    pub eligibility: FetchState<Option<f64>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
+}
+
+impl UserEligibilityHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading
+            && !self.eligibility.is_fetched()
+            && self.error.is_none()
+    }
 }
 
 /// Hook to fetch the current user's eligibility points for a round
@@ -23,10 +37,10 @@ pub struct UserEligibilityHookReturn {
 pub fn use_user_eligibility(
     round_id: AuctionRoundId,
 ) -> UserEligibilityHookReturn {
-    // Track as Option<Option<f64>> to distinguish "not fetched" from "fetched None"
-    let eligibility = use_state(|| None);
+    // Use FetchState to distinguish "not fetched" from "fetched None"
+    let eligibility = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let eligibility = eligibility.clone();
@@ -45,8 +59,8 @@ pub fn use_user_eligibility(
                 let api_client = get_api_client();
                 match api_client.get_eligibility(&round_id).await {
                     Ok(points) => {
-                        // API returns Option<f64>, wrap in Some to indicate we fetched
-                        eligibility.set(Some(points));
+                        // API returns Option<f64>, store as Fetched
+                        eligibility.set(FetchState::Fetched(points));
                         error.set(None);
                     }
                     Err(e) => {
@@ -68,16 +82,11 @@ pub fn use_user_eligibility(
         });
     }
 
-    let current_eligibility = *eligibility;
-    let current_error = (*error).clone();
-    // If outer Option is None and there's no error, we haven't fetched yet
-    let current_is_loading = *is_loading
-        || (current_eligibility.is_none() && current_error.is_none());
-
     UserEligibilityHookReturn {
-        eligibility: current_eligibility.flatten(),
-        error: current_error,
-        is_loading: current_is_loading,
+        // Return FetchState directly - don't flatten!
+        eligibility: (*eligibility).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(round_id)),
     }
 }

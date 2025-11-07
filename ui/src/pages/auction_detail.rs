@@ -27,8 +27,8 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
     let auction_hook = use_auction_detail(props.auction_id);
     let (state, _) = use_store::<State>();
 
-    // Handle auction loading state
-    if auction_hook.is_loading {
+    // Handle auction loading state (block UI only on initial load)
+    if auction_hook.is_initial_loading() {
         return html! {
             <div class="text-center py-12">
                 <p class="text-neutral-600 dark:text-neutral-400">

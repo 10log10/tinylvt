@@ -3,28 +3,51 @@
 //! All hooks in this module follow a consistent three-field pattern for
 //! state management:
 //!
+//! ## FetchState Type
+//!
+//! The `FetchState<T>` enum explicitly separates network fetch state from
+//! data nullability:
+//!
+//! - `FetchState::NotFetched` - No fetch attempt has been made yet
+//! - `FetchState::Fetched(T)` - Data has been fetched (T may be Option<V>)
+//!
+//! This makes it clear when `None` means "not fetched yet" vs "fetched but
+//! the API returned None". For example, `FetchState<Option<f64>>` can be:
+//! - `NotFetched` - Haven't called the API yet
+//! - `Fetched(None)` - API returned None (e.g., no eligibility for round 0)
+//! - `Fetched(Some(0.5))` - API returned Some(0.5)
+//!
 //! ## Fields
 //!
-//! - `data: Option<T>` - The fetched/managed data, if available
+//! - `data: Option<T>` or `FetchState<T>` - The fetched/managed data
 //! - `error: Option<String>` - Error from most recent operation
 //! - `is_loading: bool` - Whether any operation is in progress
+//!
+//! ## Helper Methods
+//!
+//! All hook return types provide this helper method:
+//!
+//! - `is_initial_loading() -> bool` - Returns true when loading with no data
+//!   or error (initial page load that should block the UI)
 //!
 //! ## State Combinations
 //!
 //! ### `data: None, error: None, is_loading: true`
-//! **Initial loading state.**
+//! **Initial loading state** - `is_initial_loading() == true`
 //! - Show: Full-page loading spinner or skeleton
 //! - Action: Wait for data or error
+//! - Example: `if hook.is_initial_loading() { return <LoadingSpinner /> }`
 //!
 //! ### `data: Some(T), error: None, is_loading: false`
-//! **Successfully loaded.**
+//! **Successfully loaded**
 //! - Show: Data normally
 //! - Action: None
 //!
 //! ### `data: Some(T), error: None, is_loading: true`
-//! **Refetching/updating with existing data.**
+//! **Refetching/updating with existing data**
 //! - Show: Data with subtle loading indicator (e.g., spinner in corner)
 //! - Action: Keep UI interactive but may want to disable mutation buttons
+//! - Example: `{hook.is_loading && hook.data.is_some() && <InlineSpinner />}`
 //!
 //! ### `data: Some(T), error: Some(e), is_loading: false`
 //! **Operation failed but have stale data.**
@@ -41,6 +64,49 @@
 //! **Should not occur in practice.**
 //! - This state should be unreachable if hooks are implemented correctly
 //! - If encountered, treat as loading or error state
+
+/// Represents the fetch state of data, separating network state from data
+/// nullability
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FetchState<T> {
+    /// No fetch attempt has been made yet
+    NotFetched,
+    /// Data has been fetched (T may be Option<V> for nullable data)
+    Fetched(T),
+}
+
+impl<T> FetchState<T> {
+    /// Returns true if data has been fetched (regardless of the data's value)
+    pub fn is_fetched(&self) -> bool {
+        matches!(self, FetchState::Fetched(_))
+    }
+
+    /// Returns a reference to the fetched data, or None if not fetched
+    pub fn as_ref(&self) -> Option<&T> {
+        match self {
+            FetchState::Fetched(data) => Some(data),
+            FetchState::NotFetched => None,
+        }
+    }
+
+    /// Maps a FetchState<T> to FetchState<U> by applying a function to the
+    /// fetched data
+    pub fn map<U, F>(self, f: F) -> FetchState<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            FetchState::Fetched(data) => FetchState::Fetched(f(data)),
+            FetchState::NotFetched => FetchState::NotFetched,
+        }
+    }
+}
+
+impl<T> Default for FetchState<T> {
+    fn default() -> Self {
+        FetchState::NotFetched
+    }
+}
 
 pub mod use_auction_detail;
 pub mod use_auction_round_results;

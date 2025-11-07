@@ -14,6 +14,13 @@ pub struct AuctionRoundsHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl AuctionRoundsHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.rounds.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to fetch and manage rounds for a specific auction
 ///
 /// This hook does not cache in global state since rounds are

@@ -1,8 +1,10 @@
 use yew::prelude::*;
 
+use crate::hooks::FetchState;
+
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub eligibility_points: Option<f64>,
+    pub eligibility_points: FetchState<Option<f64>>,
     pub eligibility_threshold: f64,
     pub current_activity: Option<f64>,
 }
@@ -11,10 +13,13 @@ pub struct Props {
 pub fn UserEligibilityDisplay(props: &Props) -> Html {
     let show_explanation = use_state(|| false);
 
+    // Extract the Option<f64> from FetchState
+    let eligibility_points =
+        props.eligibility_points.as_ref().cloned().flatten();
+
     // Calculate values only if eligibility_points is available
-    let min_required_activity = props
-        .eligibility_points
-        .map(|ep| ep * props.eligibility_threshold);
+    let min_required_activity =
+        eligibility_points.map(|ep| ep * props.eligibility_threshold);
 
     // Calculate next round eligibility
     // - If we have prior eligibility: min(current, activity / threshold)
@@ -26,7 +31,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
             0.0
         };
         // Only apply min() if we have prior eligibility
-        match props.eligibility_points {
+        match eligibility_points {
             Some(ep) => calculated.min(ep),
             None => calculated,
         }
@@ -56,7 +61,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         </div>
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
-                            {if let Some(ep) = props.eligibility_points {
+                            {if let Some(ep) = eligibility_points {
                                 format!("{:.1}", ep)
                             } else {
                                 "--".to_string()

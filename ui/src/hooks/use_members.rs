@@ -13,6 +13,13 @@ pub struct MembersHookReturn {
     pub refetch: Callback<()>,
 }
 
+impl MembersHookReturn {
+    /// Returns true if this is the initial load (no data, no error, loading)
+    pub fn is_initial_loading(&self) -> bool {
+        self.is_loading && self.members.is_none() && self.error.is_none()
+    }
+}
+
 /// Hook to manage members data with lazy loading and global state caching
 #[hook]
 pub fn use_members(community_id: CommunityId) -> MembersHookReturn {
