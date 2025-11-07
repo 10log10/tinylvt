@@ -463,12 +463,11 @@ async fn test_view_communities_list() -> Result<()> {
         // Check if we have community cards
         if let Ok(community_cards) =
             env.browser.find_all(Locator::Css(".cursor-pointer")).await
+            && !community_cards.is_empty()
         {
-            if !community_cards.is_empty() {
-                communities_found = true;
-                debug!("Found {} community cards", community_cards.len());
-                break;
-            }
+            communities_found = true;
+            debug!("Found {} community cards", community_cards.len());
+            break;
         }
 
         // Check if we're in loading state

@@ -26,15 +26,16 @@ pub fn CountdownTimer(props: &Props) -> Html {
             let interval = Interval::new(1000, move || {
                 let remaining = calculate_time_remaining(target_time);
 
-                if remaining.is_past && !callback_called.get() {
-                    if let Some(callback) = &on_complete {
-                        tracing::info!(
-                            "CountdownTimer: countdown reached zero, \
-                             triggering on_complete callback"
-                        );
-                        callback.emit(());
-                        callback_called.set(true);
-                    }
+                if remaining.is_past
+                    && !callback_called.get()
+                    && let Some(callback) = &on_complete
+                {
+                    tracing::info!(
+                        "CountdownTimer: countdown reached zero, \
+                         triggering on_complete callback"
+                    );
+                    callback.emit(());
+                    callback_called.set(true);
                 }
 
                 time_remaining.set(remaining);

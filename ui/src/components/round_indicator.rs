@@ -32,15 +32,17 @@ pub fn RoundIndicator(props: &Props) -> Html {
                 let is_concluded = now >= round_end_at;
 
                 // If round just concluded (and we haven't called callback yet)
-                if is_concluded && !was_concluded && !callback_called.get() {
-                    if let Some(callback) = &on_round_end {
-                        tracing::info!(
-                            "RoundIndicator: round just concluded, triggering \
-                             on_round_end callback"
-                        );
-                        callback.emit(());
-                        callback_called.set(true);
-                    }
+                if is_concluded
+                    && !was_concluded
+                    && !callback_called.get()
+                    && let Some(callback) = &on_round_end
+                {
+                    tracing::info!(
+                        "RoundIndicator: round just concluded, triggering \
+                         on_round_end callback"
+                    );
+                    callback.emit(());
+                    callback_called.set(true);
                 }
 
                 round_concluded.set(is_concluded);
@@ -74,9 +76,7 @@ pub fn RoundIndicator(props: &Props) -> Html {
                 <div class="text-right">
                     <h3 class="text-sm font-medium text-neutral-700 \
                                dark:text-neutral-300 uppercase tracking-wide">
-                        {if auction_has_ended {
-                            "Status"
-                        } else if *round_concluded {
+                        {if auction_has_ended || *round_concluded {
                             "Status"
                         } else {
                             "Time Remaining"

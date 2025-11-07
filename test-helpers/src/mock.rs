@@ -234,6 +234,7 @@ async fn create_meetup_site(
 }
 
 /// Creates a hot desk space for individual work
+#[allow(dead_code)]
 async fn create_desk_space(
     app: &TestApp,
     site_id: &SiteId,
@@ -258,6 +259,7 @@ async fn create_desk_space(
 }
 
 /// Creates a premium conference room space
+#[allow(dead_code)]
 async fn create_conference_room(
     app: &TestApp,
     site_id: &SiteId,
@@ -549,6 +551,7 @@ async fn create_work_day_auction(
 }
 
 /// Creates Bob's secondary community for testing multi-community scenarios
+#[allow(dead_code)]
 async fn create_bob_community(app: &TestApp) -> Result<CommunityId> {
     app.create_bob_user().await?;
     app.login_bob().await?;
