@@ -42,7 +42,7 @@ pub fn CommunitiesPage() -> Html {
                 <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                     <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
                 </div>
-            } else if let Some(community_list) = &communities_hook.communities {
+            } else if let Some(community_list) = communities_hook.communities.as_ref() {
                 if community_list.is_empty() {
                     <div class="text-center py-12">
                         <p class="text-neutral-600 dark:text-neutral-400 mb-4">

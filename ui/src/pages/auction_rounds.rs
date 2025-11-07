@@ -66,7 +66,7 @@ pub fn AuctionRoundsPage(props: &Props) -> Html {
             <div class="py-6">
                 <RoundsContent
                     auction={auction.clone()}
-                    rounds={rounds_hook.rounds.clone()}
+                    rounds={rounds_hook.rounds.as_ref().cloned()}
                     is_loading={rounds_hook.is_loading}
                     error={rounds_hook.error.clone()}
                 />

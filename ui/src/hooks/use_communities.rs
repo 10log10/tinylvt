@@ -2,11 +2,12 @@ use payloads::responses;
 use yew::prelude::*;
 use yewdux::prelude::*;
 
+use crate::hooks::FetchState;
 use crate::{State, get_api_client};
 
 /// Hook return type for communities data
 pub struct CommunitiesHookReturn {
-    pub communities: Option<Vec<responses::CommunityWithRole>>,
+    pub communities: FetchState<Vec<responses::CommunityWithRole>>,
     pub is_loading: bool,
     pub error: Option<String>,
     pub refetch: Callback<()>,
@@ -15,7 +16,9 @@ pub struct CommunitiesHookReturn {
 impl CommunitiesHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.communities.is_none() && self.error.is_none()
+        self.is_loading
+            && !self.communities.is_fetched()
+            && self.error.is_none()
     }
 }
 
@@ -74,17 +77,10 @@ pub fn use_communities() -> CommunitiesHookReturn {
         });
     }
 
-    // Consider it "loading" if actively loading OR if we're in initial state
-    // (no data, no error yet)
-    let communities = state.get_communities().clone();
-    let current_error = (*error).clone();
-    let effective_is_loading =
-        *is_loading || (communities.is_none() && current_error.is_none());
-
     CommunitiesHookReturn {
-        communities,
-        is_loading: effective_is_loading,
-        error: current_error,
+        communities: state.get_communities().clone(),
+        is_loading: *is_loading,
+        error: (*error).clone(),
         refetch,
     }
 }

@@ -150,12 +150,12 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         });
     }
 
-    // Show loading state only for initial load (when data is None)
+    // Show loading state only for initial load (when data not yet fetched)
     // During refetches, keep the UI rendered and let data update smoothly
-    if current_round_hook.current_round.is_none()
-        || proxy_bidding_hook.settings.is_none()
-        || spaces_hook.spaces.is_none()
-        || user_values_hook.values.is_none()
+    if current_round_hook.is_initial_loading()
+        || proxy_bidding_hook.is_initial_loading()
+        || (spaces_hook.is_loading && spaces_hook.spaces.is_none())
+        || user_values_hook.is_initial_loading()
     {
         return html! {
             <div class="text-center py-12">
@@ -167,22 +167,28 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     }
 
     // Handle case where auction hasn't started yet (no rounds exist)
-    // current_round is Option<Option<AuctionRound>>:
-    // - None: still loading (handled above)
-    // - Some(None): fetched, but no rounds exist
-    // - Some(Some(round)): fetched with a round
-    let Some(Some(current_round)) = &current_round_hook.current_round else {
+    // current_round is FetchState<Option<AuctionRound>>:
+    // - NotFetched: still loading (handled above)
+    // - Fetched(None): fetched, but no rounds exist
+    // - Fetched(Some(round)): fetched with a round
+    let current_round_opt = current_round_hook
+        .current_round
+        .as_ref()
+        .and_then(|o| o.as_ref());
+    let Some(current_round) = current_round_opt else {
         // No rounds exist yet - show countdown with proxy bidding and space list
         let spaces = spaces_hook.spaces.clone().unwrap_or_default();
-        let user_values = user_values_hook.values.clone().unwrap_or_default();
-        let proxy_bidding_enabled =
-            proxy_bidding_hook.settings.clone().flatten().is_some();
-        let proxy_max_items = proxy_bidding_hook
+        let user_values = user_values_hook
+            .values
+            .as_ref()
+            .cloned()
+            .unwrap_or_default();
+        let settings_opt = proxy_bidding_hook
             .settings
-            .clone()
-            .flatten()
-            .map(|s| s.max_items)
-            .unwrap_or(1);
+            .as_ref()
+            .and_then(|o| o.as_ref());
+        let proxy_bidding_enabled = settings_opt.is_some();
+        let proxy_max_items = settings_opt.map(|s| s.max_items).unwrap_or(1);
 
         // Callbacks for proxy bidding controls
         let on_proxy_toggle = {
@@ -263,7 +269,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                 <SpaceListForBidding
                     spaces={spaces}
                     prices={vec![]}
-                    user_values={user_values}
+                    user_values={user_values_hook.values.as_ref().cloned().unwrap_or_default()}
                     proxy_bidding_enabled={proxy_bidding_enabled}
                     user_bid_space_ids={std::collections::HashSet::new()}
                     current_username={Option::<String>::None}
@@ -281,14 +287,12 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     // Extract data from hooks to pass to child component
     let spaces = spaces_hook.spaces.clone();
     let user_values = user_values_hook.values.clone();
-    let proxy_bidding_enabled =
-        proxy_bidding_hook.settings.clone().flatten().is_some();
-    let proxy_max_items = proxy_bidding_hook
+    let settings_opt = proxy_bidding_hook
         .settings
-        .clone()
-        .flatten()
-        .map(|s| s.max_items)
-        .unwrap_or(1);
+        .as_ref()
+        .and_then(|o| o.as_ref());
+    let proxy_bidding_enabled = settings_opt.is_some();
+    let proxy_max_items = settings_opt.map(|s| s.max_items).unwrap_or(1);
     let update_value = user_values_hook.update_value.clone();
     let delete_value = user_values_hook.delete_value.clone();
     let proxy_update = proxy_bidding_hook.update.clone();
@@ -302,7 +306,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
             current_round={current_round.clone()}
             current_username={current_username}
             spaces={spaces}
-            user_values={user_values}
+            user_values={user_values_hook.values.as_ref().cloned()}
             proxy_bidding_enabled={proxy_bidding_enabled}
             proxy_max_items={proxy_max_items}
             update_value={update_value}
@@ -391,12 +395,20 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     }
 
     // Get the data we need
-    let prices = round_prices_hook.prices.unwrap_or_default();
+    let prices = round_prices_hook
+        .prices
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
 
     let user_values = props.user_values.clone().unwrap_or_default();
     let spaces = props.spaces.clone().unwrap_or_default();
     let eligibility = eligibility_hook.eligibility;
-    let user_bid_space_ids = user_bids_hook.bid_space_ids.unwrap_or_default();
+    let user_bid_space_ids = user_bids_hook
+        .bid_space_ids
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
 
     // Calculate current activity: sum of points for spaces where user is
     // high bidder or has placed a bid in this round

@@ -2,13 +2,14 @@ use payloads::{AuctionId, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for auction rounds data
 ///
 /// See module-level documentation in `hooks/mod.rs` for state combination
 /// details.
 pub struct AuctionRoundsHookReturn {
-    pub rounds: Option<Vec<responses::AuctionRound>>,
+    pub rounds: FetchState<Vec<responses::AuctionRound>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -17,7 +18,7 @@ pub struct AuctionRoundsHookReturn {
 impl AuctionRoundsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.rounds.is_none() && self.error.is_none()
+        self.is_loading && !self.rounds.is_fetched() && self.error.is_none()
     }
 }
 
@@ -28,9 +29,9 @@ impl AuctionRoundsHookReturn {
 /// an active auction.
 #[hook]
 pub fn use_auction_rounds(auction_id: AuctionId) -> AuctionRoundsHookReturn {
-    let rounds = use_state(|| None);
+    let rounds = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let rounds = rounds.clone();
@@ -49,7 +50,7 @@ pub fn use_auction_rounds(auction_id: AuctionId) -> AuctionRoundsHookReturn {
                 let api_client = get_api_client();
                 match api_client.list_auction_rounds(&auction_id).await {
                     Ok(fetched_rounds) => {
-                        rounds.set(Some(fetched_rounds));
+                        rounds.set(FetchState::Fetched(fetched_rounds));
                         error.set(None);
                     }
                     Err(e) => {
@@ -62,28 +63,19 @@ pub fn use_auction_rounds(auction_id: AuctionId) -> AuctionRoundsHookReturn {
         })
     };
 
-    // Auto-load rounds on mount
+    // Auto-load rounds on mount and when auction_id changes
     {
         let refetch = refetch.clone();
-        let rounds = rounds.clone();
-        let is_loading = is_loading.clone();
 
         use_effect_with(auction_id, move |auction_id| {
-            if rounds.is_none() && !*is_loading {
-                refetch.emit(*auction_id);
-            }
+            refetch.emit(*auction_id);
         });
     }
 
-    let current_rounds = (*rounds).clone();
-    let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_rounds.is_none() && current_error.is_none());
-
     AuctionRoundsHookReturn {
-        rounds: current_rounds,
-        error: current_error,
-        is_loading: current_is_loading,
+        rounds: (*rounds).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(auction_id)),
     }
 }

@@ -2,20 +2,23 @@ use payloads::{AuctionId, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for current round data
 ///
-/// The `current_round` field uses a nested Option to distinguish fetch state:
-/// - `None`: Data not fetched yet / still loading
-/// - `Some(None)`: Successfully fetched, but no current round exists
-/// - `Some(Some(round))`: Successfully fetched with a current round
+/// The `current_round` field uses FetchState to distinguish fetch state:
+/// - `FetchState::NotFetched`: Data not fetched yet / still loading
+/// - `FetchState::Fetched(None)`: Successfully fetched, but no current round
+///   exists
+/// - `FetchState::Fetched(Some(round))`: Successfully fetched with a current
+///   round
 ///
 /// See module-level documentation in `hooks/mod.rs` for state combination
 /// details.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct CurrentRoundHookReturn {
-    pub current_round: Option<Option<responses::AuctionRound>>,
+    pub current_round: FetchState<Option<responses::AuctionRound>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -24,7 +27,9 @@ pub struct CurrentRoundHookReturn {
 impl CurrentRoundHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.current_round.is_none() && self.error.is_none()
+        self.is_loading
+            && !self.current_round.is_fetched()
+            && self.error.is_none()
     }
 }
 
@@ -32,12 +37,12 @@ impl CurrentRoundHookReturn {
 ///
 /// This fetches all rounds and returns the latest one (highest round_num).
 /// If the auction has not started yet (no rounds exist), `current_round` will
-/// be `Some(None)` with no error.
+/// be `FetchState::Fetched(None)` with no error.
 #[hook]
 pub fn use_current_round(auction_id: AuctionId) -> CurrentRoundHookReturn {
-    let current_round = use_state(|| None);
+    let current_round = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let current_round = current_round.clone();
@@ -60,8 +65,7 @@ pub fn use_current_round(auction_id: AuctionId) -> CurrentRoundHookReturn {
                         let latest = rounds
                             .into_iter()
                             .max_by_key(|r| r.round_details.round_num);
-                        // Wrap in Some to indicate we've fetched the data
-                        current_round.set(Some(latest));
+                        current_round.set(FetchState::Fetched(latest));
                         error.set(None);
                     }
                     Err(e) => {
@@ -73,29 +77,19 @@ pub fn use_current_round(auction_id: AuctionId) -> CurrentRoundHookReturn {
         })
     };
 
-    // Auto-load current round on mount
+    // Auto-load current round on mount and when auction_id changes
     {
         let refetch = refetch.clone();
-        let current_round = current_round.clone();
-        let is_loading = is_loading.clone();
 
         use_effect_with(auction_id, move |auction_id| {
-            if current_round.is_none() && !*is_loading {
-                refetch.emit(*auction_id);
-            }
+            refetch.emit(*auction_id);
         });
     }
 
-    let current_round_value = (*current_round).clone();
-    let current_error = (*error).clone();
-    // If outer Option is None and there's no error, we haven't fetched yet
-    let current_is_loading = *is_loading
-        || (current_round_value.is_none() && current_error.is_none());
-
     CurrentRoundHookReturn {
-        current_round: current_round_value,
-        error: current_error,
-        is_loading: current_is_loading,
+        current_round: (*current_round).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(auction_id)),
     }
 }

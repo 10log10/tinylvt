@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for user space values
 ///
@@ -12,7 +13,7 @@ use crate::get_api_client;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct UserSpaceValuesHookReturn {
-    pub values: Option<HashMap<SpaceId, Decimal>>,
+    pub values: FetchState<HashMap<SpaceId, Decimal>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -23,7 +24,7 @@ pub struct UserSpaceValuesHookReturn {
 impl UserSpaceValuesHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.values.is_none() && self.error.is_none()
+        self.is_loading && !self.values.is_fetched() && self.error.is_none()
     }
 }
 
@@ -34,9 +35,9 @@ impl UserSpaceValuesHookReturn {
 /// quick lookup.
 #[hook]
 pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
-    let values = use_state(|| None);
+    let values = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let values = values.clone();
@@ -60,7 +61,7 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
                             .into_iter()
                             .map(|uv| (uv.space_id, uv.value))
                             .collect();
-                        values.set(Some(value_map));
+                        values.set(FetchState::Fetched(value_map));
                         error.set(None);
                     }
                     Err(e) => {
@@ -137,28 +138,19 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
         })
     };
 
-    // Auto-load values on mount
+    // Auto-load values on mount and when site_id changes
     {
         let refetch = refetch.clone();
-        let values = values.clone();
-        let is_loading = is_loading.clone();
 
         use_effect_with(site_id, move |site_id| {
-            if values.is_none() && !*is_loading {
-                refetch.emit(*site_id);
-            }
+            refetch.emit(*site_id);
         });
     }
 
-    let current_values = (*values).clone();
-    let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_values.is_none() && current_error.is_none());
-
     UserSpaceValuesHookReturn {
-        values: current_values,
-        error: current_error,
-        is_loading: current_is_loading,
+        values: (*values).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(site_id)),
         update_value,
         delete_value,

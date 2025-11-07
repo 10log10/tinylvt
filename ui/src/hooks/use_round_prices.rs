@@ -2,6 +2,7 @@ use payloads::{AuctionRoundId, RoundSpaceResult};
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for round space results (prices)
 ///
@@ -9,7 +10,7 @@ use crate::get_api_client;
 /// details.
 #[allow(dead_code)]
 pub struct RoundPricesHookReturn {
-    pub prices: Option<Vec<RoundSpaceResult>>,
+    pub prices: FetchState<Vec<RoundSpaceResult>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -18,7 +19,7 @@ pub struct RoundPricesHookReturn {
 impl RoundPricesHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.prices.is_none() && self.error.is_none()
+        self.is_loading && !self.prices.is_fetched() && self.error.is_none()
     }
 }
 
@@ -30,9 +31,9 @@ impl RoundPricesHookReturn {
 pub fn use_round_prices(
     round_id: Option<AuctionRoundId>,
 ) -> RoundPricesHookReturn {
-    let prices = use_state(|| None);
+    let prices = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| round_id.is_some());
 
     let refetch = {
         let prices = prices.clone();
@@ -59,7 +60,7 @@ pub fn use_round_prices(
                     .await
                 {
                     Ok(results) => {
-                        prices.set(Some(results));
+                        prices.set(FetchState::Fetched(results));
                         error.set(None);
                     }
                     Err(e) => {
@@ -81,19 +82,10 @@ pub fn use_round_prices(
         });
     }
 
-    let current_prices = (*prices).clone();
-    let current_error = (*error).clone();
-    // If round_id is None, we're not loading - just return empty results
-    let current_is_loading = if round_id.is_none() {
-        false
-    } else {
-        *is_loading || (current_prices.is_none() && current_error.is_none())
-    };
-
     RoundPricesHookReturn {
-        prices: current_prices,
-        error: current_error,
-        is_loading: current_is_loading,
+        prices: (*prices).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(round_id)),
     }
 }

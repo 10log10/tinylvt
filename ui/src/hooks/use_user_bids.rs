@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for user bids data
 ///
@@ -13,7 +14,7 @@ use crate::get_api_client;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct UserBidsHookReturn {
-    pub bid_space_ids: Option<HashSet<SpaceId>>,
+    pub bid_space_ids: FetchState<HashSet<SpaceId>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -22,7 +23,9 @@ pub struct UserBidsHookReturn {
 impl UserBidsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.bid_space_ids.is_none() && self.error.is_none()
+        self.is_loading
+            && !self.bid_space_ids.is_fetched()
+            && self.error.is_none()
     }
 }
 
@@ -33,9 +36,9 @@ impl UserBidsHookReturn {
 /// button for those spaces.
 #[hook]
 pub fn use_user_bids(round_id: AuctionRoundId) -> UserBidsHookReturn {
-    let bid_space_ids = use_state(|| None);
+    let bid_space_ids = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let bid_space_ids = bid_space_ids.clone();
@@ -57,7 +60,7 @@ pub fn use_user_bids(round_id: AuctionRoundId) -> UserBidsHookReturn {
                         // Extract space IDs from the bids
                         let bids_set: HashSet<SpaceId> =
                             bids.iter().map(|bid| bid.space_id).collect();
-                        bid_space_ids.set(Some(bids_set));
+                        bid_space_ids.set(FetchState::Fetched(bids_set));
                         error.set(None);
                     }
                     Err(e) => {
@@ -79,15 +82,10 @@ pub fn use_user_bids(round_id: AuctionRoundId) -> UserBidsHookReturn {
         });
     }
 
-    let current_bid_space_ids = (*bid_space_ids).clone();
-    let current_error = (*error).clone();
-    let current_is_loading = *is_loading
-        || (current_bid_space_ids.is_none() && current_error.is_none());
-
     UserBidsHookReturn {
-        bid_space_ids: current_bid_space_ids,
-        error: current_error,
-        is_loading: current_is_loading,
+        bid_space_ids: (*bid_space_ids).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(round_id)),
     }
 }

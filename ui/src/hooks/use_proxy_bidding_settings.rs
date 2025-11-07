@@ -2,6 +2,7 @@ use payloads::{AuctionId, requests, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for proxy bidding settings
 ///
@@ -10,7 +11,7 @@ use crate::get_api_client;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ProxyBiddingSettingsHookReturn {
-    pub settings: Option<Option<responses::UseProxyBidding>>,
+    pub settings: FetchState<Option<responses::UseProxyBidding>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -21,22 +22,22 @@ pub struct ProxyBiddingSettingsHookReturn {
 impl ProxyBiddingSettingsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.settings.is_none() && self.error.is_none()
+        self.is_loading && !self.settings.is_fetched() && self.error.is_none()
     }
 }
 
 /// Hook to manage proxy bidding settings for an auction
 ///
 /// Provides methods to get, update, and delete proxy bidding settings.
-/// The outer Option tracks loading state, inner Option tracks whether
+/// FetchState tracks loading state, inner Option tracks whether
 /// proxy bidding is enabled (None = disabled, Some = enabled with settings).
 #[hook]
 pub fn use_proxy_bidding_settings(
     auction_id: AuctionId,
 ) -> ProxyBiddingSettingsHookReturn {
-    let settings = use_state(|| None);
+    let settings = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let settings = settings.clone();
@@ -55,7 +56,7 @@ pub fn use_proxy_bidding_settings(
                 let api_client = get_api_client();
                 match api_client.get_proxy_bidding(&auction_id).await {
                     Ok(proxy_settings) => {
-                        settings.set(Some(proxy_settings));
+                        settings.set(FetchState::Fetched(proxy_settings));
                         error.set(None);
                     }
                     Err(e) => {
@@ -94,7 +95,8 @@ pub fn use_proxy_bidding_settings(
                         // Refetch to get updated settings with timestamp
                         match api_client.get_proxy_bidding(&auction_id).await {
                             Ok(proxy_settings) => {
-                                settings.set(Some(proxy_settings));
+                                settings
+                                    .set(FetchState::Fetched(proxy_settings));
                                 error.set(None);
                             }
                             Err(e) => {
@@ -129,7 +131,7 @@ pub fn use_proxy_bidding_settings(
                 let api_client = get_api_client();
                 match api_client.delete_proxy_bidding(&auction_id).await {
                     Ok(_) => {
-                        settings.set(Some(None));
+                        settings.set(FetchState::Fetched(None));
                         error.set(None);
                     }
                     Err(e) => {
@@ -142,28 +144,19 @@ pub fn use_proxy_bidding_settings(
         })
     };
 
-    // Auto-load settings on mount
+    // Auto-load settings on mount and when auction_id changes
     {
         let refetch = refetch.clone();
-        let settings = settings.clone();
-        let is_loading = is_loading.clone();
 
         use_effect_with(auction_id, move |auction_id| {
-            if settings.is_none() && !*is_loading {
-                refetch.emit(*auction_id);
-            }
+            refetch.emit(*auction_id);
         });
     }
 
-    let current_settings = (*settings).clone();
-    let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_settings.is_none() && current_error.is_none());
-
     ProxyBiddingSettingsHookReturn {
-        settings: current_settings,
-        error: current_error,
-        is_loading: current_is_loading,
+        settings: (*settings).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(auction_id)),
         update,
         delete,

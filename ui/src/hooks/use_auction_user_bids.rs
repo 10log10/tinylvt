@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for auction-wide user bids data
 ///
@@ -14,7 +15,7 @@ use crate::get_api_client;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct AuctionUserBidsHookReturn {
-    pub bids_by_round: Option<HashMap<AuctionRoundId, Vec<SpaceId>>>,
+    pub bids_by_round: FetchState<HashMap<AuctionRoundId, Vec<SpaceId>>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -23,7 +24,9 @@ pub struct AuctionUserBidsHookReturn {
 impl AuctionUserBidsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.bids_by_round.is_none() && self.error.is_none()
+        self.is_loading
+            && !self.bids_by_round.is_fetched()
+            && self.error.is_none()
     }
 }
 
@@ -36,9 +39,9 @@ pub fn use_auction_user_bids(
     auction_id: AuctionId,
     rounds: Option<Vec<payloads::responses::AuctionRound>>,
 ) -> AuctionUserBidsHookReturn {
-    let bids_by_round = use_state(|| None);
+    let bids_by_round = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let bids_by_round = bids_by_round.clone();
@@ -90,7 +93,7 @@ pub fn use_auction_user_bids(
                         }
                     }
 
-                    bids_by_round.set(Some(all_bids));
+                    bids_by_round.set(FetchState::Fetched(all_bids));
                     is_loading.set(false);
                 });
             },
@@ -109,15 +112,10 @@ pub fn use_auction_user_bids(
         );
     }
 
-    let current_bids = (*bids_by_round).clone();
-    let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_bids.is_none() && current_error.is_none());
-
     AuctionUserBidsHookReturn {
-        bids_by_round: current_bids,
-        error: current_error,
-        is_loading: current_is_loading,
+        bids_by_round: (*bids_by_round).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| {
             refetch.emit((auction_id, rounds.clone()))
         }),

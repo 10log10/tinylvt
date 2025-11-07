@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::hooks::FetchState;
 
 /// Hook return type for auction-wide round results
 ///
@@ -15,7 +16,7 @@ use crate::get_api_client;
 #[allow(dead_code)]
 pub struct AuctionRoundResultsHookReturn {
     pub results_by_round:
-        Option<HashMap<AuctionRoundId, Vec<RoundSpaceResult>>>,
+        FetchState<HashMap<AuctionRoundId, Vec<RoundSpaceResult>>>,
     pub error: Option<String>,
     pub is_loading: bool,
     pub refetch: Callback<()>,
@@ -25,7 +26,7 @@ impl AuctionRoundResultsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading
-            && self.results_by_round.is_none()
+            && !self.results_by_round.is_fetched()
             && self.error.is_none()
     }
 }
@@ -40,9 +41,9 @@ pub fn use_auction_round_results(
     auction_id: AuctionId,
     rounds: Option<Vec<payloads::responses::AuctionRound>>,
 ) -> AuctionRoundResultsHookReturn {
-    let results_by_round = use_state(|| None);
+    let results_by_round = use_state(|| FetchState::NotFetched);
     let error = use_state(|| None);
-    let is_loading = use_state(|| false);
+    let is_loading = use_state(|| true);
 
     let refetch = {
         let results_by_round = results_by_round.clone();
@@ -94,7 +95,7 @@ pub fn use_auction_round_results(
                         }
                     }
 
-                    results_by_round.set(Some(all_results));
+                    results_by_round.set(FetchState::Fetched(all_results));
                     is_loading.set(false);
                 });
             },
@@ -113,15 +114,10 @@ pub fn use_auction_round_results(
         );
     }
 
-    let current_results = (*results_by_round).clone();
-    let current_error = (*error).clone();
-    let current_is_loading =
-        *is_loading || (current_results.is_none() && current_error.is_none());
-
     AuctionRoundResultsHookReturn {
-        results_by_round: current_results,
-        error: current_error,
-        is_loading: current_is_loading,
+        results_by_round: (*results_by_round).clone(),
+        error: (*error).clone(),
+        is_loading: *is_loading,
         refetch: Callback::from(move |_| {
             refetch.emit((auction_id, rounds.clone()))
         }),
