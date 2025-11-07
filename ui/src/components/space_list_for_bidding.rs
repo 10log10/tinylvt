@@ -44,7 +44,7 @@ pub struct Props {
 pub fn SpaceListForBidding(props: &Props) -> Html {
     let sort_field = use_state(|| SortField::Name);
     let sort_direction = use_state(|| SortDirection::Ascending);
-    let filter_no_value = use_state(|| true);
+    let filter_no_value = use_state(|| false);
 
     // Create price and winner lookup
     let price_map: HashMap<SpaceId, RoundSpaceResult> = props
