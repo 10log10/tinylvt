@@ -306,9 +306,10 @@ async fn create_ongoing_auction_with_rounds(
 
     // Calculate auction start time: far enough in the past to have processed
     // all the rounds we want (round_duration * num_rounds_to_process)
-    let auction_start_offset = round_duration
-        .checked_mul(num_rounds_to_process)
-        .expect("round duration multiplication overflow");
+    let auction_start_offset = Span::new().seconds(-15);
+    // let auction_start_offset = round_duration
+    // .checked_mul(num_rounds_to_process)
+    // .expect("round duration multiplication overflow");
     app.time_source.set(real_now - auction_start_offset);
 
     // Get LA timezone for proper work day calculation

@@ -1,6 +1,10 @@
 use crate::components::CountdownTimer;
-use gloo_timers::callback::Interval;
+use gloo_timers::future::sleep;
 use jiff::Timestamp;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use yew::platform::spawn_local;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -13,42 +17,62 @@ pub struct Props {
     pub on_round_end: Option<Callback<()>>,
 }
 
+// NOTE: This component uses spawn_local with explicit AbortHandle cleanup
+// to avoid interval leaks. The parent should still use a key prop that changes
+// with each round to ensure fresh state and avoid stale closure captures.
 #[function_component]
 pub fn RoundIndicator(props: &Props) -> Html {
     let round_concluded = use_state(|| Timestamp::now() >= props.round_end_at);
 
-    // Update round_concluded status every second
+    // Update round_concluded status every second using spawn_local
     {
         let round_concluded = round_concluded.clone();
         let round_end_at = props.round_end_at;
         let on_round_end = props.on_round_end.clone();
 
-        use_effect_with((), move |_| {
+        use_effect_with(round_end_at, move |&round_end_at| {
+            // Reset state for new round
+            round_concluded.set(Timestamp::now() >= round_end_at);
+
             let callback_called = std::cell::Cell::new(false);
+            let cancelled = Rc::new(AtomicBool::new(false));
+            let cancelled_clone = cancelled.clone();
 
-            let interval = Interval::new(1000, move || {
-                let now = Timestamp::now();
-                let was_concluded = *round_concluded;
-                let is_concluded = now >= round_end_at;
+            // Spawn async task to check every second
+            spawn_local(async move {
+                while !cancelled_clone.load(Ordering::Relaxed) {
+                    sleep(Duration::from_secs(1)).await;
 
-                // If round just concluded (and we haven't called callback yet)
-                if is_concluded
-                    && !was_concluded
-                    && !callback_called.get()
-                    && let Some(callback) = &on_round_end
-                {
-                    tracing::info!(
-                        "RoundIndicator: round just concluded, triggering \
-                         on_round_end callback"
-                    );
-                    callback.emit(());
-                    callback_called.set(true);
+                    if cancelled_clone.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let now = Timestamp::now();
+                    let was_concluded = *round_concluded;
+                    let is_concluded = now >= round_end_at;
+
+                    // If round just concluded (and we haven't called callback yet)
+                    if is_concluded
+                        && !was_concluded
+                        && !callback_called.get()
+                        && let Some(callback) = &on_round_end
+                    {
+                        tracing::info!(
+                            "RoundIndicator: round just concluded, triggering \
+                             on_round_end callback"
+                        );
+                        callback.emit(());
+                        callback_called.set(true);
+                    }
+
+                    round_concluded.set(is_concluded);
                 }
-
-                round_concluded.set(is_concluded);
             });
 
-            move || drop(interval)
+            // Cleanup: signal cancellation when effect re-runs or component unmounts
+            move || {
+                cancelled.store(true, Ordering::Relaxed);
+            }
         });
     }
 

@@ -47,13 +47,6 @@ pub fn use_exponential_refetch(
         use_callback(
             (initial_delay_ms, max_delay_ms),
             move |_, (initial_delay_ms, max_delay_ms)| {
-                tracing::info!(
-                    "Exponential refetch: starting with initial_delay={}ms, \
-                     max_delay={}ms",
-                    initial_delay_ms,
-                    max_delay_ms
-                );
-
                 // Clear any existing error and reset delay
                 error.set(None);
                 current_delay.set(*initial_delay_ms);
@@ -100,18 +93,12 @@ fn schedule_refetch(
     let timeout_handle_for_closure = timeout_handle.clone();
     let should_continue_for_closure = should_continue.clone();
 
-    tracing::info!("Exponential refetch: scheduling attempt in {}ms", delay_ms);
-
     let timeout = Timeout::new(delay_ms, move || {
         // Check if we should continue before doing anything
         if !should_continue_for_closure.get() {
             return;
         }
 
-        tracing::info!(
-            "Exponential refetch: timeout fired after {}ms, calling refetch",
-            delay_ms
-        );
         refetch.emit(());
 
         // Calculate next delay

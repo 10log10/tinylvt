@@ -379,20 +379,9 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     // Fetch user's existing bids for this round
     let user_bids_hook = use_user_bids(round_id);
 
-    // Show loading for round-specific data
-    if rounds_hook.is_loading
-        || round_prices_hook.is_loading
-        || eligibility_hook.is_loading
-        || user_bids_hook.is_loading
-    {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"Loading round data..."}
-                </p>
-            </div>
-        };
-    }
+    // Don't show a loading state - just render with whatever data we have.
+    // The hooks will update smoothly when new data arrives, avoiding the flash.
+    // On true initial load (no data at all), the parent component handles it.
 
     // Get the data we need
     let prices = round_prices_hook
@@ -545,7 +534,13 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             />
 
             // Current round indicator
+            // IMPORTANT: key prop forces remount on round change to avoid stale
+            // closure captures. The interval closure captures round_concluded state,
+            // and even with use_effect_with(round_end_at), the closure can capture
+            // a stale state handle from before the effect runs. Forcing a remount
+            // ensures all state is fresh. This is the correct pattern, not a workaround.
             <RoundIndicator
+                key={props.current_round.round_id.to_string()}
                 round_num={props.current_round.round_details.round_num}
                 round_end_at={props.current_round.round_details.end_at}
                 auction_end_at={props.auction.end_at}

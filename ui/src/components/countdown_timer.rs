@@ -1,5 +1,9 @@
-use gloo_timers::callback::Interval;
+use gloo_timers::future::sleep;
 use jiff::Timestamp;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use yew::platform::spawn_local;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -14,34 +18,51 @@ pub fn CountdownTimer(props: &Props) -> Html {
     let time_remaining =
         use_state(|| calculate_time_remaining(props.target_time));
 
-    // Update the countdown every second
+    // Update the countdown every second using spawn_local
     {
         let time_remaining = time_remaining.clone();
         let target_time = props.target_time;
         let on_complete = props.on_complete.clone();
 
-        use_effect_with((), move |_| {
+        use_effect_with(target_time, move |&target_time| {
+            // Reset state immediately
+            time_remaining.set(calculate_time_remaining(target_time));
+
             let callback_called = std::cell::Cell::new(false);
+            let cancelled = Rc::new(AtomicBool::new(false));
+            let cancelled_clone = cancelled.clone();
 
-            let interval = Interval::new(1000, move || {
-                let remaining = calculate_time_remaining(target_time);
+            // Spawn async task to update every second
+            spawn_local(async move {
+                while !cancelled_clone.load(Ordering::Relaxed) {
+                    sleep(Duration::from_secs(1)).await;
 
-                if remaining.is_past
-                    && !callback_called.get()
-                    && let Some(callback) = &on_complete
-                {
-                    tracing::info!(
-                        "CountdownTimer: countdown reached zero, \
-                         triggering on_complete callback"
-                    );
-                    callback.emit(());
-                    callback_called.set(true);
+                    if cancelled_clone.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let remaining = calculate_time_remaining(target_time);
+
+                    if remaining.is_past
+                        && !callback_called.get()
+                        && let Some(callback) = &on_complete
+                    {
+                        tracing::info!(
+                            "CountdownTimer: countdown reached zero, \
+                             triggering on_complete callback"
+                        );
+                        callback.emit(());
+                        callback_called.set(true);
+                    }
+
+                    time_remaining.set(remaining);
                 }
-
-                time_remaining.set(remaining);
             });
 
-            move || drop(interval)
+            // Cleanup: signal cancellation when effect re-runs or component unmounts
+            move || {
+                cancelled.store(true, Ordering::Relaxed);
+            }
         });
     }
 
