@@ -764,6 +764,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         )),
         email_from_address: "test@example.com".to_string(),
         base_url: "http://localhost:8080".to_string(),
+        session_master_key: None,
     };
 
     let client = reqwest::Client::builder()

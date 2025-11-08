@@ -13,13 +13,13 @@ pub fn HelpPage() -> Html {
                     {"Need help with your account?"}
                 </h2>
                 <p class="text-neutral-700 dark:text-neutral-300 mb-4">
-                    {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact our support team:"}
+                    {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact us:"}
                 </p>
                 <a
-                    href="mailto:support@tinylvt.com"
+                    href="mailto:10log10@pm.me"
                     class="text-neutral-900 dark:text-white font-semibold hover:underline"
                 >
-                    {"support@tinylvt.com"}
+                    {"10log10@pm.me"}
                 </a>
             </div>
 

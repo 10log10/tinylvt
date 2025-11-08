@@ -36,7 +36,30 @@ pub async fn build_with_email_service(
     time_source: TimeSource,
     email_service_override: Option<web::Data<email::EmailService>>,
 ) -> std::io::Result<Server> {
-    let secret_key = Key::generate(); // key for signing session cookies
+    // Initialize session key from config or generate a temporary one
+    let secret_key = match &config.session_master_key {
+        Some(master_key) => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let decoded = STANDARD
+                .decode(master_key.expose_secret())
+                .expect("SESSION_MASTER_KEY must be valid base64");
+            if decoded.len() != 64 {
+                panic!(
+                    "SESSION_MASTER_KEY must decode to exactly 64 bytes, got {} bytes",
+                    decoded.len()
+                );
+            }
+            Key::from(&decoded[..])
+        }
+        None => {
+            tracing::warn!(
+                "No SESSION_MASTER_KEY provided; using temporary key. \
+                Sessions will not persist across restarts or between multiple instances. \
+                Generate a key with: openssl rand -base64 64"
+            );
+            Key::generate()
+        }
+    };
     let db_pool =
         web::Data::new(PgPool::connect(&config.database_url).await.unwrap());
     let time_source = web::Data::new(time_source);
@@ -64,6 +87,10 @@ pub async fn build_with_email_service(
         )),
         email_from_address: config.email_from_address.clone(),
         base_url: config.base_url.clone(),
+        session_master_key: config
+            .session_master_key
+            .as_ref()
+            .map(|k| SecretBox::new(Box::new(k.expose_secret().clone()))),
     });
 
     // OS assigns the port if binding to 0
@@ -135,6 +162,9 @@ pub struct Config {
     pub email_from_address: String,
     /// Base URL for email links (e.g., "https://yourdomain.com" or "http://localhost:8080")
     pub base_url: String,
+    /// Optional master key for session cookies (base64-encoded 64-byte key)
+    /// If not provided, a random key will be generated on each startup
+    pub session_master_key: Option<SecretBox<String>>,
 }
 
 impl Config {
@@ -160,6 +190,9 @@ impl Config {
                 .expect("EMAIL_FROM_ADDRESS must be set"),
             base_url: var("BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            session_master_key: var("SESSION_MASTER_KEY")
+                .ok()
+                .map(|k| SecretBox::new(Box::new(k))),
         }
     }
 }

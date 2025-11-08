@@ -371,6 +371,7 @@ dependencies = [
  "anyhow",
  "api",
  "argon2",
+ "base64 0.22.1",
  "derive_more 2.0.1",
  "dotenvy",
  "jiff",

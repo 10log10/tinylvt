@@ -18,6 +18,7 @@ actix-session = { version = "0.10.1", features = ["cookie-session"] }
 actix-web = "4.10.2"
 anyhow = { workspace = true }
 argon2 = { version = "0.5.3", features = ["std"] }
+base64 = "0.22"
 derive_more = { workspace = true }
 dotenvy = "0.15.7"
 jiff = { workspace = true }
