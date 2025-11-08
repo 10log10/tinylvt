@@ -77,20 +77,8 @@ pub async fn build_with_email_service(
 
     // Clone config for use in closure
     let allowed_origins = config.allowed_origins.clone();
-    let config_data = web::Data::new(Config {
-        database_url: config.database_url.clone(),
-        ip: config.ip.clone(),
-        port: config.port,
-        allowed_origins: config.allowed_origins.clone(),
-        email_api_key: secrecy::SecretBox::new(Box::new(
-            config.email_api_key.expose_secret().clone(),
-        )),
-        email_from_address: config.email_from_address.clone(),
+    let app_config = web::Data::new(AppConfig {
         base_url: config.base_url.clone(),
-        session_master_key: config
-            .session_master_key
-            .as_ref()
-            .map(|k| SecretBox::new(Box::new(k.expose_secret().clone()))),
     });
 
     // OS assigns the port if binding to 0
@@ -141,13 +129,15 @@ pub async fn build_with_email_service(
             .app_data(db_pool.clone())
             .app_data(time_source.clone())
             .app_data(email_service.clone())
-            .app_data(config_data.clone())
+            .app_data(app_config.clone())
     })
     .listen(listener)?
     .run();
     Ok(server)
 }
 
+/// Configuration loaded from environment variables at startup.
+/// Used only during server initialization, not shared as app_data.
 pub struct Config {
     pub database_url: String,
     /// set to "0.0.0.0" for public access, "127.0.0.1" for local dev
@@ -165,6 +155,13 @@ pub struct Config {
     /// Optional master key for session cookies (base64-encoded 64-byte key)
     /// If not provided, a random key will be generated on each startup
     pub session_master_key: Option<SecretBox<String>>,
+}
+
+/// Runtime configuration shared across the application as app_data.
+/// Contains only the fields needed by route handlers at runtime.
+pub struct AppConfig {
+    /// Base URL for email links (e.g., "https://yourdomain.com" or "http://localhost:8080")
+    pub base_url: String,
 }
 
 impl Config {

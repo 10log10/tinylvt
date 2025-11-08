@@ -4,7 +4,7 @@ use jiff::Span;
 use secrecy::SecretBox;
 use sqlx::PgPool;
 
-use crate::Config;
+use crate::AppConfig;
 use crate::password::{
     AuthError, Credentials, NewUserDetails, change_password, create_user,
     validate_credentials,
@@ -79,7 +79,7 @@ pub async fn create_account(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<Config>,
+    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = create_user(new_user_details.0, &pool, &time_source).await?;
 
@@ -154,7 +154,7 @@ pub async fn forgot_password(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<Config>,
+    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, APIError> {
     // Always return success to prevent email enumeration
     let response = payloads::responses::SuccessMessage {
@@ -226,7 +226,7 @@ pub async fn resend_verification_email(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<Config>,
+    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, APIError> {
     // Always return success to prevent email enumeration
     let response = payloads::responses::SuccessMessage {

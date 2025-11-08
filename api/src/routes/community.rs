@@ -48,7 +48,7 @@ pub async fn invite_community_member(
     details: web::Json<requests::InviteCommunityMember>,
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
-    config: web::Data<crate::Config>,
+    config: web::Data<crate::AppConfig>,
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
