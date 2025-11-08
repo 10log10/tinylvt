@@ -55,7 +55,7 @@ pub async fn build_with_email_service(
             tracing::warn!(
                 "No SESSION_MASTER_KEY provided; using temporary key. \
                 Sessions will not persist across restarts or between multiple instances. \
-                Generate a key with: openssl rand -base64 64"
+                Generate a key with: openssl rand -base64 64 | tr -d '\\n'"
             );
             Key::generate()
         }
