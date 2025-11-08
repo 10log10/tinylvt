@@ -65,7 +65,7 @@ async fn main() -> std::io::Result<()> {
     let scheduler = Scheduler::new(
         pool.clone(),
         time_source.clone(),
-        Duration::from_secs(5),
+        Duration::from_secs(1),
     );
     tokio::spawn(async move {
         scheduler.run().await;

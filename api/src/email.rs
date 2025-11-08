@@ -85,7 +85,7 @@ impl EmailService {
         base_url: &str,
     ) -> Result<()> {
         let verification_link =
-            format!("{}/verify-email?token={}", base_url, verification_token);
+            format!("{}/verify_email?token={}", base_url, verification_token);
 
         let template = EmailTemplate {
             subject: "Verify your email address".to_string(),

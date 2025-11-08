@@ -19,7 +19,7 @@ use pages::{
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, LoggedInHomePage,
     LoggedOutHomePage, LoginPage, NotFoundPage, SiteAuctionsPage,
-    SiteDetailPage, SiteSettingsPage,
+    SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -66,6 +66,8 @@ pub enum Route {
     Home,
     #[at("/login")]
     Login,
+    #[at("/verify_email")]
+    VerifyEmail,
     #[at("/accept-invite/:invite_id")]
     AcceptInvite { invite_id: InviteId },
     #[at("/communities")]
@@ -102,6 +104,7 @@ fn switch(routes: Route) -> Html {
         Route::Landing => html! { <LoggedOutHomePage /> },
         Route::Home => html! { <LoggedInHomePage /> },
         Route::Login => html! { <LoginPage /> },
+        Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::AcceptInvite { invite_id } => {
             html! { <AcceptInvitePage invite_id={invite_id} /> }
         }

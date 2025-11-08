@@ -587,7 +587,7 @@ async fn test_email_verification_flow() -> Result<()> {
     info!("🔗 Navigating to verification link");
     env.browser
         .goto(&format!(
-            "{}/verify-email?token={}",
+            "{}/verify_email?token={}",
             env.frontend_url, verification_token
         ))
         .await?;
