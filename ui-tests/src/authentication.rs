@@ -367,7 +367,7 @@ async fn test_password_reset_flow() -> Result<()> {
     info!("🔗 Navigating to reset password page");
     env.browser
         .goto(&format!(
-            "{}/reset-password?token={}",
+            "{}/reset_password?token={}",
             env.frontend_url, reset_token
         ))
         .await?;

@@ -17,9 +17,10 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
-    CreateAuctionPage, CreateCommunityPage, CreateSitePage, HelpPage,
-    LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
-    SiteAuctionsPage, SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
+    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
+    HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
+    ResetPasswordPage, SiteAuctionsPage, SiteDetailPage, SiteSettingsPage,
+    VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -70,6 +71,10 @@ pub enum Route {
     VerifyEmail,
     #[at("/help")]
     Help,
+    #[at("/forgot_password")]
+    ForgotPassword,
+    #[at("/reset_password")]
+    ResetPassword,
     #[at("/accept-invite/:invite_id")]
     AcceptInvite { invite_id: InviteId },
     #[at("/communities")]
@@ -108,6 +113,8 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::Help => html! { <HelpPage /> },
+        Route::ForgotPassword => html! { <ForgotPasswordPage /> },
+        Route::ResetPassword => html! { <ResetPasswordPage /> },
         Route::AcceptInvite { invite_id } => {
             html! { <AcceptInvitePage invite_id={invite_id} /> }
         }

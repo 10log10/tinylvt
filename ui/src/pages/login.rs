@@ -61,7 +61,14 @@ pub fn LoginPage() -> Html {
                     show_dev_credentials={*mode == AuthMode::Login}
                 />
 
-                <div class="text-center">
+                <div class="text-center space-y-2">
+                    if *mode == AuthMode::Login {
+                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                            <Link<Route> to={Route::ForgotPassword} classes="text-neutral-900 dark:text-neutral-100 hover:text-neutral-700 dark:hover:text-neutral-300 font-medium underline">
+                                {"Lost your password?"}
+                            </Link<Route>>
+                        </p>
+                    }
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">
                         {toggle_text}
                         {" "}
