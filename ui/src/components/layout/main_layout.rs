@@ -1,4 +1,8 @@
-use crate::{State, components::layout::Header, hooks::use_system_theme};
+use crate::{
+    State,
+    components::layout::{Footer, Header},
+    hooks::use_system_theme,
+};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
@@ -18,11 +22,12 @@ pub fn MainLayout(props: &MainLayoutProps) -> Html {
 
     html! {
         <div class={classes!(dark_class)}>
-            <div class="min-h-screen bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 transition-colors">
+            <div class="min-h-screen bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 transition-colors flex flex-col">
                 <Header />
-                <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <main class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow">
                     {for props.children.iter()}
                 </main>
+                <Footer />
             </div>
         </div>
     }

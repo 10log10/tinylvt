@@ -62,7 +62,11 @@ pub fn LoggedInHomePage() -> Html {
                                 {"."}
                             </p>
                             <p class="text-xs text-amber-600 dark:text-amber-400">
-                                {"Didn't receive the email? Check your spam folder or contact support for help."}
+                                {"Didn't receive the email? Check your spam folder or "}
+                                <Link<Route> to={Route::Help} classes="underline hover:text-amber-700 dark:hover:text-amber-300">
+                                    {"contact support"}
+                                </Link<Route>>
+                                {" for help."}
                             </p>
                         </div>
                     </div>
