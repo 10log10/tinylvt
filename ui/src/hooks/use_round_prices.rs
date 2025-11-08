@@ -18,6 +18,7 @@ pub struct RoundPricesHookReturn {
 
 impl RoundPricesHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
+    #[allow(dead_code)]
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading && !self.prices.is_fetched() && self.error.is_none()
     }

@@ -23,7 +23,7 @@ pub fn LoggedOutHomePage() -> Html {
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"TinyLVT solves this problem with auctions. Instead of dividing the resource, auction it to the highest bidder, then redistribute the proceeds equally. Repeat on a schedule."}
+                    {"TinyLVT solves this problem with auctions. Auction the resource to the highest bidder, then redistribute the proceeds equally. Repeat on a schedule."}
                 </p>
             </div>
 
@@ -76,7 +76,7 @@ pub fn LoggedOutHomePage() -> Html {
                             {"Won't this favor wealthy members?"}
                         </h3>
                         <p class="text-lg text-neutral-600 dark:text-neutral-400 text-left">
-                            {"Auction winners pay the community for using the resource, and so give the community exactly as much money as the community needs to win back the resource in the next auction. Wealthy members can only continue winning auctions if they continue spending more and more money, or if the rest of the community would rather keep the proceeds than bid for the resource. Both cases are to the benefit of the community, which still captures the value of the resource."}
+                            {"Auction winners pay the community for using the resource. Wealthy members can only continue winning auctions if they spend more and more money, or if the rest of the community would rather keep the proceeds than bid for the resource. This is to the benefit of the community, which captures the resource value."}
                         </p>
                     </div>
                 </div>

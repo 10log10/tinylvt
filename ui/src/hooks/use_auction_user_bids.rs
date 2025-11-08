@@ -23,6 +23,7 @@ pub struct AuctionUserBidsHookReturn {
 
 impl AuctionUserBidsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
+    #[allow(dead_code)]
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading
             && !self.bids_by_round.is_fetched()

@@ -67,9 +67,10 @@
 
 /// Represents the fetch state of data, separating network state from data
 /// nullability
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FetchState<T> {
     /// No fetch attempt has been made yet
+    #[default]
     NotFetched,
     /// Data has been fetched (T may be Option<V> for nullable data)
     Fetched(T),
@@ -91,6 +92,7 @@ impl<T> FetchState<T> {
 
     /// Maps a FetchState<T> to FetchState<U> by applying a function to the
     /// fetched data
+    #[allow(dead_code)]
     pub fn map<U, F>(self, f: F) -> FetchState<U>
     where
         F: FnOnce(T) -> U,
@@ -99,12 +101,6 @@ impl<T> FetchState<T> {
             FetchState::Fetched(data) => FetchState::Fetched(f(data)),
             FetchState::NotFetched => FetchState::NotFetched,
         }
-    }
-}
-
-impl<T> Default for FetchState<T> {
-    fn default() -> Self {
-        FetchState::NotFetched
     }
 }
 

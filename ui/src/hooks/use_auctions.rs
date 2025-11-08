@@ -15,6 +15,7 @@ pub struct AuctionsHookReturn {
 
 impl AuctionsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
+    #[allow(dead_code)]
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading && self.auctions.is_none() && self.error.is_none()
     }

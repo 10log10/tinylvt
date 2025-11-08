@@ -22,6 +22,7 @@ pub struct UserEligibilityHookReturn {
 
 impl UserEligibilityHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
+    #[allow(dead_code)]
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading
             && !self.eligibility.is_fetched()
@@ -84,7 +85,7 @@ pub fn use_user_eligibility(
 
     UserEligibilityHookReturn {
         // Return FetchState directly - don't flatten!
-        eligibility: (*eligibility).clone(),
+        eligibility: *eligibility,
         error: (*error).clone(),
         is_loading: *is_loading,
         refetch: Callback::from(move |_| refetch.emit(round_id)),

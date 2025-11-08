@@ -178,11 +178,6 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     let Some(current_round) = current_round_opt else {
         // No rounds exist yet - show countdown with proxy bidding and space list
         let spaces = spaces_hook.spaces.clone().unwrap_or_default();
-        let user_values = user_values_hook
-            .values
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
         let settings_opt = proxy_bidding_hook
             .settings
             .as_ref()
@@ -286,7 +281,6 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
 
     // Extract data from hooks to pass to child component
     let spaces = spaces_hook.spaces.clone();
-    let user_values = user_values_hook.values.clone();
     let settings_opt = proxy_bidding_hook
         .settings
         .as_ref()

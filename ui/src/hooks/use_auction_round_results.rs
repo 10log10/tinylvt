@@ -24,6 +24,7 @@ pub struct AuctionRoundResultsHookReturn {
 
 impl AuctionRoundResultsHookReturn {
     /// Returns true if this is the initial load (no data, no error, loading)
+    #[allow(dead_code)]
     pub fn is_initial_loading(&self) -> bool {
         self.is_loading
             && !self.results_by_round.is_fetched()
