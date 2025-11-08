@@ -1,13 +1,15 @@
+use crate::{AuthState, Route, State, get_api_client};
+use payloads::requests;
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
-
-use crate::{AuthState, Route, State};
 
 #[function_component]
 pub fn LoggedInHomePage() -> Html {
     let (state, _) = use_store::<State>();
     let navigator = use_navigator().unwrap();
+    let resend_loading = use_state(|| false);
+    let resend_success = use_state(|| false);
 
     // Redirect to landing page if not logged in
     let profile = match &state.auth_state {
@@ -30,6 +32,38 @@ pub fn LoggedInHomePage() -> Html {
         let navigator = navigator.clone();
         Callback::from(move |_| {
             navigator.push(&Route::Communities);
+        })
+    };
+
+    let on_resend_email = {
+        let resend_loading = resend_loading.clone();
+        let resend_success = resend_success.clone();
+        let email = profile.email.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let resend_loading = resend_loading.clone();
+            let resend_success = resend_success.clone();
+            let email = email.clone();
+
+            resend_loading.set(true);
+            resend_success.set(false);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = get_api_client();
+                let request = requests::ResendVerificationEmail { email };
+
+                match client.resend_verification_email(&request).await {
+                    Ok(_) => {
+                        resend_success.set(true);
+                        resend_loading.set(false);
+                    }
+                    Err(_) => {
+                        // Even on error, we don't want to reveal if the email exists
+                        resend_success.set(true);
+                        resend_loading.set(false);
+                    }
+                }
+            });
         })
     };
 
@@ -61,13 +95,27 @@ pub fn LoggedInHomePage() -> Html {
                                 <span class="font-medium">{&profile.email}</span>
                                 {"."}
                             </p>
-                            <p class="text-xs text-amber-600 dark:text-amber-400">
-                                {"Didn't receive the email? Check your spam folder or "}
+                            if *resend_success {
+                                <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-3 mb-3">
+                                    <p class="text-sm text-green-800 dark:text-green-200">
+                                        {"Verification email sent! Check your inbox."}
+                                    </p>
+                                </div>
+                            }
+                            <div class="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                                <span>{"Didn't receive the email?"}</span>
+                                <button
+                                    onclick={on_resend_email}
+                                    disabled={*resend_loading}
+                                    class="underline hover:text-amber-700 dark:hover:text-amber-300 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                                >
+                                    {if *resend_loading { "Sending..." } else { "Resend email" }}
+                                </button>
+                                <span>{"or"}</span>
                                 <Link<Route> to={Route::Help} classes="underline hover:text-amber-700 dark:hover:text-amber-300">
                                     {"contact support"}
                                 </Link<Route>>
-                                {" for help."}
-                            </p>
+                            </div>
                         </div>
                     </div>
                 </div>
