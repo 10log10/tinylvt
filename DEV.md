@@ -80,7 +80,7 @@ Run the frontend with hot reloading:
 
 ```
 cd ui
-BACKEND_URL=http://localhost:8000 trunk serve
+BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com trunk serve
 ```
 
 This will:
@@ -103,7 +103,7 @@ cargo run
 
 ```
 cd ui
-trunk build --release
+SUPPORT_EMAIL=support@tinylvt.com trunk build --release
 ```
 
 Then serve the built files from `ui/dist/` with a proper web server.
@@ -126,7 +126,7 @@ cargo run --release
 ```bash
 # Build static files
 cd ui
-BACKEND_URL=https://api.tinylvt.com trunk build --release
+BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk build --release
 
 # Serve with nginx, Apache, or static hosting service
 # Files are built to ui/dist/
@@ -146,15 +146,20 @@ BACKEND_URL=https://api.tinylvt.com trunk build --release
 
 ## Environment Variables
 
+### Backend (API Server)
 - `DATABASE_URL`: PostgreSQL connection string
 - `IP_ADDRESS`: Server bind address (`127.0.0.1` for local, `0.0.0.0` for public)
 - `PORT`: Server port
-- `ALLOWED_ORIGINS`: 
+- `ALLOWED_ORIGINS`:
   - Use `*` to allow any origin (development only)
   - Or comma-separated list of specific origins (e.g., `https://app.tinylvt.com,https://tinylvt.com`)
 - `EMAIL_API_KEY`: API key for email service (e.g., Resend)
 - `EMAIL_FROM_ADDRESS`: From address for outgoing emails
 - `BASE_URL`: Base URL for email links (optional, defaults to http://localhost:8080)
+
+### Frontend (UI Build)
+- `BACKEND_URL`: Backend API URL (optional, defaults to same-origin)
+- `SUPPORT_EMAIL`: Support email address displayed in the help page (required)
 
 Use `cargo watch -x ...` in place of `cargo ...` to watch for filesystem changes.
 

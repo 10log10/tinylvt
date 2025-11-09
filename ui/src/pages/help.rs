@@ -1,7 +1,11 @@
 use yew::prelude::*;
 
+const SUPPORT_EMAIL: &str = env!("SUPPORT_EMAIL");
+
 #[function_component]
 pub fn HelpPage() -> Html {
+    let support_email_href = format!("mailto:{}", SUPPORT_EMAIL);
+
     html! {
         <div class="max-w-4xl mx-auto px-4 py-8">
             <h1 class="text-3xl font-bold text-neutral-900 dark:text-white mb-8">
@@ -16,10 +20,10 @@ pub fn HelpPage() -> Html {
                     {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact us:"}
                 </p>
                 <a
-                    href="mailto:10log10@pm.me"
+                    href={support_email_href}
                     class="text-neutral-900 dark:text-white font-semibold hover:underline"
                 >
-                    {"10log10@pm.me"}
+                    {SUPPORT_EMAIL}
                 </a>
             </div>
 

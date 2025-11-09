@@ -52,7 +52,7 @@ pub struct NavigationMenuProps {
 fn NavigationMenu(props: &NavigationMenuProps) -> Html {
     if props.authenticated {
         html! {
-            <nav class="hidden md:flex space-x-6">
+            <nav class="flex space-x-6">
                 <Link<Route> to={Route::Communities} classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
                     {"Communities"}
                 </Link<Route>>

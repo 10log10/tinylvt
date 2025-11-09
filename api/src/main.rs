@@ -55,6 +55,12 @@ async fn main() -> std::io::Result<()> {
 
     let pool = sqlx::PgPool::connect(&config.database_url).await.unwrap();
 
+    // Run database migrations embedded in the binary
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run database migrations");
+
     // Create time source
     #[cfg(not(feature = "mock-time"))]
     let time_source = TimeSource::new();
