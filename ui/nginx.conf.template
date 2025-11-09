@@ -55,8 +55,8 @@ http {
         # Health check endpoint (optional, useful for container orchestration)
         location /health {
             access_log off;
-            return 200 "healthy\n";
             add_header Content-Type text/plain;
+            return 200 "healthy\n";
         }
     }
 }
