@@ -16,7 +16,7 @@ fn AuthenticatedUserInfo(props: &AuthenticatedUserInfoProps) -> Html {
     let logout_handler = use_logout();
 
     html! {
-        <div class="flex items-center space-x-4">
+        <div class="flex items-center gap-2 sm:gap-4">
             <span class="text-sm text-neutral-600 dark:text-neutral-400">
                 {format!("{}", props.profile.username)}
             </span>
@@ -52,7 +52,7 @@ pub struct NavigationMenuProps {
 fn NavigationMenu(props: &NavigationMenuProps) -> Html {
     if props.authenticated {
         html! {
-            <nav class="flex space-x-6">
+            <nav class="flex gap-4 sm:gap-6">
                 <Link<Route> to={Route::Communities} classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
                     {"Communities"}
                 </Link<Route>>
@@ -71,7 +71,7 @@ pub struct HeaderLeftProps {
 #[function_component]
 fn HeaderLeft(props: &HeaderLeftProps) -> Html {
     html! {
-        <div class="flex items-center space-x-8">
+        <div class="flex items-center gap-4 sm:gap-8">
             <Link<Route> to={Route::Landing} classes="text-xl font-semibold text-neutral-900 dark:text-white hover:text-neutral-700 dark:hover:text-neutral-300">
                 {"TinyLVT"}
             </Link<Route>>
@@ -88,7 +88,7 @@ pub struct HeaderRightProps {
 #[function_component]
 fn HeaderRight(props: &HeaderRightProps) -> Html {
     html! {
-        <div class="flex items-center space-x-4">
+        <div class="flex items-center gap-2 sm:gap-4">
             {
                 match &props.auth_state {
                     AuthState::LoggedIn(profile) => html! {
@@ -112,7 +112,7 @@ pub fn Header() -> Html {
     html! {
         <header class="bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-700">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="flex justify-between items-center h-16">
+                <div class="flex flex-wrap justify-between items-center gap-2 min-h-16 py-2">
                     <HeaderLeft authenticated={state.is_authenticated()} />
                     <HeaderRight auth_state={state.auth_state.clone()} />
                 </div>
