@@ -5,6 +5,7 @@ use yewdux::prelude::*;
 
 use crate::components::{LoginForm, login_form::AuthMode};
 use crate::contexts::use_toast;
+use crate::utils::is_dev_mode;
 use crate::{AuthState, Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -141,7 +142,7 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                         submit_text="Sign in to Accept Invite"
                         mode={AuthMode::Login}
                         on_success={on_login_success}
-                        show_dev_credentials={true}
+                        show_dev_credentials={is_dev_mode()}
                     />
                 </div>
             }

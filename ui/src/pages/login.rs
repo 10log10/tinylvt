@@ -4,6 +4,7 @@ use yew_router::prelude::*;
 
 use crate::Route;
 use crate::components::{LoginForm, login_form::AuthMode};
+use crate::utils::is_dev_mode;
 
 #[function_component]
 pub fn LoginPage() -> Html {
@@ -58,7 +59,7 @@ pub fn LoginPage() -> Html {
                     submit_text={submit_text}
                     mode={*mode}
                     on_success={on_auth_success}
-                    show_dev_credentials={*mode == AuthMode::Login}
+                    show_dev_credentials={*mode == AuthMode::Login && is_dev_mode()}
                 />
 
                 <div class="text-center space-y-2">
