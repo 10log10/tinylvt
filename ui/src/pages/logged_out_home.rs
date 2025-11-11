@@ -1,9 +1,22 @@
 use crate::Route;
+use std::collections::HashMap;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
+    let navigator = use_navigator().unwrap();
+
+    let on_get_started = {
+        let navigator = navigator.clone();
+        Callback::from(move |e: MouseEvent| {
+            e.prevent_default();
+            let mut query = HashMap::new();
+            query.insert("signup".to_string(), "true".to_string());
+            navigator.push_with_query(&Route::Login, &query).unwrap();
+        })
+    };
+
     html! {
         <div class="text-center space-y-8">
             <div>
@@ -17,7 +30,7 @@ pub fn LoggedOutHomePage() -> Html {
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Communities struggle to equitably share scarce resources, since they're difficult to divide equally among members. A minority often captures most of the resource value."}
+                    {"Communities often struggle to equitably share scarce resources. They're hard to divide equally among members. A minority often captures most of the resource value."}
                 </p>
             </div>
 
@@ -61,9 +74,12 @@ pub fn LoggedOutHomePage() -> Html {
             </div>
 
             <div class="mt-8">
-                <Link<Route> to={Route::Login} classes="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors">
+                <button
+                    onclick={on_get_started}
+                    class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors"
+                >
                     {"Get Started"}
-                </Link<Route>>
+                </button>
             </div>
 
             <div class="max-w-2xl mx-auto mt-16">

@@ -1,15 +1,46 @@
 use payloads::responses;
 use yew::prelude::*;
 use yew_router::prelude::*;
+use yewdux::prelude::*;
 
 use crate::Route;
 use crate::components::{LoginForm, login_form::AuthMode};
+use crate::state::State;
 use crate::utils::is_dev_mode;
 
 #[function_component]
 pub fn LoginPage() -> Html {
     let navigator = use_navigator().unwrap();
     let mode = use_state(|| AuthMode::Login);
+    let (state, _) = use_store::<State>();
+
+    // Redirect to home if already logged in
+    {
+        let navigator = navigator.clone();
+        let is_authenticated = state.is_authenticated();
+
+        use_effect_with(is_authenticated, move |is_auth| {
+            if *is_auth {
+                navigator.push(&Route::Home);
+            }
+        });
+    }
+
+    // Check for signup query parameter
+    {
+        let mode = mode.clone();
+
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let location = window.location();
+            let search = location.search().unwrap_or_default();
+
+            // Parse query string for signup parameter
+            if search.contains("signup") {
+                mode.set(AuthMode::CreateAccount);
+            }
+        });
+    }
 
     let on_auth_success = {
         let navigator = navigator.clone();
@@ -63,13 +94,6 @@ pub fn LoginPage() -> Html {
                 />
 
                 <div class="text-center space-y-2">
-                    if *mode == AuthMode::Login {
-                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                            <Link<Route> to={Route::ForgotPassword} classes="text-neutral-900 dark:text-neutral-100 hover:text-neutral-700 dark:hover:text-neutral-300 font-medium underline">
-                                {"Lost your password?"}
-                            </Link<Route>>
-                        </p>
-                    }
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">
                         {toggle_text}
                         {" "}
@@ -80,6 +104,13 @@ pub fn LoginPage() -> Html {
                             {toggle_link_text}
                         </button>
                     </p>
+                    if *mode == AuthMode::Login {
+                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                            <Link<Route> to={Route::ForgotPassword} classes="text-neutral-900 dark:text-neutral-100 hover:text-neutral-700 dark:hover:text-neutral-300 font-medium underline">
+                                {"Lost your password?"}
+                            </Link<Route>>
+                        </p>
+                    }
                 </div>
             </div>
         </div>

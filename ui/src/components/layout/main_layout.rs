@@ -13,7 +13,28 @@ pub struct MainLayoutProps {
 
 #[function_component]
 pub fn MainLayout(props: &MainLayoutProps) -> Html {
-    let (state, _dispatch) = use_store::<State>();
+    let (state, dispatch) = use_store::<State>();
+
+    // Initialize theme from localStorage on first load
+    use_effect_with((), {
+        let dispatch = dispatch.clone();
+        move |_| {
+            if let Some(window) = web_sys::window()
+                && let Ok(Some(storage)) = window.local_storage()
+                && let Ok(Some(theme)) = storage.get_item("theme-mode")
+            {
+                let theme_mode = match theme.as_str() {
+                    "dark" => crate::ThemeMode::Dark,
+                    "light" => crate::ThemeMode::Light,
+                    _ => crate::ThemeMode::System,
+                };
+                dispatch.reduce_mut(move |state| {
+                    state.theme_mode = theme_mode;
+                });
+            }
+            || ()
+        }
+    });
 
     // Track system theme preference
     use_system_theme();

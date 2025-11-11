@@ -15,6 +15,18 @@ pub fn DarkModeToggle() -> Html {
                     ThemeMode::Dark => ThemeMode::Light,
                     ThemeMode::Light => ThemeMode::System,
                 };
+
+                // Persist theme preference to localStorage
+                if let Some(window) = web_sys::window()
+                    && let Ok(Some(storage)) = window.local_storage()
+                {
+                    let theme_value = match state.theme_mode {
+                        ThemeMode::System => "system",
+                        ThemeMode::Dark => "dark",
+                        ThemeMode::Light => "light",
+                    };
+                    let _ = storage.set_item("theme-mode", theme_value);
+                }
             });
         })
     };

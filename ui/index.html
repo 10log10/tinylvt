@@ -1,9 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0">
         <title>TinyLVT</title>
+        <script>
+            // Set dark mode immediately to prevent flash
+            // HTML has class="dark" by default, so we only remove it if needed
+            (function() {
+                const storedTheme = localStorage.getItem('theme-mode');
+
+                // Remove dark class only if:
+                // - User explicitly set light mode, OR
+                // - No stored preference AND system prefers light
+                if (storedTheme === 'light' ||
+                    (storedTheme !== 'dark' && !window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.remove('dark');
+                }
+            })();
+        </script>
         <link data-trunk rel="rust" data-wasm-opt="0"/>
         <link data-trunk rel="tailwind-css" href="styles.css"/>
     </head>
