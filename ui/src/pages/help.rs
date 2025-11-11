@@ -14,6 +14,23 @@ pub fn HelpPage() -> Html {
 
             <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 mb-6">
                 <h2 class="text-xl font-semibold text-neutral-900 dark:text-white mb-4">
+                    {"Feature Requests & Bug Reports"}
+                </h2>
+                <p class="text-neutral-700 dark:text-neutral-300 mb-4">
+                    {"If you have ideas for new features or have encountered a problem, please open an issue on our GitHub repository:"}
+                </p>
+                <a
+                    href="https://github.com/10log10/tinylvt/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-neutral-900 dark:text-white font-semibold hover:underline"
+                >
+                    {"github.com/10log10/tinylvt/issues"}
+                </a>
+            </div>
+
+            <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 mb-6">
+                <h2 class="text-xl font-semibold text-neutral-900 dark:text-white mb-4">
                     {"Need help with your account?"}
                 </h2>
                 <p class="text-neutral-700 dark:text-neutral-300 mb-4">
@@ -36,7 +53,7 @@ pub fn HelpPage() -> Html {
                         <h3 class="font-semibold text-neutral-900 dark:text-white mb-2">
                             {"Didn't receive verification email?"}
                         </h3>
-                        <p>{"Check your spam folder. If you still can't find it, contact support."}</p>
+                        <p>{"Check your spam folder. If you still can't find it, contact us."}</p>
                     </div>
                     <div>
                         <h3 class="font-semibold text-neutral-900 dark:text-white mb-2">
@@ -48,7 +65,7 @@ pub fn HelpPage() -> Html {
                         <h3 class="font-semibold text-neutral-900 dark:text-white mb-2">
                             {"Questions about auctions or bidding?"}
                         </h3>
-                        <p>{"Contact your community leader or reach out to support for assistance."}</p>
+                        <p>{"Contact your community leader or reach out to us for assistance."}</p>
                     </div>
                 </div>
             </div>
