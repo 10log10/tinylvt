@@ -1,11 +1,14 @@
+use const_format::str_replace;
 use yew::prelude::*;
 
 const SUPPORT_EMAIL: &str = env!("SUPPORT_EMAIL");
 
+// Obfuscate email at compile time - no raw email in WASM bundle
+const OBFUSCATED_EMAIL: &str =
+    str_replace!(str_replace!(SUPPORT_EMAIL, "@", " [at] "), ".", " [dot] ");
+
 #[function_component]
 pub fn HelpPage() -> Html {
-    let support_email_href = format!("mailto:{}", SUPPORT_EMAIL);
-
     html! {
         <div class="max-w-4xl mx-auto px-4 py-8">
             <h1 class="text-3xl font-bold text-neutral-900 dark:text-white mb-8">
@@ -36,12 +39,9 @@ pub fn HelpPage() -> Html {
                 <p class="text-neutral-700 dark:text-neutral-300 mb-4">
                     {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact us:"}
                 </p>
-                <a
-                    href={support_email_href}
-                    class="text-neutral-900 dark:text-white font-semibold hover:underline"
-                >
-                    {SUPPORT_EMAIL}
-                </a>
+                <span class="text-neutral-900 dark:text-white font-semibold">
+                    {OBFUSCATED_EMAIL}
+                </span>
             </div>
 
             <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
