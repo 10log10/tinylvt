@@ -1,11 +1,14 @@
 use crate::Route;
+use crate::State;
 use std::collections::HashMap;
 use yew::prelude::*;
 use yew_router::prelude::*;
+use yewdux::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
     let navigator = use_navigator().unwrap();
+    let (state, _dispatch) = use_store::<State>();
 
     let on_get_started = {
         let navigator = navigator.clone();
@@ -60,6 +63,18 @@ pub fn LoggedOutHomePage() -> Html {
                     <li>{"4. Redistribute the proceeds"}</li>
                     <li>{"5. Repeat on a schedule"}</li>
                 </ol>
+            </div>
+
+            <div class="max-w-7xl mx-auto my-12 px-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    if state.is_dark_mode() {
+                        <img src="/screenshot-dark-1.png" alt="TinyLVT screenshot showing site management" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                        <img src="/screenshot-dark-2.png" alt="TinyLVT screenshot showing auction interface" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                    } else {
+                        <img src="/screenshot-light-1.png" alt="TinyLVT screenshot showing site management" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                        <img src="/screenshot-light-2.png" alt="TinyLVT screenshot showing auction interface" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                    }
+                </div>
             </div>
 
             <div class="max-w-2xl mx-auto">
