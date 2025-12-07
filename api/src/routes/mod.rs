@@ -39,6 +39,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_members)
         .service(community::set_membership_schedule)
         .service(community::get_membership_schedule)
+        .service(community::delete_community)
         .service(site::create_site)
         .service(site::get_site)
         .service(site::update_site)

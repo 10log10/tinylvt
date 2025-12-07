@@ -200,3 +200,18 @@ pub async fn get_membership_schedule(
         store::get_membership_schedule(&validated_member, &pool).await?;
     Ok(HttpResponse::Ok().json(schedule))
 }
+
+/// Delete a community (leader only)
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/delete_community")]
+pub async fn delete_community(
+    user: Identity,
+    community_id: web::Json<CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &community_id, &pool).await?;
+    store::delete_community(&community_id, &validated_member, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}

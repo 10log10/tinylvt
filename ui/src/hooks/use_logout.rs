@@ -4,11 +4,11 @@ use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[hook]
-pub fn use_logout() -> Callback<MouseEvent> {
+pub fn use_logout() -> Callback<()> {
     let (_, dispatch) = use_store::<State>();
     let navigator = use_navigator().unwrap();
 
-    Callback::from(move |_| {
+    Callback::from(move |()| {
         let dispatch = dispatch.clone();
         let navigator = navigator.clone();
 

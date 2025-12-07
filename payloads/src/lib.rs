@@ -647,6 +647,15 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    /// Delete a community (leader only).
+    pub async fn delete_community(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_community", community_id).await?;
+        ok_empty(response).await
+    }
+
     /// Check if the user is logged in.
     pub async fn login_check(&self) -> Result<bool, ClientError> {
         let response = self.empty_post("login_check").await?;

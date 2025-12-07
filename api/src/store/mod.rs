@@ -1773,6 +1773,37 @@ async fn update_open_hours(
     }
 }
 
+pub async fn delete_community(
+    community_id: &payloads::CommunityId,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Only leader can delete a community
+    if !actor.0.role.is_leader() {
+        return Err(StoreError::RequiresLeaderPermissions);
+    }
+
+    // Delete community - cascades to:
+    // - community_members
+    // - community_invites
+    // - community_membership_schedule
+    // - site_images
+    // - sites (which cascades to spaces, auctions, etc.)
+    let result = sqlx::query("DELETE FROM communities WHERE id = $1")
+        .bind(community_id)
+        .execute(pool)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::CommunityNotFound);
+    }
+
+    // Clean up orphaned auction params
+    cleanup_unused_auction_params(pool).await;
+
+    Ok(())
+}
+
 pub async fn delete_site(
     site_id: &payloads::SiteId,
     actor: &ValidatedMember,
@@ -2032,10 +2063,23 @@ pub async fn delete_space(
         get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
             .await?;
 
-    sqlx::query("DELETE FROM spaces WHERE id = $1")
-        .bind(space_id)
-        .execute(pool)
-        .await?;
+    // Only delete if no auction history references this space.
+    // This preserves auction data integrity while allowing CASCADE for bulk
+    // operations like community deletion.
+    let result = sqlx::query(
+        "DELETE FROM spaces WHERE id = $1
+         AND NOT EXISTS (SELECT 1 FROM bids WHERE space_id = $1)
+         AND NOT EXISTS (SELECT 1 FROM round_space_results WHERE space_id = $1)",
+    )
+    .bind(space_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        // Space exists (we validated above) but wasn't deleted due to auction
+        // history
+        return Err(StoreError::SpaceHasAuctionHistory);
+    }
 
     Ok(())
 }
@@ -2766,6 +2810,10 @@ pub enum StoreError {
     RequiresModeratorPermissions,
     #[error("Coleader permissions required")]
     RequiresColeaderPermissions,
+    #[error("Leader permissions required")]
+    RequiresLeaderPermissions,
+    #[error("Cannot delete space with auction history")]
+    SpaceHasAuctionHistory,
     #[error("Mismatched invite email")]
     MismatchedInviteEmail,
     #[error("Field too long")]

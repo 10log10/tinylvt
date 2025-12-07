@@ -13,7 +13,10 @@ pub struct AuthenticatedUserInfoProps {
 
 #[function_component]
 fn AuthenticatedUserInfo(props: &AuthenticatedUserInfoProps) -> Html {
-    let logout_handler = use_logout();
+    let logout_callback = use_logout();
+    let logout_handler = Callback::from(move |_: MouseEvent| {
+        logout_callback.emit(());
+    });
 
     html! {
         <div class="flex items-center gap-2 sm:gap-4">

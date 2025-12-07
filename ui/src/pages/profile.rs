@@ -1,28 +1,24 @@
-use wasm_bindgen::JsCast;
-
-use crate::hooks::{FetchState, use_communities};
+use crate::components::ConfirmationModal;
+use crate::hooks::{FetchState, use_communities, use_logout};
 use crate::{AuthState, Route, State, get_api_client};
 use payloads::Role;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use yewdux::prelude::*;
+use yewdux::use_store;
 
 #[function_component]
 pub fn ProfilePage() -> Html {
-    let (state, dispatch) = use_store::<State>();
+    let (state, _) = use_store::<State>();
     let navigator = use_navigator().unwrap();
+    let logout = use_logout();
 
     // Modal and deletion state
     let show_delete_modal = use_state(|| false);
-    let delete_confirmation = use_state(String::new);
     let is_deleting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
 
     // Use communities hook to get cached communities
     let communities_hook = use_communities();
-
-    // Backdrop click handling for modal
-    let backdrop_ref = use_node_ref();
 
     // Extract leader communities from the hook data
     let leader_communities: Option<Vec<String>> =
@@ -56,14 +52,11 @@ pub fn ProfilePage() -> Html {
     };
 
     let username = profile.username.clone();
-    let can_delete = *delete_confirmation == username;
 
     let on_open_modal = {
         let show_delete_modal = show_delete_modal.clone();
-        let delete_confirmation = delete_confirmation.clone();
         let error_message = error_message.clone();
         Callback::from(move |_| {
-            delete_confirmation.set(String::new());
             error_message.set(None);
             show_delete_modal.set(true);
         })
@@ -71,46 +64,20 @@ pub fn ProfilePage() -> Html {
 
     let on_close_modal = {
         let show_delete_modal = show_delete_modal.clone();
-        Callback::from(move |_: MouseEvent| {
+        Callback::from(move |()| {
             show_delete_modal.set(false);
-        })
-    };
-
-    let on_backdrop_click = {
-        let show_delete_modal = show_delete_modal.clone();
-        let backdrop_ref = backdrop_ref.clone();
-        Callback::from(move |e: MouseEvent| {
-            // Only close if clicking the backdrop itself, not its children
-            if let Some(backdrop_element) =
-                backdrop_ref.cast::<web_sys::Element>()
-                && let Some(target) = e.target()
-                && target.dyn_ref::<web_sys::Element>()
-                    == Some(&backdrop_element)
-            {
-                show_delete_modal.set(false);
-            }
-        })
-    };
-
-    let on_confirmation_input = {
-        let delete_confirmation = delete_confirmation.clone();
-        Callback::from(move |e: InputEvent| {
-            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-            delete_confirmation.set(input.value());
         })
     };
 
     let on_delete = {
         let is_deleting = is_deleting.clone();
         let error_message = error_message.clone();
-        let dispatch = dispatch.clone();
-        let navigator = navigator.clone();
+        let logout = logout.clone();
 
         Callback::from(move |_| {
             let is_deleting = is_deleting.clone();
             let error_message = error_message.clone();
-            let dispatch = dispatch.clone();
-            let navigator = navigator.clone();
+            let logout = logout.clone();
 
             is_deleting.set(true);
             error_message.set(None);
@@ -119,10 +86,8 @@ pub fn ProfilePage() -> Html {
                 let client = get_api_client();
                 match client.delete_user().await {
                     Ok(_) => {
-                        dispatch.reduce_mut(|state| {
-                            state.auth_state = AuthState::LoggedOut;
-                        });
-                        navigator.push(&Route::Landing);
+                        // Clears client state and navigate to landing.
+                        logout.emit(());
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -225,75 +190,17 @@ pub fn ProfilePage() -> Html {
 
             // Delete Confirmation Modal
             if *show_delete_modal {
-                <div
-                    ref={backdrop_ref.clone()}
-                    onclick={on_backdrop_click.clone()}
-                    class="fixed inset-0 bg-neutral-900 bg-opacity-50 z-50 flex items-center justify-center p-4"
-                >
-                    <div class="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-md w-full p-6">
-                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
-                            {"Delete Account"}
-                        </h3>
-
-                        <div class="space-y-4">
-                            <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                                {"This action "}
-                                <span class="font-semibold text-red-600 dark:text-red-400">{"cannot be undone"}</span>
-                                {". This will permanently delete your account and remove all your data."}
-                            </p>
-
-                            <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                                {"Please type "}
-                                <span class="font-mono font-semibold text-neutral-900 dark:text-neutral-100">{&username}</span>
-                                {" to confirm."}
-                            </p>
-
-                            <input
-                                type="text"
-                                value={(*delete_confirmation).clone()}
-                                oninput={on_confirmation_input}
-                                placeholder="Enter your username"
-                                disabled={*is_deleting}
-                                class="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600
-                                       rounded-md bg-white dark:bg-neutral-700
-                                       text-neutral-900 dark:text-neutral-100
-                                       placeholder-neutral-400 dark:placeholder-neutral-500
-                                       focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500
-                                       disabled:opacity-50 disabled:cursor-not-allowed"
-                            />
-
-                            if let Some(error) = &*error_message {
-                                <div class="text-sm text-red-600 dark:text-red-400">
-                                    {error}
-                                </div>
-                            }
-                        </div>
-
-                        <div class="flex justify-end gap-3 mt-6">
-                            <button
-                                onclick={on_close_modal}
-                                disabled={*is_deleting}
-                                class="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                       bg-white dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                       transition-colors"
-                            >
-                                {"Cancel"}
-                            </button>
-                            <button
-                                onclick={on_delete}
-                                disabled={!can_delete || *is_deleting}
-                                class="px-4 py-2 text-sm font-medium text-white
-                                       bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600
-                                       rounded-md disabled:opacity-50 disabled:cursor-not-allowed
-                                       transition-colors"
-                            >
-                                {if *is_deleting { "Deleting..." } else { "Delete Account" }}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <ConfirmationModal
+                    title="Delete Account"
+                    message="This will permanently delete your account and remove all your data."
+                    confirm_text="Delete Account"
+                    confirmation_value={username.clone()}
+                    confirmation_label="your username"
+                    on_confirm={on_delete}
+                    on_close={on_close_modal}
+                    is_loading={*is_deleting}
+                    error_message={(*error_message).clone().map(AttrValue::from)}
+                />
             }
         </div>
     }
