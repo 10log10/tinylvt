@@ -35,7 +35,7 @@ use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
-use sqlx::{Error, FromRow, PgPool, Postgres, Transaction, Type};
+use sqlx::{FromRow, PgPool, Postgres, Transaction, Type};
 use sqlx_postgres::types::PgInterval;
 use tracing::Level;
 use uuid::Uuid;
@@ -820,21 +820,43 @@ pub async fn update_user_profile(
 ///
 /// On anonymization, also removes: user_values, use_proxy_bidding, tokens, and
 /// community_members entries.
+///
+/// Returns `UserIsLeader` error if the user is a leader of any community.
+/// Leaders must transfer leadership before deleting their account.
 pub async fn delete_user(
     pool: &PgPool,
     id: &UserId,
     time_source: &TimeSource,
-) -> Result<User, Error> {
+) -> Result<User, StoreError> {
+    // Subquery to check if user is a leader. Used in WHERE clauses to
+    // atomically prevent deletion of leaders (avoiding race with promotion).
+    let is_leader_subquery = "EXISTS (SELECT 1 FROM community_members WHERE user_id = $1 AND role = 'leader')";
+
     // Try hard delete first
-    let delete_result = sqlx::query_as::<_, User>(
-        "DELETE FROM users WHERE id = $1 RETURNING *",
-    )
+    let delete_result = sqlx::query_as::<_, User>(&format!(
+        "DELETE FROM users WHERE id = $1 AND NOT {is_leader_subquery} RETURNING *"
+    ))
     .bind(id)
     .fetch_one(pool)
     .await;
 
     match delete_result {
         Ok(user) => Ok(user),
+        Err(sqlx::Error::RowNotFound) => {
+            // Either user doesn't exist, or they're a leader. Check which.
+            let is_leader = sqlx::query_scalar::<_, bool>(&format!(
+                "SELECT {is_leader_subquery}"
+            ))
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+
+            if is_leader {
+                Err(StoreError::UserIsLeader)
+            } else {
+                Err(StoreError::UserNotFound)
+            }
+        }
         Err(sqlx::Error::Database(db_err))
             if db_err.is_foreign_key_violation() =>
         {
@@ -842,7 +864,34 @@ pub async fn delete_user(
             let now = time_source.now().to_sqlx();
             let mut tx = pool.begin().await?;
 
-            // Remove non-historical user data
+            // Delete community_members first, with leader check in WHERE clause
+            // to atomically verify they're not a leader before removing their
+            // membership (which would orphan the community).
+            let rows_deleted = sqlx::query(&format!(
+                "DELETE FROM community_members WHERE user_id = $1 AND NOT {is_leader_subquery}"
+            ))
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+            // Check if deletion was blocked due to being a leader
+            if rows_deleted == 0 {
+                let is_leader = sqlx::query_scalar::<_, bool>(&format!(
+                    "SELECT {is_leader_subquery}"
+                ))
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                if is_leader {
+                    return Err(StoreError::UserIsLeader);
+                }
+                // rows_deleted == 0 but not a leader means they had no
+                // community memberships, which is fine
+            }
+
+            // Remove other non-historical user data
             sqlx::query("DELETE FROM user_values WHERE user_id = $1")
                 .bind(id)
                 .execute(&mut *tx)
@@ -852,10 +901,6 @@ pub async fn delete_user(
                 .execute(&mut *tx)
                 .await?;
             sqlx::query("DELETE FROM tokens WHERE user_id = $1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("DELETE FROM community_members WHERE user_id = $1")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
@@ -883,7 +928,7 @@ pub async fn delete_user(
             tx.commit().await?;
             Ok(user)
         }
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -2791,6 +2836,8 @@ pub enum StoreError {
     TokenAlreadyUsed,
     #[error("Token expired")]
     TokenExpired,
+    #[error("Cannot delete user who is a leader of a community")]
+    UserIsLeader,
 }
 
 impl From<sqlx::Error> for StoreError {

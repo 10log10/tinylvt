@@ -101,7 +101,7 @@ async fn populate_users(
     let roles = [Role::Leader, Role::Coleader, Role::Member];
 
     for (i, role) in roles.iter().enumerate() {
-        let mut user = store::create_user(
+        let user = store::create_user(
             conn,
             &format!("{role}_user"),
             &format!("{role}@example.com"),
