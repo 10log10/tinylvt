@@ -159,18 +159,22 @@ async fn update_profile_requires_authentication() -> anyhow::Result<()> {
 async fn delete_user_no_auction_history() -> anyhow::Result<()> {
     let app = spawn_app().await;
 
-    // Create a user
+    // Create and login as alice
     app.create_alice_user().await?;
 
-    // Get the user ID
+    // Get the user ID before deletion
     let user = sqlx::query_as::<_, store::User>(
         "SELECT * FROM users WHERE username = 'alice'",
     )
     .fetch_one(&app.db_pool)
     .await?;
 
-    // Delete the user (should be a hard delete since no auction history)
-    store::delete_user(&app.db_pool, &user.id, &app.time_source).await?;
+    // Delete via API (should be a hard delete since no auction history)
+    app.client.delete_user().await?;
+
+    // Verify user is logged out
+    let is_logged_in = app.client.login_check().await?;
+    assert!(!is_logged_in);
 
     // Verify user is completely gone from the database
     let user_exists = sqlx::query_scalar::<_, bool>(
@@ -232,16 +236,15 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
     assert!(!results.is_empty());
     assert_eq!(results[0].winning_username, "bob");
 
-    // Get Bob's user record
-    let bob = sqlx::query_as::<_, store::User>(
-        "SELECT * FROM users WHERE username = 'bob'",
+    // Get Bob's user ID before deletion
+    let bob_id = sqlx::query_scalar::<_, payloads::UserId>(
+        "SELECT id FROM users WHERE username = 'bob'",
     )
     .fetch_one(&app.db_pool)
     .await?;
-    let bob_id = bob.id;
 
-    // Delete Bob (should anonymize since he has auction history)
-    store::delete_user(&app.db_pool, &bob_id, &app.time_source).await?;
+    // Delete Bob via API (should anonymize since he has auction history)
+    app.client.delete_user().await?;
 
     // Verify user still exists but is anonymized
     let anonymized_user =
@@ -283,7 +286,10 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
     assert!(login_result.is_err());
 
     // Verify auction history still shows the anonymized username
-    app.login_alice().await?;
+    // Note: we login directly since delete_user already logged out Bob
+    app.client
+        .login(&test_helpers::alice_login_credentials())
+        .await?;
     let results = app
         .client
         .list_round_space_results_for_round(&round.round_id)
@@ -305,21 +311,9 @@ async fn delete_user_leader_blocked() -> anyhow::Result<()> {
     app.create_alice_user().await?;
     app.create_test_community().await?;
 
-    // Get Alice's user record
-    let alice = sqlx::query_as::<_, store::User>(
-        "SELECT * FROM users WHERE username = 'alice'",
-    )
-    .fetch_one(&app.db_pool)
-    .await?;
-
-    // Attempt to delete Alice (should fail since she's a leader)
-    let result =
-        store::delete_user(&app.db_pool, &alice.id, &app.time_source).await;
-
-    assert!(
-        matches!(result, Err(store::StoreError::UserIsLeader)),
-        "Expected UserIsLeader error"
-    );
+    // Attempt to delete Alice via API (should fail since she's a leader)
+    let result = app.client.delete_user().await;
+    assert!(result.is_err(), "Expected error when deleting leader");
 
     // Verify Alice still exists and is not anonymized
     let alice_after = sqlx::query_as::<_, store::User>(
@@ -328,6 +322,10 @@ async fn delete_user_leader_blocked() -> anyhow::Result<()> {
     .fetch_one(&app.db_pool)
     .await?;
     assert!(alice_after.deleted_at.is_none());
+
+    // Verify Alice is still logged in
+    let is_logged_in = app.client.login_check().await?;
+    assert!(is_logged_in);
 
     Ok(())
 }

@@ -641,6 +641,12 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    /// Delete the current user's account.
+    pub async fn delete_user(&self) -> Result<(), ClientError> {
+        let response = self.empty_post("delete_user").await?;
+        ok_empty(response).await
+    }
+
     /// Check if the user is logged in.
     pub async fn login_check(&self) -> Result<bool, ClientError> {
         let response = self.empty_post("login_check").await?;

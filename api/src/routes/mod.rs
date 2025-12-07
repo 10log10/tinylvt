@@ -21,6 +21,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(login::login_check)
         .service(login::user_profile)
         .service(login::update_profile)
+        .service(login::delete_user)
         .service(login::logout)
         .service(login::create_account)
         .service(login::verify_email)
