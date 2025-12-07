@@ -95,6 +95,8 @@ pub struct User {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub deleted_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, sqlx::Type, FromRow)]
@@ -783,30 +785,6 @@ pub async fn read_user(pool: &PgPool, id: &UserId) -> Result<User, StoreError> {
         })
 }
 
-/// Update fields that are not in the signup process.
-pub async fn update_user(
-    pool: &PgPool,
-    user: &User,
-    time_source: &TimeSource,
-) -> Result<User, Error> {
-    sqlx::query_as::<_, User>(
-        "UPDATE users
-            SET display_name = $1,
-                email_verified = $2,
-                balance = $3,
-                updated_at = $5
-            WHERE id = $4
-            RETURNING *;",
-    )
-    .bind(&user.display_name)
-    .bind(user.email_verified)
-    .bind(user.balance)
-    .bind(user.id)
-    .bind(time_source.now().to_sqlx())
-    .fetch_one(pool)
-    .await
-}
-
 pub async fn update_user_profile(
     user_id: &UserId,
     display_name: &Option<String>,
@@ -814,7 +792,11 @@ pub async fn update_user_profile(
     time_source: &TimeSource,
 ) -> Result<User, StoreError> {
     let updated_user = sqlx::query_as::<_, User>(
-        "UPDATE users SET display_name = $2, updated_at = $3 WHERE id = $1 RETURNING *",
+        r#"
+        UPDATE users SET display_name = $2, updated_at = $3
+        WHERE id = $1 AND deleted_at IS NULL
+        RETURNING *
+        "#,
     )
     .bind(user_id.0)
     .bind(display_name.as_ref())
@@ -829,11 +811,80 @@ pub async fn update_user_profile(
     Ok(updated_user)
 }
 
-pub async fn delete_user(conn: &PgPool, id: &UserId) -> Result<User, Error> {
-    sqlx::query_as::<_, User>("DELETE FROM users WHERE id = $1 RETURNING *")
-        .bind(id)
-        .fetch_one(conn)
-        .await
+/// Delete a user account.
+///
+/// Attempts a hard delete first. If that fails due to foreign key constraints
+/// (user has bids, round_space_results, or user_eligibilities), falls back to
+/// anonymizing PII and setting `deleted_at` to preserve referential integrity
+/// for auction history.
+///
+/// On anonymization, also removes: user_values, use_proxy_bidding, tokens, and
+/// community_members entries.
+pub async fn delete_user(
+    pool: &PgPool,
+    id: &UserId,
+    time_source: &TimeSource,
+) -> Result<User, Error> {
+    // Try hard delete first
+    let delete_result = sqlx::query_as::<_, User>(
+        "DELETE FROM users WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await;
+
+    match delete_result {
+        Ok(user) => Ok(user),
+        Err(sqlx::Error::Database(db_err))
+            if db_err.is_foreign_key_violation() =>
+        {
+            // User has auction history, anonymize instead
+            let now = time_source.now().to_sqlx();
+            let mut tx = pool.begin().await?;
+
+            // Remove non-historical user data
+            sqlx::query("DELETE FROM user_values WHERE user_id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM use_proxy_bidding WHERE user_id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM tokens WHERE user_id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM community_members WHERE user_id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+
+            // Anonymize PII and mark as unverified to block community actions
+            let user = sqlx::query_as::<_, User>(
+                r#"
+                UPDATE users SET
+                    email = 'deleted-' || id || '@deleted.local',
+                    username = 'deleted-' || SUBSTRING(id::text, 1, 8),
+                    password_hash = '',
+                    display_name = NULL,
+                    email_verified = false,
+                    deleted_at = $2,
+                    updated_at = $2
+                WHERE id = $1
+                RETURNING *
+                "#,
+            )
+            .bind(id)
+            .bind(now)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(user)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Create a token for email verification or password reset
@@ -928,6 +979,8 @@ pub async fn consume_token(
 }
 
 /// Mark user's email as verified
+///
+/// Fails for anonymized users since verification tokens are deleted.
 #[tracing::instrument(skip(pool, time_source))]
 pub async fn verify_user_email(
     user_id: &UserId,
@@ -962,12 +1015,14 @@ pub async fn get_user_by_email(
     email: &str,
     pool: &PgPool,
 ) -> Result<User, StoreError> {
-    sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
-        .bind(email)
-        .fetch_optional(pool)
-        .await
-        .context("Failed to fetch user by email")?
-        .ok_or(StoreError::UserNotFound)
+    sqlx::query_as::<_, User>(
+        "SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to fetch user by email")?
+    .ok_or(StoreError::UserNotFound)
 }
 
 /// Clean up expired tokens
@@ -2741,7 +2796,7 @@ pub enum StoreError {
 impl From<sqlx::Error> for StoreError {
     fn from(e: sqlx::Error) -> Self {
         if let sqlx::Error::Database(db_err) = &e
-            && db_err.code().as_deref() == Some("23505")
+            && db_err.is_unique_violation()
         {
             return StoreError::NotUnique(e);
         }

@@ -61,7 +61,7 @@ async fn get_stored_credentials(
     pool: &PgPool,
 ) -> Result<Option<(payloads::UserId, SecretBox<String>)>, anyhow::Error> {
     let user = sqlx::query_as::<_, store::User>(
-        r#"SELECT * FROM users WHERE username = $1;"#,
+        r#"SELECT * FROM users WHERE username = $1 AND deleted_at IS NULL;"#,
     )
     .bind(username)
     .fetch_optional(pool)
