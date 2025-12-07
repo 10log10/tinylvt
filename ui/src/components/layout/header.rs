@@ -17,9 +17,10 @@ fn AuthenticatedUserInfo(props: &AuthenticatedUserInfoProps) -> Html {
 
     html! {
         <div class="flex items-center gap-2 sm:gap-4">
-            <span class="text-sm text-neutral-600 dark:text-neutral-400">
+            <Link<Route> to={Route::Profile}
+                classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors">
                 {format!("{}", props.profile.username)}
-            </span>
+            </Link<Route>>
             <button
                 onclick={logout_handler}
                 class="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white

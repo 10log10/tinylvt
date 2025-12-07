@@ -19,8 +19,8 @@ use pages::{
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
     HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
-    ResetPasswordPage, SiteAuctionsPage, SiteDetailPage, SiteSettingsPage,
-    VerifyEmailPage,
+    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteDetailPage,
+    SiteSettingsPage, VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -71,6 +71,8 @@ pub enum Route {
     VerifyEmail,
     #[at("/help")]
     Help,
+    #[at("/profile")]
+    Profile,
     #[at("/forgot_password")]
     ForgotPassword,
     #[at("/reset_password")]
@@ -113,6 +115,7 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::Help => html! { <HelpPage /> },
+        Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },
         Route::AcceptInvite { invite_id } => {
