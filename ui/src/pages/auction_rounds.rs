@@ -8,8 +8,9 @@ use crate::{
         AuctionTabHeader, TimestampDisplay, auction_tab_header::ActiveTab,
     },
     hooks::{
-        use_auction_detail, use_auction_round_results, use_auction_rounds,
-        use_auction_user_bids, use_spaces,
+        login_form, use_auction_detail, use_auction_round_results,
+        use_auction_rounds, use_auction_user_bids, use_require_auth,
+        use_spaces,
     },
 };
 
@@ -20,6 +21,11 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionRoundsPage(props: &Props) -> Html {
+    // Require authentication - shows login form if not authenticated
+    if use_require_auth().is_none() {
+        return login_form();
+    }
+
     let auction_hook = use_auction_detail(props.auction_id);
     let rounds_hook = use_auction_rounds(props.auction_id);
 

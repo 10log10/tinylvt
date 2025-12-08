@@ -1,7 +1,7 @@
 use payloads::{Role, SiteId, responses::Site};
 use yew::prelude::*;
 
-use crate::hooks::{use_communities, use_site};
+use crate::hooks::{login_form, use_communities, use_require_auth, use_site};
 
 #[derive(Clone, PartialEq)]
 pub struct SiteWithRole {
@@ -17,6 +17,11 @@ pub struct Props {
 
 #[function_component]
 pub fn SitePageWrapper(props: &Props) -> Html {
+    // Require authentication - shows login form if not authenticated
+    if use_require_auth().is_none() {
+        return login_form();
+    }
+
     let site_hook = use_site(props.site_id);
     let communities_hook = use_communities();
 

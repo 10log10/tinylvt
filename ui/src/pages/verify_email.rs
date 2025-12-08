@@ -1,16 +1,14 @@
 use payloads::requests;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use yewdux::prelude::*;
 
+use crate::Route;
 use crate::contexts::use_toast;
-use crate::{AuthState, Route, State};
 
 #[function_component]
 pub fn VerifyEmailPage() -> Html {
     let navigator = use_navigator().unwrap();
     let toast = use_toast();
-    let (state, _dispatch) = use_store::<State>();
 
     let is_verifying = use_state(|| true);
     let error_message = use_state(|| None::<String>);
@@ -71,17 +69,9 @@ pub fn VerifyEmailPage() -> Html {
                         )
                         .await;
 
-                        // Check current auth status before redirecting
-                        let api_client = crate::get_api_client();
-                        let is_logged_in =
-                            api_client.login_check().await.is_ok();
-
-                        // Redirect to home if logged in, otherwise to login
-                        if is_logged_in {
-                            navigator.push(&Route::Home);
-                        } else {
-                            navigator.push(&Route::Login);
-                        }
+                        // Redirect to home - it will show login form if not
+                        // authenticated
+                        navigator.push(&Route::Home);
                     }
                     Err(e) => {
                         is_verifying.set(false);
@@ -133,13 +123,7 @@ pub fn VerifyEmailPage() -> Html {
                         </p>
                         <p class="text-sm text-neutral-600 \
                                   dark:text-neutral-400">
-                            {
-                                if matches!(state.auth_state, AuthState::LoggedIn(_)) {
-                                    "Redirecting to home..."
-                                } else {
-                                    "Redirecting to login..."
-                                }
-                            }
+                            {"Redirecting..."}
                         </p>
                     </div>
                 } else if let Some(error) = &*error_message {

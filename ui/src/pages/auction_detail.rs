@@ -11,9 +11,10 @@ use crate::{
         UserEligibilityDisplay, auction_tab_header::ActiveTab,
     },
     hooks::{
-        use_auction_detail, use_auction_rounds, use_current_round,
-        use_exponential_refetch, use_proxy_bidding_settings, use_round_prices,
-        use_spaces, use_user_bids, use_user_eligibility, use_user_space_values,
+        login_form, use_auction_detail, use_auction_rounds, use_current_round,
+        use_exponential_refetch, use_proxy_bidding_settings, use_require_auth,
+        use_round_prices, use_spaces, use_user_bids, use_user_eligibility,
+        use_user_space_values,
     },
 };
 
@@ -24,6 +25,11 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionDetailPage(props: &Props) -> Html {
+    // Require authentication - shows login form if not authenticated
+    if use_require_auth().is_none() {
+        return login_form();
+    }
+
     let auction_hook = use_auction_detail(props.auction_id);
     let (state, _) = use_store::<State>();
 

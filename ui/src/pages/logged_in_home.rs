@@ -1,32 +1,19 @@
-use crate::{AuthState, Route, State, get_api_client};
+use crate::hooks::{login_form, use_require_auth};
+use crate::{Route, get_api_client};
 use payloads::requests;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use yewdux::prelude::*;
 
 #[function_component]
 pub fn LoggedInHomePage() -> Html {
-    let (state, _) = use_store::<State>();
+    // Require authentication - shows login form if not authenticated
+    let Some(profile) = use_require_auth() else {
+        return login_form();
+    };
+
     let navigator = use_navigator().unwrap();
     let resend_loading = use_state(|| false);
     let resend_success = use_state(|| false);
-
-    // Redirect to landing page if not logged in
-    let profile = match &state.auth_state {
-        AuthState::LoggedIn(profile) => profile.clone(),
-        AuthState::LoggedOut => {
-            navigator.push(&Route::Landing);
-            return html! {};
-        }
-        AuthState::Unknown => {
-            return html! {
-                <div class="text-center space-y-4">
-                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-neutral-900 dark:border-neutral-100"></div>
-                    <p class="text-neutral-600 dark:text-neutral-400">{"Checking authentication..."}</p>
-                </div>
-            };
-        }
-    };
 
     let on_view_communities = {
         let navigator = navigator.clone();
