@@ -33,13 +33,13 @@ pub fn LoggedOutHomePage() -> Html {
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Communities often struggle to equitably share scarce resources. They're hard to divide equally among members. A minority often captures most of the resource value."}
+                    {"Communities often struggle to equitably share scarce resources. A minority captures the resource value or the resource is wasted."}
                 </p>
             </div>
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"TinyLVT solves this problem with auctions. Auction the resource to the highest bidder, then redistribute the proceeds equally. Repeat on a schedule."}
+                    {"TinyLVT solves this problem. Auction the resource to the highest bidder, then redistribute the proceeds equally. Repeat on a schedule."}
                 </p>
             </div>
 
@@ -48,8 +48,18 @@ pub fn LoggedOutHomePage() -> Html {
                     {"What you can share"}
                 </h2>
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Space is the most common scarce resource in need of sharing. Rooms in a home, desks in a workspace, stalls in a market, urban land. Even wireless spectrum, URLs, and patent rights are types of space—radio space, namespace, idea space. TinyLVT is designed for sharing space, but can also be used to auction many other things."}
+                    {"Space is the most common scarce resource in need of sharing. Rooms in a home, desks in a workspace, stalls in a market, urban land. Even wireless spectrum, URLs, and patent rights are types of space—radio space, namespace, and idea space."}
                 </p>
+                <div class="mt-4 p-4 bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg">
+                    <a
+                        href="https://github.com/10log10/tinylvt/blob/main/scenarios/1-student-desks.md"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-lg font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
+                    >
+                        {"See a detailed scenario: TinyLVT for student desk allocation →"}
+                    </a>
+                </div>
             </div>
 
             <div class="max-w-2xl mx-auto">
