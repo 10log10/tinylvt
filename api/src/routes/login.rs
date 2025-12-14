@@ -314,7 +314,7 @@ pub struct ResetPasswordRequest {
     password: SecretBox<String>,
 }
 
-#[tracing::instrument(skip(pool, time_source))]
+#[tracing::instrument(skip(pool, time_source), ret)]
 #[post("/reset_password")]
 pub async fn reset_password(
     mut request: web::Json<ResetPasswordRequest>,
@@ -345,6 +345,8 @@ pub async fn reset_password(
     change_password(user_id, password, &pool)
         .await
         .map_err(APIError::UnexpectedError)?;
+
+    tracing::info!("Password changed successfully for user {}", user_id);
 
     let response = payloads::responses::SuccessMessage {
         message: "Password has been reset successfully.".to_string(),

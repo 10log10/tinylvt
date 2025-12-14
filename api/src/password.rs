@@ -92,7 +92,7 @@ fn verify_password_hash(
         .map_err(AuthError::InvalidCredentials)
 }
 
-#[tracing::instrument(name = "Change password", skip(password, pool))]
+#[tracing::instrument(name = "Change password", skip(password, pool), ret)]
 pub async fn change_password(
     user_id: payloads::UserId,
     password: SecretBox<String>,
