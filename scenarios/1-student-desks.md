@@ -8,6 +8,8 @@ Read the scenario description, select a character archetype, then participate in
 
 The auction begins at Sun, 14 Dec 2025 at 12:00 PST. Enter your preferences before then! 
 
+If you can't or didn't make it, a second auction will take place at Sun, 21 Dec 2025 at 12:00 PST for this same scenario.
+
 ## Scenario
 
 You're a graduate student in the economics department of Henry George Junior University, a prestigious institution of higher education in the United States. The econ department has grown in recent years, leading to a shortage of student desks, and the department wants to try using TinyLVT to allocate them among the students.
@@ -45,7 +47,7 @@ The proxy bidder will handle participation in the auction for you. You don't nee
 
 To use proxy bidding, assign your values, the maximum you would pay, for each desk you want. The proxy bidder will bid on your behalf for the desk where there is the greatest difference between your value and the current desk price.
 
-Prices for all desks climb progressively higher all together. This way you, or the proxy bidder, can shift your bidding between desks as the prices get revealed.
+Prices start at zero for all desks and climb progressively higher in increments of $10. Since prices climb for all desks together, you can shift your bidding between desks as the prices get revealed.
 
 Among bidders for a desk, a standing high bidder is selected at random for each round. A standing high bidder cannot release a desk until they are outbid by another person.
 
@@ -53,7 +55,7 @@ You must bid on a desk or be the standing high bidder on a desk in every round o
 
 This is encoded by assigning each desk 1 eligibility point, and every round has a 100% eligibility threshold. This means that you must bid for at least 1 point (1 desk) in every round for as long as you intend to continue participating. Once you drop out of the auction, you can't rejoin.
 
-The round duration is 1 minute, and the bid increment is $10. If the maximum desk price is $1000, the auction will run for at least 100 rounds.
+The round duration is 1 minute. If the maximum desk price is $1000, the auction will run for at least 100 rounds.
 
 ## Directions
 
