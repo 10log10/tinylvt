@@ -233,6 +233,10 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                                 on_complete={Some(start_transition_refetch.clone())}
                             />
                         </div>
+                        <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                            {"You can set your space values and enable proxy \
+                              bidding now to prepare for the auction."}
+                        </p>
                         {if let Some(error) = &transition_error {
                             html! {
                                 <div class="mt-4 p-3 bg-red-50 \

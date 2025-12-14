@@ -293,6 +293,12 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                                 html! {}
                             }}
 
+                            <p class="mb-4 text-sm text-neutral-600 \
+                                      dark:text-neutral-400">
+                                {"Your space values can be edited on an auction \
+                                  page."}
+                            </p>
+
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {spaces.iter().map(|space| {
                                     let refetch = spaces_hook.refetch.clone();

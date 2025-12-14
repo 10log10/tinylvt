@@ -511,11 +511,13 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         html! {
                             <div
                                 onclick={on_value_click}
-                                class="text-sm font-medium text-neutral-900 \
+                                class="w-20 text-sm font-medium text-neutral-900 \
                                        dark:text-white cursor-pointer \
                                        hover:bg-neutral-100 \
                                        dark:hover:bg-neutral-700 px-2 py-1 \
-                                       rounded transition-colors"
+                                       rounded transition-colors \
+                                       border border-dashed border-neutral-400 \
+                                       dark:border-neutral-500"
                             >
                                 {match props.user_value {
                                     Some(value) => format!("${:.2}", value),
