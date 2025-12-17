@@ -6,9 +6,7 @@ TinyLVT is a platform designed to help communities share scarce resources. Help 
 
 Read the scenario description, select a character archetype, then participate in the TinyLVT auction according to the imagined preferences of your character. Afterwards, you'll give feedback about the experience.
 
-The auction begins at Sun, 14 Dec 2025 at 12:00 PST. Enter your preferences before then! 
-
-If you can't or didn't make it, a second auction will take place at Sun, 21 Dec 2025 at 12:00 PST for this same scenario.
+The auction begins at Sun, 21 Dec 2025 at 12:00 PST. Enter your preferences before then! 
 
 ## Scenario
 
@@ -41,21 +39,29 @@ Assume that you receive a stipend of $55k/year, of which the majority is spent o
 
 Since this is the first time the department is doing this, you don't know how much the desks will be worth, or how much you'll get back from the redistribution.
 
+## Proxy Bidding
+
+The proxy bidder will handle participation in the auction for you. To use proxy bidding, enable it for the auction and assign your values (the maximum you would pay) for each desk you want. The proxy bidder will bid on your behalf for the desk where you have the greatest surplus: the largest difference between your value and the current desk price.
+
+<p align="center">
+  <img src="../ui/assets/auction-page-values-light.jpg" width="50%" />
+</p>
+
+<p align="center">
+  <i>Ensure that proxy bidding is enabled and that you've assigned values to the desks you want in the dashed boxes.</i>
+</p>
+
+You must explicitly enable proxy bidding for each auction you want to participate in.
+
 ## Auction Format
 
-The proxy bidder will handle participation in the auction for you. You don't need to know the exact details of the auction format. However, the auction details may still influence how you bid and how you view the result of the auction.
-
-To use proxy bidding, assign your values, the maximum you would pay, for each desk you want. The proxy bidder will bid on your behalf for the desk where there is the greatest difference between your value and the current desk price.
-
-Prices start at zero for all desks and climb progressively higher in increments of $10. Since prices climb for all desks together, you can shift your bidding between desks as the prices get revealed.
+Prices start at zero for all desks and climb progressively higher in increments of $10. Since prices climb for all desks together, the proxy bidder can shift bidding between desks as the prices get revealed.
 
 Among bidders for a desk, a standing high bidder is selected at random for each round. A standing high bidder cannot release a desk until they are outbid by another person.
 
-You must bid on a desk or be the standing high bidder on a desk in every round of the auction. You cannot wait to start bidding only in later rounds. This requirement ensures that everyone participates in price discovery as the auction progresses.
+You must bid on a desk or be the standing high bidder on a desk in every round of the auction. You cannot wait to start bidding only in later rounds. This requirement ensures that everyone participates in price discovery as the auction progresses. Once you drop out of the auction, you can't rejoin.
 
-This is encoded by assigning each desk 1 eligibility point, and every round has a 100% eligibility threshold. This means that you must bid for at least 1 point (1 desk) in every round for as long as you intend to continue participating. Once you drop out of the auction, you can't rejoin.
-
-The round duration is 1 minute. If the maximum desk price is $1000, the auction will run for at least 100 rounds.
+The round duration is 1 minute. If the maximum desk price is $100, the auction will run for at least 10 rounds.
 
 ## Directions
 
@@ -66,3 +72,11 @@ The round duration is 1 minute. If the maximum desk price is $1000, the auction 
 5. Upon conclusion of the auction, check for the auction results on the auction page, which shows the desk assignments and the payments the winners must make. The per-person payout will be the sum of all payments divided by the number of community members. This value will be posted on this page for your reference.
 6. Consider your reaction to the result. Did you get a desk you wanted? If so, how do you feel about the price? How do you feel about the redistribution?
 7. Fill out [the survey](https://tally.so/r/ODar4p) with your thoughts.
+
+## Results
+
+### Auction at Sun, 21 Dec 2025 at 12:00 PST
+
+This auction had 2 participants. Both valued desk 5 the highest. Once its price reached $10, one participant switched to bidding for desk 6. Bidding activity stopped at that point, and the auction concluded.
+
+The net proceeds for the auction were $10. Divided among the two participants, the per-person distribution was $5.

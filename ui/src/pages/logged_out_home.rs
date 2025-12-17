@@ -78,11 +78,11 @@ pub fn LoggedOutHomePage() -> Html {
             <div class="max-w-7xl mx-auto my-12 px-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     if state.is_dark_mode() {
-                        <img src="/screenshot-dark-1.png" alt="TinyLVT screenshot showing site management" class="w-full rounded-lg shadow-lg border border-neutral-700" />
-                        <img src="/screenshot-dark-2.png" alt="TinyLVT screenshot showing auction interface" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                        <img src="/auction-list-dark.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                        <img src="/auction-page-dark.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-700" />
                     } else {
-                        <img src="/screenshot-light-1.png" alt="TinyLVT screenshot showing site management" class="w-full rounded-lg shadow-lg border border-neutral-300" />
-                        <img src="/screenshot-light-2.png" alt="TinyLVT screenshot showing auction interface" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                        <img src="/auction-list-light.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                        <img src="/auction-page-light.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-300" />
                     }
                 </div>
             </div>

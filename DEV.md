@@ -193,3 +193,15 @@ RUST_LOG=api=info cargo test long_community_name_rejected -- --nocapture
 ## Tracing
 
 Remember that [care must be taken](https://docs.rs/tracing/latest/tracing/struct.Span.html#in-asynchronous-code) when using tracing spans in async code. [Instrument attribute macros](https://docs.rs/tracing/latest/tracing/attr.instrument.html) are the preferred path.
+
+## Compressing PNG files
+
+Using imagemagick:
+
+```
+for f in orig/*.png; do
+  magick "$f" -quality 50 "$(basename "${f%.png}").jpg"
+done
+```
+
+Quality depends on the image content. 50 seems fine for screenshots that lack any subtle color gradients. [JPEG quality examples.](https://regex.info/blog/lightroom-goodies/jpeg-quality)
