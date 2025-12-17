@@ -106,22 +106,6 @@ pub fn LoggedOutHomePage() -> Html {
                     {"Get Started"}
                 </button>
             </div>
-
-            <div class="max-w-2xl mx-auto mt-16">
-                <h2 class="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 mb-6">
-                    {"FAQ"}
-                </h2>
-                <div class="space-y-6">
-                    <div>
-                        <h3 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
-                            {"Won't this favor wealthy members?"}
-                        </h3>
-                        <p class="text-lg text-neutral-600 dark:text-neutral-400 text-left">
-                            {"Auction winners pay the community for using the resource. Wealthy members can only continue winning auctions if they spend more and more money, or if the rest of the community would rather keep the proceeds than bid for the resource. This is to the benefit of the community, which captures the resource value."}
-                        </p>
-                    </div>
-                </div>
-            </div>
         </div>
     }
 }
