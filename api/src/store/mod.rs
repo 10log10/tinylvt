@@ -912,7 +912,7 @@ pub async fn delete_user(
                 r#"
                 UPDATE users SET
                     email = 'deleted-' || id || '@deleted.local',
-                    username = 'deleted-' || SUBSTRING(id::text, 1, 8),
+                    username = 'deleted-' || id::text,
                     password_hash = '',
                     display_name = NULL,
                     email_verified = false,
