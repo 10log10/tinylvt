@@ -1,18 +1,29 @@
-use crate::components::ConfirmationModal;
+use crate::components::{ConfirmationModal, RequireAuth};
 use crate::get_api_client;
-use crate::hooks::{
-    FetchState, login_form, use_communities, use_logout, use_require_auth,
-};
+use crate::hooks::{FetchState, use_communities, use_logout};
 use payloads::Role;
+use payloads::responses::UserProfile;
 use yew::prelude::*;
 
 #[function_component]
 pub fn ProfilePage() -> Html {
-    // Require authentication - shows login form if not authenticated
-    let Some(profile) = use_require_auth() else {
-        return login_form();
-    };
+    let render_content = Callback::from(|profile: UserProfile| {
+        html! { <ProfilePageInner {profile} /> }
+    });
 
+    html! {
+        <RequireAuth render={render_content} />
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct ProfilePageInnerProps {
+    profile: UserProfile,
+}
+
+#[function_component]
+fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
+    let profile = &props.profile;
     let logout = use_logout();
 
     // Modal and deletion state

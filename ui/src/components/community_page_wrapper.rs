@@ -1,7 +1,8 @@
 use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
-use crate::hooks::{login_form, use_communities, use_require_auth};
+use crate::components::RequireAuth;
+use crate::hooks::use_communities;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -11,11 +12,19 @@ pub struct Props {
 
 #[function_component]
 pub fn CommunityPageWrapper(props: &Props) -> Html {
-    // Require authentication - shows login form if not authenticated
-    if use_require_auth().is_none() {
-        return login_form();
+    html! {
+        <RequireAuth>
+            <CommunityPageWrapperInner
+                community_id={props.community_id}
+                children={props.children.clone()}
+            />
+        </RequireAuth>
     }
+}
 
+// Inner component that only renders when authenticated
+#[function_component]
+fn CommunityPageWrapperInner(props: &Props) -> Html {
     let communities_hook = use_communities();
 
     // Find the community in the global state

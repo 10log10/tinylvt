@@ -4,15 +4,20 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
-use crate::hooks::{login_form, use_communities, use_require_auth};
+use crate::components::RequireAuth;
+use crate::hooks::use_communities;
 
 #[function_component]
 pub fn CreateCommunityPage() -> Html {
-    // Require authentication - shows login form if not authenticated
-    if use_require_auth().is_none() {
-        return login_form();
+    html! {
+        <RequireAuth>
+            <CreateCommunityPageInner />
+        </RequireAuth>
     }
+}
 
+#[function_component]
+fn CreateCommunityPageInner() -> Html {
     let navigator = use_navigator().unwrap();
     let communities_hook = use_communities();
 

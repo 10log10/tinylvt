@@ -7,14 +7,13 @@ use crate::{
     State,
     components::{
         AuctionTabHeader, AuctionToplineInfo, CountdownTimer,
-        ProxyBiddingControls, RoundIndicator, SpaceListForBidding,
+        ProxyBiddingControls, RequireAuth, RoundIndicator, SpaceListForBidding,
         UserEligibilityDisplay, auction_tab_header::ActiveTab,
     },
     hooks::{
-        login_form, use_auction_detail, use_auction_rounds, use_current_round,
-        use_exponential_refetch, use_proxy_bidding_settings, use_require_auth,
-        use_round_prices, use_spaces, use_user_bids, use_user_eligibility,
-        use_user_space_values,
+        use_auction_detail, use_auction_rounds, use_current_round,
+        use_exponential_refetch, use_proxy_bidding_settings, use_round_prices,
+        use_spaces, use_user_bids, use_user_eligibility, use_user_space_values,
     },
 };
 
@@ -25,11 +24,15 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionDetailPage(props: &Props) -> Html {
-    // Require authentication - shows login form if not authenticated
-    if use_require_auth().is_none() {
-        return login_form();
+    html! {
+        <RequireAuth>
+            <AuctionDetailPageInner auction_id={props.auction_id} />
+        </RequireAuth>
     }
+}
 
+#[function_component]
+fn AuctionDetailPageInner(props: &Props) -> Html {
     let auction_hook = use_auction_detail(props.auction_id);
     let (state, _) = use_store::<State>();
 

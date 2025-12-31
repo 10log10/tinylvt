@@ -1,16 +1,29 @@
-use crate::hooks::{login_form, use_require_auth};
+use crate::components::RequireAuth;
 use crate::{Route, get_api_client};
 use payloads::requests;
+use payloads::responses::UserProfile;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 #[function_component]
 pub fn LoggedInHomePage() -> Html {
-    // Require authentication - shows login form if not authenticated
-    let Some(profile) = use_require_auth() else {
-        return login_form();
-    };
+    let render_content = Callback::from(|profile: UserProfile| {
+        html! { <LoggedInHomePageInner {profile} /> }
+    });
 
+    html! {
+        <RequireAuth render={render_content} />
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct LoggedInHomePageInnerProps {
+    profile: UserProfile,
+}
+
+#[function_component]
+fn LoggedInHomePageInner(props: &LoggedInHomePageInnerProps) -> Html {
+    let profile = &props.profile;
     let navigator = use_navigator().unwrap();
     let resend_loading = use_state(|| false);
     let resend_success = use_state(|| false);

@@ -5,12 +5,12 @@ use yewdux::prelude::*;
 use crate::{
     State,
     components::{
-        AuctionTabHeader, TimestampDisplay, auction_tab_header::ActiveTab,
+        AuctionTabHeader, RequireAuth, TimestampDisplay,
+        auction_tab_header::ActiveTab,
     },
     hooks::{
-        login_form, use_auction_detail, use_auction_round_results,
-        use_auction_rounds, use_auction_user_bids, use_require_auth,
-        use_spaces,
+        use_auction_detail, use_auction_round_results, use_auction_rounds,
+        use_auction_user_bids, use_spaces,
     },
 };
 
@@ -21,11 +21,15 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionRoundsPage(props: &Props) -> Html {
-    // Require authentication - shows login form if not authenticated
-    if use_require_auth().is_none() {
-        return login_form();
+    html! {
+        <RequireAuth>
+            <AuctionRoundsPageInner auction_id={props.auction_id} />
+        </RequireAuth>
     }
+}
 
+#[function_component]
+fn AuctionRoundsPageInner(props: &Props) -> Html {
     let auction_hook = use_auction_detail(props.auction_id);
     let rounds_hook = use_auction_rounds(props.auction_id);
 
