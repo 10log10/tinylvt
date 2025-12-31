@@ -719,7 +719,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 html! {
                     <ConfirmationModal
                         title="Permanently Delete Site"
-                        message="This will permanently delete the site and all associated data. This action cannot be undone."
+                        message="This will permanently delete the site and remove all spaces and auctions associated with it. This action cannot be undone."
                         confirm_text="Permanently Delete"
                         confirmation_value={props.site.site_details.name.clone()}
                         confirmation_label="the site name"
