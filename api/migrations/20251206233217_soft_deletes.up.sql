@@ -12,7 +12,7 @@
 --   user_eligibilities), their PII is anonymized, `deleted_at` is set, and the
 --   row is preserved to maintain referential integrity and allow distinguishing
 --   between different deleted users in auction history. The `deleted_at` marker
---   prevents login and hides the user from member lists. Non-historical data
+--   prevents login. Non-historical data
 --   (user_values, use_proxy_bidding, tokens, community_members) is deleted.
 -- - If they have no auction history, the row can be fully deleted.
 -- The application checks for auction history before attempting hard delete.

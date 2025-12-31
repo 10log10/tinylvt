@@ -231,6 +231,44 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         })
     };
 
+    // Restore handler - called when site is soft-deleted
+    let on_restore = {
+        let error_message = error_message.clone();
+        let success_message = success_message.clone();
+        let is_loading = is_loading.clone();
+        let site_id = props.site.site_id;
+        let refetch_site = site_hook.refetch.clone();
+
+        Callback::from(move |_| {
+            let error_message = error_message.clone();
+            let success_message = success_message.clone();
+            let is_loading = is_loading.clone();
+            let refetch_site = refetch_site.clone();
+
+            yew::platform::spawn_local(async move {
+                is_loading.set(true);
+                error_message.set(None);
+                success_message.set(None);
+
+                let api_client = crate::get_api_client();
+                match api_client.restore_site(&site_id).await {
+                    Ok(_) => {
+                        success_message.set(Some(
+                            "Site has been restored successfully.".to_string(),
+                        ));
+                        // Refresh site data to show updated deleted_at
+                        refetch_site.emit(());
+                    }
+                    Err(e) => {
+                        error_message.set(Some(e.to_string()));
+                    }
+                }
+
+                is_loading.set(false);
+            });
+        })
+    };
+
     // Hard delete handler - called from confirmation modal
     let on_hard_delete = {
         let delete_error_message = delete_error_message.clone();
@@ -525,26 +563,56 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
 
                             {if can_edit {
                                 let is_deleted = props.site.deleted_at.is_some();
-                                let button_text = if is_deleted {
-                                    "Permanently Delete Site"
-                                } else {
-                                    "Delete Site"
-                                };
 
-                                html! {
-                                    <button
-                                        type="button"
-                                        onclick={on_delete}
-                                        disabled={*is_loading}
-                                        class="py-2 px-4 border border-red-300 dark:border-red-600
-                                               rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
-                                               bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
-                                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
-                                               disabled:opacity-50 disabled:cursor-not-allowed
-                                               transition-colors duration-200"
-                                    >
-                                        {button_text}
-                                    </button>
+                                if is_deleted {
+                                    // Show both Restore and Permanently Delete buttons
+                                    html! {
+                                        <>
+                                            <button
+                                                type="button"
+                                                onclick={on_restore.clone()}
+                                                disabled={*is_loading}
+                                                class="py-2 px-4 border border-green-300 dark:border-green-600
+                                                       rounded-md shadow-sm text-sm font-medium text-green-700 dark:text-green-300
+                                                       bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30
+                                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500
+                                                       disabled:opacity-50 disabled:cursor-not-allowed
+                                                       transition-colors duration-200"
+                                            >
+                                                {"Restore Site"}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onclick={on_delete}
+                                                disabled={*is_loading}
+                                                class="py-2 px-4 border border-red-300 dark:border-red-600
+                                                       rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
+                                                       bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
+                                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
+                                                       disabled:opacity-50 disabled:cursor-not-allowed
+                                                       transition-colors duration-200"
+                                            >
+                                                {"Permanently Delete Site"}
+                                            </button>
+                                        </>
+                                    }
+                                } else {
+                                    // Show only Delete Site button
+                                    html! {
+                                        <button
+                                            type="button"
+                                            onclick={on_delete}
+                                            disabled={*is_loading}
+                                            class="py-2 px-4 border border-red-300 dark:border-red-600
+                                                   rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
+                                                   bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
+                                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
+                                                   disabled:opacity-50 disabled:cursor-not-allowed
+                                                   transition-colors duration-200"
+                                        >
+                                            {"Delete Site"}
+                                        </button>
+                                    }
                                 }
                             } else {
                                 html! {}

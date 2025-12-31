@@ -849,6 +849,14 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn restore_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("restore_site", &site_id).await?;
+        ok_empty(response).await
+    }
+
     pub async fn list_sites(
         &self,
         community_id: &CommunityId,

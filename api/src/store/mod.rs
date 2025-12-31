@@ -1866,6 +1866,33 @@ pub async fn soft_delete_site(
     Ok(())
 }
 
+pub async fn restore_site(
+    site_id: &payloads::SiteId,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let now = time_source.now().to_sqlx();
+
+    let result = sqlx::query(
+        "UPDATE sites SET deleted_at = NULL, updated_at = $2 WHERE id = $1",
+    )
+    .bind(site_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::SiteNotFound);
+    }
+
+    Ok(())
+}
+
 pub async fn list_sites(
     community_id: &payloads::CommunityId,
     user_id: &UserId,
