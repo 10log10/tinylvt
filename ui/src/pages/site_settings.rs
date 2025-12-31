@@ -10,8 +10,9 @@ use yew_router::prelude::*;
 use crate::{
     Route,
     components::{
-        AuctionParamsEditor, AuctionParamsViewer, SitePageWrapper,
-        SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
+        AuctionParamsEditor, AuctionParamsViewer, ConfirmationModal,
+        SitePageWrapper, SiteTabHeader, SiteWithRole,
+        site_tab_header::ActiveTab,
     },
     hooks::use_site,
 };
@@ -77,6 +78,11 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     // invalid input values back to their correct display values
     let auction_params =
         use_state(|| props.site.site_details.default_auction_params.clone());
+
+    // State for confirmation modal (permanent delete)
+    let show_delete_modal = use_state(|| false);
+    let is_deleting = use_state(|| false);
+    let delete_error_message = use_state(|| None::<String>);
 
     let can_edit = props.user_role.is_ge_coleader();
 
@@ -187,40 +193,33 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         })
     };
 
-    let on_delete = {
+    // Soft delete handler - called when site is not yet deleted
+    let on_soft_delete = {
         let error_message = error_message.clone();
+        let success_message = success_message.clone();
         let is_loading = is_loading.clone();
-        let navigator = navigator.clone();
-        let site = props.site.clone();
+        let site_id = props.site.site_id;
+        let refetch_site = site_hook.refetch.clone();
 
         Callback::from(move |_| {
-            let confirmed = web_sys::window()
-                .unwrap()
-                .confirm_with_message(&format!(
-                    "Are you sure you want to delete the site '{}'? This action cannot be undone.",
-                    site.site_details.name
-                ))
-                .unwrap_or(false);
-
-            if !confirmed {
-                return;
-            }
-
             let error_message = error_message.clone();
+            let success_message = success_message.clone();
             let is_loading = is_loading.clone();
-            let navigator = navigator.clone();
-            let site_id = site.site_id;
-            let community_id = site.site_details.community_id;
+            let refetch_site = refetch_site.clone();
 
             yew::platform::spawn_local(async move {
                 is_loading.set(true);
                 error_message.set(None);
+                success_message.set(None);
 
                 let api_client = crate::get_api_client();
-                match api_client.delete_site(&site_id).await {
+                match api_client.soft_delete_site(&site_id).await {
                     Ok(_) => {
-                        navigator
-                            .push(&Route::CommunityDetail { id: community_id });
+                        success_message.set(Some(
+                            "Site has been deleted. You can permanently delete it if needed.".to_string(),
+                        ));
+                        // Refresh site data to show updated deleted_at
+                        refetch_site.emit(());
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -229,6 +228,65 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
 
                 is_loading.set(false);
             });
+        })
+    };
+
+    // Hard delete handler - called from confirmation modal
+    let on_hard_delete = {
+        let delete_error_message = delete_error_message.clone();
+        let is_deleting = is_deleting.clone();
+        let navigator = navigator.clone();
+        let site_id = props.site.site_id;
+        let community_id = props.site.site_details.community_id;
+
+        Callback::from(move |_| {
+            let delete_error_message = delete_error_message.clone();
+            let is_deleting = is_deleting.clone();
+            let navigator = navigator.clone();
+
+            yew::platform::spawn_local(async move {
+                is_deleting.set(true);
+                delete_error_message.set(None);
+
+                let api_client = crate::get_api_client();
+                match api_client.delete_site(&site_id).await {
+                    Ok(_) => {
+                        navigator
+                            .push(&Route::CommunityDetail { id: community_id });
+                    }
+                    Err(e) => {
+                        delete_error_message.set(Some(e.to_string()));
+                        is_deleting.set(false);
+                    }
+                }
+            });
+        })
+    };
+
+    // Delete button handler - decides between soft delete and showing modal
+    let on_delete = {
+        let site = props.site.clone();
+        let show_delete_modal = show_delete_modal.clone();
+        let on_soft_delete = on_soft_delete.clone();
+
+        Callback::from(move |_| {
+            if site.deleted_at.is_some() {
+                // Already soft-deleted, show confirmation modal for permanent delete
+                show_delete_modal.set(true);
+            } else {
+                // Not deleted yet, perform soft delete
+                on_soft_delete.emit(());
+            }
+        })
+    };
+
+    let on_close_modal = {
+        let show_delete_modal = show_delete_modal.clone();
+        let delete_error_message = delete_error_message.clone();
+
+        Callback::from(move |_| {
+            show_delete_modal.set(false);
+            delete_error_message.set(None);
         })
     };
 
@@ -320,6 +378,14 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                     if let Some(success) = &*success_message {
                         <div class="p-4 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
                             <p class="text-sm text-green-700 dark:text-green-400">{success}</p>
+                        </div>
+                    }
+
+                    if props.site.deleted_at.is_some() {
+                        <div class="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                            <p class="text-sm text-amber-700 dark:text-amber-400">
+                                {"This site has been deleted. You can still edit it or permanently delete it using the button below."}
+                            </p>
                         </div>
                     }
 
@@ -458,6 +524,13 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                             </button>
 
                             {if can_edit {
+                                let is_deleted = props.site.deleted_at.is_some();
+                                let button_text = if is_deleted {
+                                    "Permanently Delete Site"
+                                } else {
+                                    "Delete Site"
+                                };
+
                                 html! {
                                     <button
                                         type="button"
@@ -470,7 +543,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                                                disabled:opacity-50 disabled:cursor-not-allowed
                                                transition-colors duration-200"
                                     >
-                                        {"Delete Site"}
+                                        {button_text}
                                     </button>
                                 }
                             } else {
@@ -572,6 +645,25 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                     </div>
                 }
             </div>
+
+            // Confirmation modal for permanent delete
+            {if *show_delete_modal {
+                html! {
+                    <ConfirmationModal
+                        title="Permanently Delete Site"
+                        message="This will permanently delete the site and all associated data. This action cannot be undone."
+                        confirm_text="Permanently Delete"
+                        confirmation_value={props.site.site_details.name.clone()}
+                        confirmation_label="the site name"
+                        on_confirm={on_hard_delete}
+                        on_close={on_close_modal}
+                        is_loading={*is_deleting}
+                        error_message={(*delete_error_message).clone().map(AttrValue::from)}
+                    />
+                }
+            } else {
+                html! {}
+            }}
         </div>
     }
 }

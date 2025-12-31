@@ -44,6 +44,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::get_site)
         .service(site::update_site)
         .service(site::delete_site)
+        .service(site::soft_delete_site)
         .service(site::list_sites)
         .service(site::create_site_image)
         .service(site::get_site_image)

@@ -9,6 +9,13 @@ async fn create_read_update_delete_site() -> anyhow::Result<()> {
 
     let site_id = response.site_id;
     app.update_site_details(response).await?;
+
+    // Test soft delete - site should still be accessible
+    app.client.soft_delete_site(&site_id).await?;
+    let soft_deleted_site = app.client.get_site(&site_id).await?;
+    assert!(soft_deleted_site.deleted_at.is_some());
+
+    // Test hard delete - site should no longer be accessible
     app.client.delete_site(&site_id).await?;
     assert!(
         app.client

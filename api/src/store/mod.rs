@@ -239,6 +239,8 @@ pub struct Site {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub deleted_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1657,6 +1659,7 @@ pub async fn get_site(
         site_details,
         created_at: site.created_at,
         updated_at: site.updated_at,
+        deleted_at: site.deleted_at,
     })
 }
 
@@ -1832,6 +1835,33 @@ pub async fn delete_site(
     tx.commit().await?;
 
     cleanup_unused_auction_params(pool).await;
+
+    Ok(())
+}
+
+pub async fn soft_delete_site(
+    site_id: &payloads::SiteId,
+    actor: &ValidatedMember,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let now = time_source.now().to_sqlx();
+
+    let result = sqlx::query(
+        "UPDATE sites SET deleted_at = $2, updated_at = $2 WHERE id = $1",
+    )
+    .bind(site_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::SiteNotFound);
+    }
 
     Ok(())
 }

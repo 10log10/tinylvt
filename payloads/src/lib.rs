@@ -408,6 +408,7 @@ pub mod responses {
         pub site_details: super::Site,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
+        pub deleted_at: Option<Timestamp>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -837,6 +838,14 @@ impl APIClient {
         site_id: &SiteId,
     ) -> Result<(), ClientError> {
         let response = self.post("delete_site", &site_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn soft_delete_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("soft_delete_site", &site_id).await?;
         ok_empty(response).await
     }
 

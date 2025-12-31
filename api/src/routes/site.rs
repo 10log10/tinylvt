@@ -70,6 +70,21 @@ pub async fn delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/soft_delete_site")]
+pub async fn soft_delete_site(
+    user: Identity,
+    site_id: web::Json<payloads::SiteId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let actor = get_validated_member(&user_id, &community_id, &pool).await?;
+    store::soft_delete_site(&site_id, &actor, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/sites")]
 pub async fn list_sites(
