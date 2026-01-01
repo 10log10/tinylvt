@@ -257,6 +257,32 @@ pub async fn delete_space(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/soft_delete_space")]
+pub async fn soft_delete_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::soft_delete_space(&space_id, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/restore_space")]
+pub async fn restore_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::restore_space(&space_id, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/spaces")]
 pub async fn list_spaces(

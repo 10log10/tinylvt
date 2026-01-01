@@ -15,7 +15,6 @@
 --   prevents login. Non-historical data
 --   (user_values, use_proxy_bidding, tokens, community_members) is deleted.
 -- - If they have no auction history, the row can be fully deleted.
--- The application checks for auction history before attempting hard delete.
 --
 -- ### Sites
 -- Sites support both soft and hard deletes:

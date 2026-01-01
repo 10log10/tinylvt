@@ -417,6 +417,7 @@ pub mod responses {
         pub space_details: super::Space,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
+        pub deleted_at: Option<Timestamp>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -902,6 +903,22 @@ impl APIClient {
         space_id: &SpaceId,
     ) -> Result<(), ClientError> {
         let response = self.post("delete_space", &space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn soft_delete_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("soft_delete_space", &space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn restore_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("restore_space", &space_id).await?;
         ok_empty(response).await
     }
 

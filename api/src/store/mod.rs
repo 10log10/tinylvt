@@ -76,6 +76,7 @@ impl From<Space> for payloads::responses::Space {
             space_id: space.id,
             created_at: space.created_at,
             updated_at: space.updated_at,
+            deleted_at: space.deleted_at,
             space_details: space.into(),
         }
     }
@@ -256,6 +257,8 @@ pub struct Space {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub deleted_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -2133,9 +2136,62 @@ pub async fn delete_space(
     .await?;
 
     if result.rows_affected() == 0 {
-        // Space exists (we validated above) but wasn't deleted due to auction
-        // history
+        // Space exists but wasn't deleted due to auction history
         return Err(StoreError::SpaceHasAuctionHistory);
+    }
+
+    Ok(())
+}
+
+pub async fn soft_delete_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
+            .await?;
+
+    let now = time_source.now().to_sqlx();
+
+    let result = sqlx::query(
+        "UPDATE spaces SET deleted_at = $2, updated_at = $2 WHERE id = $1",
+    )
+    .bind(space_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::SpaceNotFound);
+    }
+
+    Ok(())
+}
+
+pub async fn restore_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let (_, _) =
+        get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
+            .await?;
+
+    let now = time_source.now().to_sqlx();
+
+    let result = sqlx::query(
+        "UPDATE spaces SET deleted_at = NULL, updated_at = $2 WHERE id = $1",
+    )
+    .bind(space_id)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::SpaceNotFound);
     }
 
     Ok(())
