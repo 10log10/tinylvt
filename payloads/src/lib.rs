@@ -421,6 +421,15 @@ pub mod responses {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct UpdateSpaceResult {
+        pub space: Space,
+        /// True if copy-on-write was performed (space had auction history + nontrivial changes)
+        pub was_copied: bool,
+        /// If was_copied is true, this contains the old space ID that was soft-deleted
+        pub old_space_id: Option<super::SpaceId>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Auction {
         pub auction_id: super::AuctionId,
         pub auction_details: super::Auction,
@@ -885,7 +894,7 @@ impl APIClient {
     pub async fn update_space(
         &self,
         details: &requests::UpdateSpace,
-    ) -> Result<responses::Space, ClientError> {
+    ) -> Result<responses::UpdateSpaceResult, ClientError> {
         let response = self.post("space", details).await?;
         ok_body(response).await
     }
@@ -893,7 +902,7 @@ impl APIClient {
     pub async fn update_spaces(
         &self,
         details: &requests::UpdateSpaces,
-    ) -> Result<Vec<responses::Space>, ClientError> {
+    ) -> Result<Vec<responses::UpdateSpaceResult>, ClientError> {
         let response = self.post("spaces_batch", details).await?;
         ok_body(response).await
     }

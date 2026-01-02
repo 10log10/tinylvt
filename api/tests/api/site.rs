@@ -238,3 +238,202 @@ async fn list_sites_permissions() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn space_name_must_be_unique() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create first space
+    let space1_details = payloads::Space {
+        site_id: site.site_id,
+        name: "Duplicate Name".to_string(),
+        description: Some("First space".to_string()),
+        eligibility_points: 1.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    app.client.create_space(&space1_details).await?;
+
+    // Try to create second space with same name - should fail
+    let space2_details = payloads::Space {
+        site_id: site.site_id,
+        name: "Duplicate Name".to_string(),
+        description: Some("Second space".to_string()),
+        eligibility_points: 1.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let result = app.client.create_space(&space2_details).await;
+
+    // Should get a specific error about the duplicate name
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Duplicate Name"),
+        "Error message should mention the space name: {}",
+        err
+    );
+    assert!(
+        err.contains("already exists"),
+        "Error message should say 'already exists': {}",
+        err
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn space_restore_detects_name_conflict() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create first space and soft-delete it
+    let space1_details = payloads::Space {
+        site_id: site.site_id,
+        name: "Conflicting Name".to_string(),
+        description: Some("First space".to_string()),
+        eligibility_points: 1.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let space1 = app.client.create_space(&space1_details).await?;
+    app.client.soft_delete_space(&space1).await?;
+
+    // Create second space with same name (allowed since first is deleted)
+    let space2_details = payloads::Space {
+        site_id: site.site_id,
+        name: "Conflicting Name".to_string(),
+        description: Some("Second space".to_string()),
+        eligibility_points: 1.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    app.client.create_space(&space2_details).await?;
+
+    // Try to restore first space - should fail due to name conflict
+    let result = app.client.restore_space(&space1).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Conflicting Name"),
+        "Error message should mention the space name: {}",
+        err
+    );
+    assert!(
+        err.contains("already exists"),
+        "Error message should say 'already exists': {}",
+        err
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn space_copy_on_write_with_auction_history() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create a space
+    let space_details = payloads::Space {
+        site_id: site.site_id,
+        name: "Original Name".to_string(),
+        description: Some("Original description".to_string()),
+        eligibility_points: 1.0,
+        is_available: true,
+        site_image_id: None,
+    };
+    let space = app.client.create_space(&space_details).await?;
+
+    // Update trivial fields (description) - should update in place
+    let trivial_update = payloads::requests::UpdateSpace {
+        space_id: space,
+        space_details: payloads::Space {
+            site_id: site.site_id,
+            name: "Original Name".to_string(),
+            description: Some("Updated description".to_string()),
+            eligibility_points: 1.0,
+            is_available: true,
+            site_image_id: None,
+        },
+    };
+    let trivial_result = app.client.update_space(&trivial_update).await?;
+    assert!(!trivial_result.was_copied);
+    assert!(trivial_result.old_space_id.is_none());
+    assert_eq!(trivial_result.space.space_id, space);
+
+    // Create an auction to give the space auction history
+    let auction = app.create_test_auction(&site.site_id).await?;
+
+    // Start the auction and create a bid to establish auction history
+    api::scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
+    assert!(!rounds.is_empty());
+
+    app.create_bob_user().await?;
+    let invite_id = app.invite_bob().await?;
+    app.login_bob().await?;
+    app.client.accept_invite(&invite_id).await?;
+
+    app.client.create_bid(&space, &rounds[0].round_id).await?;
+
+    // Now update nontrivial field (name) - should trigger copy-on-write
+    app.login_alice().await?;
+    let nontrivial_update = payloads::requests::UpdateSpace {
+        space_id: space,
+        space_details: payloads::Space {
+            site_id: site.site_id,
+            name: "Updated Name".to_string(),
+            description: Some("Updated description".to_string()),
+            eligibility_points: 1.0,
+            is_available: true,
+            site_image_id: None,
+        },
+    };
+    let nontrivial_result = app.client.update_space(&nontrivial_update).await?;
+
+    // Should have created a new space (copy-on-write)
+    assert!(nontrivial_result.was_copied);
+    assert_eq!(nontrivial_result.old_space_id, Some(space));
+    assert_ne!(nontrivial_result.space.space_id, space);
+    assert_eq!(nontrivial_result.space.space_details.name, "Updated Name");
+
+    // Old space should be soft-deleted
+    let old_space = app.client.get_space(&space).await?;
+    assert!(old_space.deleted_at.is_some());
+
+    // New space should exist and not be deleted
+    let new_space = app
+        .client
+        .get_space(&nontrivial_result.space.space_id)
+        .await?;
+    assert!(new_space.deleted_at.is_none());
+
+    // List spaces returns both spaces (list doesn't filter deleted)
+    let spaces = app.client.list_spaces(&site.site_id).await?;
+    assert_eq!(spaces.len(), 2);
+
+    // Find the new space (not deleted)
+    let new_in_list = spaces
+        .iter()
+        .find(|s| s.deleted_at.is_none())
+        .expect("Should have one non-deleted space");
+    assert_eq!(new_in_list.space_id, nontrivial_result.space.space_id);
+    assert_eq!(new_in_list.space_details.name, "Updated Name");
+
+    // Find the old space (soft-deleted)
+    let old_in_list = spaces
+        .iter()
+        .find(|s| s.deleted_at.is_some())
+        .expect("Should have one deleted space");
+    assert_eq!(old_in_list.space_id, space);
+
+    Ok(())
+}

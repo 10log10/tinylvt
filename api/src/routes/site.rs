@@ -219,7 +219,7 @@ pub async fn update_space(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let space = store::update_space(
+    let result = store::update_space(
         &details.space_id,
         &details.space_details,
         &user_id,
@@ -227,7 +227,7 @@ pub async fn update_space(
         &time_source,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(space))
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[tracing::instrument(skip(user, pool, time_source), ret)]
@@ -239,10 +239,10 @@ pub async fn update_spaces(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let spaces =
+    let results =
         store::update_spaces(&details.spaces, &user_id, &pool, &time_source)
             .await?;
-    Ok(HttpResponse::Ok().json(spaces))
+    Ok(HttpResponse::Ok().json(results))
 }
 
 #[tracing::instrument(skip(user, pool), ret)]

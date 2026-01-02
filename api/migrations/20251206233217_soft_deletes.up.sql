@@ -48,3 +48,13 @@ ALTER TABLE spaces ADD COLUMN deleted_at TIMESTAMPTZ;
 CREATE INDEX idx_users_deleted_at ON users (deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_sites_deleted_at ON sites (deleted_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_spaces_deleted_at ON spaces (deleted_at) WHERE deleted_at IS NULL;
+
+-- Update space name uniqueness to allow reuse after soft-delete
+-- Drop the existing unique constraint on spaces (site_id, name)
+ALTER TABLE spaces DROP CONSTRAINT spaces_site_id_name_key;
+
+-- Create a partial unique index that only applies to non-deleted spaces
+-- This allows the same name to be reused after soft-delete (copy-on-write)
+CREATE UNIQUE INDEX spaces_site_id_name_unique
+ON spaces (site_id, name)
+WHERE deleted_at IS NULL;
