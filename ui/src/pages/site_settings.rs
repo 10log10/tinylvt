@@ -14,7 +14,7 @@ use crate::{
         SitePageWrapper, SiteTabHeader, SiteWithRole,
         site_tab_header::ActiveTab,
     },
-    hooks::use_site,
+    hooks::{use_auctions, use_site},
 };
 
 #[derive(Properties, PartialEq)]
@@ -56,6 +56,7 @@ pub struct SiteSettingsFormProps {
 pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let navigator = use_navigator().unwrap();
     let site_hook = use_site(props.site.site_id);
+    let auctions_hook = use_auctions(props.site.site_id);
 
     // Get user's detected timezone
     let user_timezone = jiff::tz::TimeZone::system()
@@ -207,6 +208,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         let success_message = success_message.clone();
         let site_id = props.site.site_id;
         let refetch_site = site_hook.refetch.clone();
+        let refetch_auctions = auctions_hook.refetch.clone();
 
         Callback::from(move |_| {
             let soft_delete_error_message = soft_delete_error_message.clone();
@@ -214,6 +216,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
             let show_soft_delete_modal = show_soft_delete_modal.clone();
             let success_message = success_message.clone();
             let refetch_site = refetch_site.clone();
+            let refetch_auctions = refetch_auctions.clone();
 
             yew::platform::spawn_local(async move {
                 is_soft_deleting.set(true);
@@ -229,6 +232,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         ));
                         // Refresh site data to show updated deleted_at
                         refetch_site.emit(());
+                        // Refetch auctions in case any were canceled
+                        refetch_auctions.emit(());
                     }
                     Err(e) => {
                         soft_delete_error_message.set(Some(e.to_string()));
