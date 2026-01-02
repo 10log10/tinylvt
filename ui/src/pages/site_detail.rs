@@ -9,9 +9,9 @@ use yew::prelude::*;
 
 use crate::components::{
     CreateSpaceModal, SitePageWrapper, SiteTabHeader, SiteWithRole,
-    site_tab_header::ActiveTab,
+    WarningModal, site_tab_header::ActiveTab,
 };
-use crate::hooks::use_spaces;
+use crate::hooks::{use_auctions, use_spaces};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -51,10 +51,20 @@ pub struct SpacesTabProps {
 #[function_component]
 fn SpacesTab(props: &SpacesTabProps) -> Html {
     let spaces_hook = use_spaces(props.site_id);
+    let auctions_hook = use_auctions(props.site_id);
     let can_edit = props.user_role.is_ge_coleader();
+
+    // Check if there's an in-progress auction
+    let has_in_progress_auction = auctions_hook
+        .auctions
+        .as_ref()
+        .map(|auctions| auctions.iter().any(|auction| auction.end_at.is_none()))
+        .unwrap_or(false);
+
     let is_editing = use_state(|| false);
     let show_create_modal = use_state(|| false);
     let show_deleted = use_state(|| false);
+    let show_edit_warning_modal = use_state(|| false);
     let edit_states = use_state(HashMap::<SpaceId, Space>::new);
     let is_saving = use_state(|| false);
     let save_error = use_state(|| None::<String>);
@@ -63,24 +73,31 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         let is_editing = is_editing.clone();
         let edit_states = edit_states.clone();
         let spaces = spaces_hook.spaces.clone();
+        let show_edit_warning_modal = show_edit_warning_modal.clone();
         Callback::from(move |_| {
             if *is_editing {
                 // Exiting edit mode - clear changes
                 edit_states.set(HashMap::new());
+                is_editing.set(false);
             } else {
-                // Entering edit mode - initialize edit states
-                if let Some(ref spaces) = spaces {
-                    let mut states = HashMap::new();
-                    for space in spaces {
-                        states.insert(
-                            space.space_id,
-                            space.space_details.clone(),
-                        );
+                // Entering edit mode - check for auction first
+                if has_in_progress_auction {
+                    show_edit_warning_modal.set(true);
+                } else {
+                    // No auction, proceed directly
+                    if let Some(ref spaces) = spaces {
+                        let mut states = HashMap::new();
+                        for space in spaces {
+                            states.insert(
+                                space.space_id,
+                                space.space_details.clone(),
+                            );
+                        }
+                        edit_states.set(states);
                     }
-                    edit_states.set(states);
+                    is_editing.set(true);
                 }
             }
-            is_editing.set(!*is_editing);
         })
     };
 
@@ -102,6 +119,32 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         let refetch = spaces_hook.refetch.clone();
         Callback::from(move |_| {
             refetch.emit(());
+        })
+    };
+
+    let on_close_warning_modal = {
+        let show_edit_warning_modal = show_edit_warning_modal.clone();
+        Callback::from(move |()| {
+            show_edit_warning_modal.set(false);
+        })
+    };
+
+    let on_confirm_edit = {
+        let show_edit_warning_modal = show_edit_warning_modal.clone();
+        let is_editing = is_editing.clone();
+        let edit_states = edit_states.clone();
+        let spaces = spaces_hook.spaces.clone();
+        Callback::from(move |()| {
+            // User confirmed, proceed with edit mode
+            if let Some(ref spaces) = spaces {
+                let mut states = HashMap::new();
+                for space in spaces {
+                    states.insert(space.space_id, space.space_details.clone());
+                }
+                edit_states.set(states);
+            }
+            is_editing.set(true);
+            show_edit_warning_modal.set(false);
         })
     };
 
@@ -353,6 +396,21 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                         site_id={props.site_id}
                         on_close={on_close_create_modal}
                         on_space_created={on_space_created}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+            {if *show_edit_warning_modal {
+                html! {
+                    <WarningModal
+                        title="Auction In Progress"
+                        message="This site has an auction currently in progress. \
+                                 Editing spaces may cause issues with current bids \
+                                 and bidder eligibility."
+                        proceed_text="Proceed Anyway"
+                        on_proceed={on_confirm_edit}
+                        on_cancel={on_close_warning_modal}
                     />
                 }
             } else {
