@@ -84,6 +84,11 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let is_deleting = use_state(|| false);
     let delete_error_message = use_state(|| None::<String>);
 
+    // State for confirmation modal (soft delete)
+    let show_soft_delete_modal = use_state(|| false);
+    let is_soft_deleting = use_state(|| false);
+    let soft_delete_error_message = use_state(|| None::<String>);
+
     let can_edit = props.user_role.is_ge_coleader();
 
     let on_auction_params_change = {
@@ -194,27 +199,31 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     };
 
     // Soft delete handler - called when site is not yet deleted
-    let on_soft_delete = {
-        let error_message = error_message.clone();
+    // Soft delete handler - called from confirmation modal
+    let on_soft_delete_confirm = {
+        let soft_delete_error_message = soft_delete_error_message.clone();
+        let is_soft_deleting = is_soft_deleting.clone();
+        let show_soft_delete_modal = show_soft_delete_modal.clone();
         let success_message = success_message.clone();
-        let is_loading = is_loading.clone();
         let site_id = props.site.site_id;
         let refetch_site = site_hook.refetch.clone();
 
         Callback::from(move |_| {
-            let error_message = error_message.clone();
+            let soft_delete_error_message = soft_delete_error_message.clone();
+            let is_soft_deleting = is_soft_deleting.clone();
+            let show_soft_delete_modal = show_soft_delete_modal.clone();
             let success_message = success_message.clone();
-            let is_loading = is_loading.clone();
             let refetch_site = refetch_site.clone();
 
             yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error_message.set(None);
-                success_message.set(None);
+                is_soft_deleting.set(true);
+                soft_delete_error_message.set(None);
 
                 let api_client = crate::get_api_client();
                 match api_client.soft_delete_site(&site_id).await {
                     Ok(_) => {
+                        // Close modal and show success message
+                        show_soft_delete_modal.set(false);
                         success_message.set(Some(
                             "Site has been deleted. You can permanently delete it if needed.".to_string(),
                         ));
@@ -222,11 +231,10 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         refetch_site.emit(());
                     }
                     Err(e) => {
-                        error_message.set(Some(e.to_string()));
+                        soft_delete_error_message.set(Some(e.to_string()));
+                        is_soft_deleting.set(false);
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };
@@ -301,19 +309,19 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         })
     };
 
-    // Delete button handler - decides between soft delete and showing modal
+    // Delete button handler - shows appropriate confirmation modal
     let on_delete = {
         let site = props.site.clone();
         let show_delete_modal = show_delete_modal.clone();
-        let on_soft_delete = on_soft_delete.clone();
+        let show_soft_delete_modal = show_soft_delete_modal.clone();
 
         Callback::from(move |_| {
             if site.deleted_at.is_some() {
                 // Already soft-deleted, show confirmation modal for permanent delete
                 show_delete_modal.set(true);
             } else {
-                // Not deleted yet, perform soft delete
-                on_soft_delete.emit(());
+                // Not deleted yet, show confirmation modal for soft delete
+                show_soft_delete_modal.set(true);
             }
         })
     };
@@ -325,6 +333,16 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         Callback::from(move |_| {
             show_delete_modal.set(false);
             delete_error_message.set(None);
+        })
+    };
+
+    let on_close_soft_delete_modal = {
+        let show_soft_delete_modal = show_soft_delete_modal.clone();
+        let soft_delete_error_message = soft_delete_error_message.clone();
+
+        Callback::from(move |_| {
+            show_soft_delete_modal.set(false);
+            soft_delete_error_message.set(None);
         })
     };
 
@@ -727,6 +745,25 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         on_close={on_close_modal}
                         is_loading={*is_deleting}
                         error_message={(*delete_error_message).clone().map(AttrValue::from)}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+
+            // Confirmation modal for soft delete
+            {if *show_soft_delete_modal {
+                html! {
+                    <ConfirmationModal
+                        title="Delete Site"
+                        message="This will delete the site and cancel any active auctions. The site can be restored later if needed."
+                        confirm_text="Delete Site"
+                        confirmation_value={props.site.site_details.name.clone()}
+                        confirmation_label="the site name"
+                        on_confirm={on_soft_delete_confirm}
+                        on_close={on_close_soft_delete_modal}
+                        is_loading={*is_soft_deleting}
+                        error_message={(*soft_delete_error_message).clone().map(AttrValue::from)}
                     />
                 }
             } else {

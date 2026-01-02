@@ -1854,17 +1854,36 @@ pub async fn soft_delete_site(
 
     let now = time_source.now().to_sqlx();
 
+    // Use transaction to ensure atomicity
+    let mut tx = pool.begin().await?;
+
+    // Cancel any active auctions for this site
+    // (auctions where end_at is NULL or in the future)
+    sqlx::query(
+        "UPDATE auctions
+         SET end_at = $2, updated_at = $2
+         WHERE site_id = $1
+         AND (end_at IS NULL OR end_at > $2)",
+    )
+    .bind(site_id)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    // Soft delete the site
     let result = sqlx::query(
         "UPDATE sites SET deleted_at = $2, updated_at = $2 WHERE id = $1",
     )
     .bind(site_id)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     if result.rows_affected() == 0 {
         return Err(StoreError::SiteNotFound);
     }
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -2333,6 +2352,16 @@ pub async fn create_auction(
         });
     }
 
+    // Check if the site has been deleted
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(&details.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    if site.deleted_at.is_some() {
+        return Err(StoreError::SiteDeleted);
+    }
+
     let mut tx = pool.begin().await?;
 
     // Create auction params first
@@ -2605,6 +2634,21 @@ pub async fn create_bid_tx(
     // Ensure the space is available for bidding
     if !space.is_available {
         return Err(StoreError::SpaceNotAvailable);
+    }
+
+    // Check if the space has been deleted
+    if space.deleted_at.is_some() {
+        return Err(StoreError::SpaceDeleted);
+    }
+
+    // Check if the site has been deleted
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(&space.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    if site.deleted_at.is_some() {
+        return Err(StoreError::SiteDeleted);
     }
 
     // Verify the round exists and is ongoing
@@ -3054,6 +3098,10 @@ pub enum StoreError {
     AlreadyWinningSpace,
     #[error("Space is not available for bidding")]
     SpaceNotAvailable,
+    #[error("Space has been deleted")]
+    SpaceDeleted,
+    #[error("Site has been deleted")]
+    SiteDeleted,
     #[error("User value not found")]
     UserValueNotFound,
     #[error("Proxy bidding settings not found")]

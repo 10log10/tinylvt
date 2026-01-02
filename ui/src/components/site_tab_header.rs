@@ -54,6 +54,18 @@ pub fn SiteTabHeader(props: &Props) -> Html {
                 }}
             </div>
 
+            {if props.site.deleted_at.is_some() {
+                html! {
+                    <div class="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                        <p class="text-sm text-amber-700 dark:text-amber-400">
+                            {"This site has been deleted. New auctions cannot be created for deleted sites. You can restore the site in Settings."}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
+
             // Tab Navigation
             <div class="border-b border-neutral-200 dark:border-neutral-700">
                 <nav class="-mb-px flex space-x-8">

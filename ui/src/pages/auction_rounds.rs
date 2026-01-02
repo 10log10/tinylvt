@@ -264,11 +264,11 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                             .find(|r| r.space_id == *space_id)
                             .map(|r| r.value)
                     });
-                // Bid value is previous value + increment, or just increment
-                // if no previous value
-                let bid_value = prev_value
-                    .unwrap_or(rust_decimal::Decimal::ZERO)
-                    + props.bid_increment;
+                // Bid value is previous value + increment (or 0 in round 0)
+                let bid_value = match prev_value {
+                    Some(value) => value + props.bid_increment,
+                    None => rust_decimal::Decimal::ZERO,
+                };
                 Some((space.space_details.name.clone(), bid_value))
             })
             .collect::<Vec<_>>()

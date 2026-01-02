@@ -181,8 +181,10 @@ async fn lock_next_auction_needing_update(
     // Exponential backoff: 5 minutes * 2^failure_count, capped at 5 failures
     // (which gives max backoff of ~2.5 hours)
     sqlx::query_as::<_, store::Auction>(
-        "SELECT * FROM auctions
-        WHERE $1 >= start_at
+        "SELECT auctions.* FROM auctions
+        JOIN sites ON auctions.site_id = sites.id
+        WHERE sites.deleted_at IS NULL
+            AND $1 >= start_at
             AND end_at IS NULL
             AND NOT EXISTS (
                 SELECT 1 FROM auction_rounds
@@ -197,7 +199,7 @@ async fn lock_next_auction_needing_update(
             )
             -- Try to take a transaction-scoped advisory lock for this auction
             AND pg_try_advisory_xact_lock(
-                hashtextextended('auction_processing:' || id::text, 0)
+                hashtextextended('auction_processing:' || auctions.id::text, 0)
             )
         ORDER BY random()
         LIMIT 1",
@@ -326,7 +328,7 @@ async fn update_round_space_results_within_tx(
 
     // Get all spaces for this auction's site
     let spaces = sqlx::query_as::<_, store::Space>(
-        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
+        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true AND deleted_at IS NULL",
     )
     .bind(auction.site_id)
     .fetch_all(&mut **tx)
@@ -575,7 +577,7 @@ pub async fn update_user_eligibilities(
 ) -> anyhow::Result<()> {
     // Get all spaces for this auction's site to calculate eligibility points
     let spaces = sqlx::query_as::<_, store::Space>(
-        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true",
+        "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true AND deleted_at IS NULL",
     )
     .bind(auction.site_id)
     .fetch_all(&mut **tx)
@@ -940,7 +942,7 @@ async fn process_proxy_bidding_for_round(
         "SELECT s.* FROM spaces s
         JOIN sites si ON s.site_id = si.id
         JOIN auctions a ON si.id = a.site_id
-        WHERE a.id = $1 AND s.is_available = true",
+        WHERE a.id = $1 AND s.is_available = true AND s.deleted_at IS NULL",
     )
     .bind(round.auction_id)
     .fetch_all(pool)
