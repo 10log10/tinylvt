@@ -14,7 +14,7 @@ use crate::{
         SitePageWrapper, SiteTabHeader, SiteWithRole,
         site_tab_header::ActiveTab,
     },
-    hooks::{use_auctions, use_site},
+    hooks::{use_auctions, use_site, use_sites},
 };
 
 #[derive(Properties, PartialEq)]
@@ -57,6 +57,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let navigator = use_navigator().unwrap();
     let site_hook = use_site(props.site.site_id);
     let auctions_hook = use_auctions(props.site.site_id);
+    let sites_hook = use_sites(props.site.site_details.community_id);
 
     // Get user's detected timezone
     let user_timezone = jiff::tz::TimeZone::system()
@@ -289,11 +290,13 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         let navigator = navigator.clone();
         let site_id = props.site.site_id;
         let community_id = props.site.site_details.community_id;
+        let refetch_sites = sites_hook.refetch.clone();
 
         Callback::from(move |_| {
             let delete_error_message = delete_error_message.clone();
             let is_deleting = is_deleting.clone();
             let navigator = navigator.clone();
+            let refetch_sites = refetch_sites.clone();
 
             yew::platform::spawn_local(async move {
                 is_deleting.set(true);
@@ -302,6 +305,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 let api_client = crate::get_api_client();
                 match api_client.delete_site(&site_id).await {
                     Ok(_) => {
+                        // Refetch community sites to update UI state
+                        refetch_sites.emit(());
                         navigator
                             .push(&Route::CommunityDetail { id: community_id });
                     }
