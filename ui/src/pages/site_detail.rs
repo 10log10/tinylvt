@@ -58,7 +58,13 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     let has_in_progress_auction = auctions_hook
         .auctions
         .as_ref()
-        .map(|auctions| auctions.iter().any(|auction| auction.end_at.is_none()))
+        .map(|auctions| {
+            let now = jiff::Timestamp::now();
+            auctions.iter().any(|auction| {
+                auction.auction_details.start_at <= now
+                    && auction.end_at.is_none()
+            })
+        })
         .unwrap_or(false);
 
     let is_editing = use_state(|| false);
