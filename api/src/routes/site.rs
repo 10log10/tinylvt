@@ -70,6 +70,36 @@ pub async fn delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/soft_delete_site")]
+pub async fn soft_delete_site(
+    user: Identity,
+    site_id: web::Json<payloads::SiteId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let actor = get_validated_member(&user_id, &community_id, &pool).await?;
+    store::soft_delete_site(&site_id, &actor, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/restore_site")]
+pub async fn restore_site(
+    user: Identity,
+    site_id: web::Json<payloads::SiteId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let actor = get_validated_member(&user_id, &community_id, &pool).await?;
+    store::restore_site(&site_id, &actor, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/sites")]
 pub async fn list_sites(
@@ -189,7 +219,7 @@ pub async fn update_space(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let space = store::update_space(
+    let result = store::update_space(
         &details.space_id,
         &details.space_details,
         &user_id,
@@ -197,7 +227,7 @@ pub async fn update_space(
         &time_source,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(space))
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[tracing::instrument(skip(user, pool, time_source), ret)]
@@ -209,10 +239,10 @@ pub async fn update_spaces(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    let spaces =
+    let results =
         store::update_spaces(&details.spaces, &user_id, &pool, &time_source)
             .await?;
-    Ok(HttpResponse::Ok().json(spaces))
+    Ok(HttpResponse::Ok().json(results))
 }
 
 #[tracing::instrument(skip(user, pool), ret)]
@@ -224,6 +254,32 @@ pub async fn delete_space(
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     store::delete_space(&space_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/soft_delete_space")]
+pub async fn soft_delete_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::soft_delete_space(&space_id, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/restore_space")]
+pub async fn restore_space(
+    user: Identity,
+    space_id: web::Json<payloads::SpaceId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::restore_space(&space_id, &user_id, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
 }
 

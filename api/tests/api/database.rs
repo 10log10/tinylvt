@@ -101,7 +101,7 @@ async fn populate_users(
     let roles = [Role::Leader, Role::Coleader, Role::Member];
 
     for (i, role) in roles.iter().enumerate() {
-        let mut user = store::create_user(
+        let user = store::create_user(
             conn,
             &format!("{role}_user"),
             &format!("{role}@example.com"),
@@ -109,10 +109,19 @@ async fn populate_users(
             time_source,
         )
         .await?;
-        user.display_name = Some(format!("{role} user"));
-        user.email_verified = true;
-        user.balance = dec!(1000.000000);
-        store::update_user(conn, &user, time_source).await?;
+        sqlx::query(
+            r#"
+            UPDATE users
+            SET display_name = $1, email_verified = true, balance = $2, updated_at = $3
+            WHERE id = $4
+            "#,
+        )
+        .bind(format!("{role} user"))
+        .bind(dec!(1000.000000))
+        .bind(time_source.now().to_sqlx())
+        .bind(user.id)
+        .execute(conn)
+        .await?;
 
         sqlx::query(
             "INSERT INTO community_members (

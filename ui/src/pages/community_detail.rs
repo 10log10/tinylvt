@@ -42,6 +42,7 @@ pub struct SitesTabProps {
 #[function_component]
 fn SitesTab(props: &SitesTabProps) -> Html {
     let sites_hook = use_sites(props.community_id);
+    let show_deleted = use_state(|| false);
 
     if sites_hook.is_loading {
         return html! {
@@ -61,39 +62,91 @@ fn SitesTab(props: &SitesTabProps) -> Html {
 
     match &sites_hook.sites {
         Some(sites) => {
-            if sites.is_empty() {
-                html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400 mb-4">
-                            {"No sites have been created for this community yet."}
-                        </p>
+            // Filter sites based on show_deleted toggle
+            let displayed_sites: Vec<_> = sites
+                .iter()
+                .filter(|site| *show_deleted || site.deleted_at.is_none())
+                .collect();
+
+            html! {
+                <div>
+                    // Header - always shown
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                            {"Sites"}
+                        </h2>
                         <Link<Route>
                             to={Route::CreateSite { id: props.community_id }}
                             classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                         >
-                            {"Create First Site"}
+                            {"Create New Site"}
                         </Link<Route>>
                     </div>
-                }
-            } else {
-                html! {
-                    <div>
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-                                {"Sites"}
-                            </h2>
-                            <Link<Route>
-                                to={Route::CreateSite { id: props.community_id }}
-                                classes="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                            >
-                                {"Create New Site"}
-                            </Link<Route>>
-                        </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {sites.iter().map(|site| {
+                    // Toggle - always shown
+                    <div class="mb-4 flex items-center">
+                        <input
+                            type="checkbox"
+                            id="show-deleted-sites"
+                            class="mr-2 h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-neutral-100 focus:ring-neutral-500"
+                            checked={*show_deleted}
+                            onclick={{
+                                let show_deleted = show_deleted.clone();
+                                Callback::from(move |_| show_deleted.set(!*show_deleted))
+                            }}
+                        />
+                        <label
+                            for="show-deleted-sites"
+                            class="text-sm text-neutral-700 dark:text-neutral-300 select-none cursor-pointer"
+                        >
+                            {"Show deleted sites"}
+                        </label>
+                    </div>
+
+                    // Content area
+                    {if sites.is_empty() {
+                        // No sites exist at all
+                        html! {
+                            <div class="text-center py-12">
+                                <p class="text-neutral-600 dark:text-neutral-400">
+                                    {"No sites have been created for this community yet."}
+                                </p>
+                            </div>
+                        }
+                    } else if displayed_sites.is_empty() {
+                        // All sites are deleted and toggle is off
+                        html! {
+                            <div class="text-center py-12">
+                                <p class="text-neutral-600 dark:text-neutral-400">
+                                    {"All sites have been deleted."}
+                                </p>
+                            </div>
+                        }
+                    } else {
+                        // Show the site grid
+                        html! {
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {displayed_sites.iter().map(|site| {
+                                let is_deleted = site.deleted_at.is_some();
+                                let card_class = if is_deleted {
+                                    "bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700 opacity-50 relative"
+                                } else {
+                                    "bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700 relative"
+                                };
+
                                 html! {
-                                    <div key={site.site_id.to_string()} class="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700">
+                                    <div key={site.site_id.to_string()} class={card_class}>
+                                        {if is_deleted {
+                                            html! {
+                                                <div class="absolute top-2 right-2">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800">
+                                                        {"Deleted"}
+                                                    </span>
+                                                </div>
+                                            }
+                                        } else {
+                                            html! {}
+                                        }}
                                         <div class="space-y-4">
                                             <div>
                                                 <h3 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
@@ -128,9 +181,10 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                                     </div>
                                 }
                             }).collect::<Html>()}
-                        </div>
-                    </div>
-                }
+                            </div>
+                        }
+                    }}
+                </div>
             }
         }
         None => {

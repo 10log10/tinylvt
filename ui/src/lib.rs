@@ -17,10 +17,10 @@ use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
     CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
-    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
-    HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
-    ResetPasswordPage, SiteAuctionsPage, SiteDetailPage, SiteSettingsPage,
-    VerifyEmailPage,
+    CommunitySettingsPage, CreateAuctionPage, CreateCommunityPage,
+    CreateSitePage, ForgotPasswordPage, HelpPage, LoggedInHomePage,
+    LoggedOutHomePage, LoginPage, NotFoundPage, ProfilePage, ResetPasswordPage,
+    SiteAuctionsPage, SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -71,6 +71,8 @@ pub enum Route {
     VerifyEmail,
     #[at("/help")]
     Help,
+    #[at("/profile")]
+    Profile,
     #[at("/forgot_password")]
     ForgotPassword,
     #[at("/reset_password")]
@@ -87,6 +89,8 @@ pub enum Route {
     CommunityMembers { id: CommunityId },
     #[at("/communities/:id/invites")]
     CommunityInvites { id: CommunityId },
+    #[at("/communities/:id/settings")]
+    CommunitySettings { id: CommunityId },
     #[at("/communities/:id/sites/new")]
     CreateSite { id: CommunityId },
     #[at("/sites/:id")]
@@ -113,6 +117,7 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::Help => html! { <HelpPage /> },
+        Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },
         Route::AcceptInvite { invite_id } => {
@@ -128,6 +133,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityInvites { id } => {
             html! { <CommunityInvitesPage community_id={id} /> }
+        }
+        Route::CommunitySettings { id } => {
+            html! { <CommunitySettingsPage community_id={id} /> }
         }
         Route::CreateSite { id } => {
             html! { <CreateSitePage community_id={id} /> }

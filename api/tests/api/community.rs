@@ -111,3 +111,28 @@ async fn community_role_information_returned() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn delete_community_leader_only() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Bob (member) tries to delete - should fail
+    app.login_bob().await?;
+    let result = app.client.delete_community(&community_id).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // Verify community still exists
+    app.login_alice().await?;
+    let communities = app.client.get_communities().await?;
+    assert_eq!(communities.len(), 1);
+
+    // Alice (leader) deletes - should succeed
+    app.client.delete_community(&community_id).await?;
+
+    // Verify community is gone
+    let communities = app.client.get_communities().await?;
+    assert!(communities.is_empty());
+
+    Ok(())
+}

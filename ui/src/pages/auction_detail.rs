@@ -7,7 +7,7 @@ use crate::{
     State,
     components::{
         AuctionTabHeader, AuctionToplineInfo, CountdownTimer,
-        ProxyBiddingControls, RoundIndicator, SpaceListForBidding,
+        ProxyBiddingControls, RequireAuth, RoundIndicator, SpaceListForBidding,
         UserEligibilityDisplay, auction_tab_header::ActiveTab,
     },
     hooks::{
@@ -24,6 +24,15 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionDetailPage(props: &Props) -> Html {
+    html! {
+        <RequireAuth>
+            <AuctionDetailPageInner auction_id={props.auction_id} />
+        </RequireAuth>
+    }
+}
+
+#[function_component]
+fn AuctionDetailPageInner(props: &Props) -> Html {
     let auction_hook = use_auction_detail(props.auction_id);
     let (state, _) = use_store::<State>();
 
@@ -175,6 +184,48 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         .current_round
         .as_ref()
         .and_then(|o| o.as_ref());
+
+    // Check if auction was canceled before starting
+    if props.auction.end_at.is_some() && current_round_opt.is_none() {
+        let spaces = spaces_hook.spaces.clone().unwrap_or_default();
+        return html! {
+            <div class="space-y-6">
+                <AuctionToplineInfo
+                    auction={props.auction.clone()}
+                    site_timezone={props.site_timezone.clone()}
+                />
+                <div class="border border-neutral-200 dark:border-neutral-700 \
+                            rounded-lg p-8 bg-white dark:bg-neutral-800">
+                    <div class="text-center space-y-4">
+                        <h3 class="text-lg font-medium text-neutral-900 \
+                                   dark:text-white">
+                            {"Auction Canceled"}
+                        </h3>
+                        <p class="text-neutral-600 dark:text-neutral-400">
+                            {"This auction was canceled before it started."}
+                        </p>
+                    </div>
+                </div>
+
+                // Still show space list for reference
+                <SpaceListForBidding
+                    spaces={spaces}
+                    prices={vec![]}
+                    user_values={user_values_hook.values.as_ref().cloned().unwrap_or_default()}
+                    proxy_bidding_enabled={false}
+                    user_bid_space_ids={std::collections::HashSet::new()}
+                    current_username={Option::<String>::None}
+                    bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                    on_bid={Callback::from(|_: SpaceId| {})}
+                    on_delete_bid={Callback::from(|_: SpaceId| {})}
+                    on_update_value={user_values_hook.update_value.clone()}
+                    on_delete_value={user_values_hook.delete_value.clone()}
+                    auction_ended={true}
+                />
+            </div>
+        };
+    }
+
     let Some(current_round) = current_round_opt else {
         // No rounds exist yet - show countdown with proxy bidding and space list
         let spaces = spaces_hook.spaces.clone().unwrap_or_default();

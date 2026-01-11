@@ -422,7 +422,7 @@ impl TestApp {
             space_details: space_details_a_update(prev.space_details.site_id),
         };
         let resp = self.client.update_space(&req).await?;
-        assert_space_equal(&req.space_details, &resp.space_details)?;
+        assert_space_equal(&req.space_details, &resp.space.space_details)?;
         Ok(())
     }
 

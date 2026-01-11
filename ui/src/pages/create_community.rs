@@ -3,10 +3,21 @@ use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::{Route, hooks::use_communities};
+use crate::Route;
+use crate::components::RequireAuth;
+use crate::hooks::use_communities;
 
 #[function_component]
 pub fn CreateCommunityPage() -> Html {
+    html! {
+        <RequireAuth>
+            <CreateCommunityPageInner />
+        </RequireAuth>
+    }
+}
+
+#[function_component]
+fn CreateCommunityPageInner() -> Html {
     let navigator = use_navigator().unwrap();
     let communities_hook = use_communities();
 

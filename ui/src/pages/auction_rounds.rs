@@ -5,7 +5,8 @@ use yewdux::prelude::*;
 use crate::{
     State,
     components::{
-        AuctionTabHeader, TimestampDisplay, auction_tab_header::ActiveTab,
+        AuctionTabHeader, RequireAuth, TimestampDisplay,
+        auction_tab_header::ActiveTab,
     },
     hooks::{
         use_auction_detail, use_auction_round_results, use_auction_rounds,
@@ -20,6 +21,15 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionRoundsPage(props: &Props) -> Html {
+    html! {
+        <RequireAuth>
+            <AuctionRoundsPageInner auction_id={props.auction_id} />
+        </RequireAuth>
+    }
+}
+
+#[function_component]
+fn AuctionRoundsPageInner(props: &Props) -> Html {
     let auction_hook = use_auction_detail(props.auction_id);
     let rounds_hook = use_auction_rounds(props.auction_id);
 
@@ -254,11 +264,11 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                             .find(|r| r.space_id == *space_id)
                             .map(|r| r.value)
                     });
-                // Bid value is previous value + increment, or just increment
-                // if no previous value
-                let bid_value = prev_value
-                    .unwrap_or(rust_decimal::Decimal::ZERO)
-                    + props.bid_increment;
+                // Bid value is previous value + increment (or 0 in round 0)
+                let bid_value = match prev_value {
+                    Some(value) => value + props.bid_increment,
+                    None => rust_decimal::Decimal::ZERO,
+                };
                 Some((space.space_details.name.clone(), bid_value))
             })
             .collect::<Vec<_>>()

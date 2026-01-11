@@ -1,10 +1,21 @@
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::{Route, hooks::use_communities};
+use crate::Route;
+use crate::components::RequireAuth;
+use crate::hooks::use_communities;
 
 #[function_component]
 pub fn CommunitiesPage() -> Html {
+    html! {
+        <RequireAuth>
+            <CommunitiesPageInner />
+        </RequireAuth>
+    }
+}
+
+#[function_component]
+fn CommunitiesPageInner() -> Html {
     let navigator = use_navigator().unwrap();
     let communities_hook = use_communities();
 

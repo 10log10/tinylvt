@@ -1,6 +1,7 @@
 use payloads::{Role, SiteId, responses::Site};
 use yew::prelude::*;
 
+use crate::components::RequireAuth;
 use crate::hooks::{use_communities, use_site};
 
 #[derive(Clone, PartialEq)]
@@ -17,6 +18,19 @@ pub struct Props {
 
 #[function_component]
 pub fn SitePageWrapper(props: &Props) -> Html {
+    html! {
+        <RequireAuth>
+            <SitePageWrapperInner
+                site_id={props.site_id}
+                children={props.children.clone()}
+            />
+        </RequireAuth>
+    }
+}
+
+// Inner component that only renders when authenticated
+#[function_component]
+fn SitePageWrapperInner(props: &Props) -> Html {
     let site_hook = use_site(props.site_id);
     let communities_hook = use_communities();
 

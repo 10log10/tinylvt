@@ -413,3 +413,16 @@ pub async fn update_profile(
 
     Ok(HttpResponse::Ok().json(profile))
 }
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/delete_user")]
+pub async fn delete_user(
+    user: Identity,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::delete_user(&pool, &user_id, &time_source).await?;
+    user.logout();
+    Ok(HttpResponse::Ok().finish())
+}

@@ -53,10 +53,32 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         .map(|r| (r.space_id, r.clone()))
         .collect();
 
+    // Filter spaces based on auction status
+    let filtered_spaces: Vec<&responses::Space> = if props.auction_ended {
+        // For concluded auctions: show spaces with auction history
+        // (those with round results or user bids)
+        props
+            .spaces
+            .iter()
+            .filter(|space| {
+                price_map.contains_key(&space.space_id)
+                    || props.user_bid_space_ids.contains(&space.space_id)
+            })
+            .collect()
+    } else {
+        // For in-progress auctions: show only available and not deleted
+        props
+            .spaces
+            .iter()
+            .filter(|space| {
+                space.deleted_at.is_none() && space.space_details.is_available
+            })
+            .collect()
+    };
+
     // Calculate current activity: sum of points for spaces where user is
     // high bidder or has placed a bid in this round
-    let current_activity: f64 = props
-        .spaces
+    let current_activity: f64 = filtered_spaces
         .iter()
         .filter(|space| {
             let is_high_bidder = props
@@ -75,8 +97,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         .sum();
 
     // Prepare space data
-    let mut space_data: Vec<_> = props
-        .spaces
+    let mut space_data: Vec<_> = filtered_spaces
         .iter()
         .map(|space| {
             let space_id = space.space_id;
@@ -88,7 +109,13 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             let surplus =
                 user_value.map(|v| v - price_opt.unwrap_or(Decimal::ZERO));
 
-            (space, price_opt, user_value, surplus, winning_username)
+            (
+                (*space).clone(),
+                price_opt,
+                user_value,
+                surplus,
+                winning_username,
+            )
         })
         .collect();
 
@@ -275,6 +302,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 auction_started={props.auction_started}
                                 winning_username={winning_username.clone()}
                                 would_exceed_eligibility={would_exceed_eligibility}
+                                is_deleted={space.deleted_at.is_some()}
                             />
                         }
                     }).collect::<Html>()
@@ -354,6 +382,7 @@ struct SpaceRowProps {
     auction_started: bool,
     winning_username: Option<String>,
     would_exceed_eligibility: bool,
+    is_deleted: bool,
 }
 
 #[function_component]
@@ -451,12 +480,24 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
     };
 
     html! {
-        <div class="border border-neutral-200 dark:border-neutral-700 \
-                    rounded-lg p-4 bg-white dark:bg-neutral-800">
+        <div class={format!(
+            "border border-neutral-200 dark:border-neutral-700 \
+            rounded-lg p-4 bg-white dark:bg-neutral-800{}",
+            if props.is_deleted { " opacity-75" } else { "" }
+        )}>
             <div class="grid grid-cols-6 gap-4 items-center">
                 <div>
                     <div class="font-medium text-neutral-900 dark:text-white">
                         {&props.space.space_details.name}
+                        {if props.is_deleted {
+                            html! {
+                                <span class="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                                    {"(deleted)"}
+                                </span>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </div>
                 </div>
 
@@ -613,6 +654,15 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                          text-right">
                                 {format!("Already bid at ${:.2}", bid_price)}
                             </span>
+                        }
+                    } else if props.is_deleted {
+                        // Cannot bid on deleted space
+                        html! {
+                            <div class="text-right">
+                                <span class="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                    {"This space has been deleted"}
+                                </span>
+                            </div>
                         }
                     } else if !props.auction_started {
                         // Auction hasn't started yet - no bidding allowed

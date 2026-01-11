@@ -408,6 +408,7 @@ pub mod responses {
         pub site_details: super::Site,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
+        pub deleted_at: Option<Timestamp>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -416,6 +417,16 @@ pub mod responses {
         pub space_details: super::Space,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
+        pub deleted_at: Option<Timestamp>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct UpdateSpaceResult {
+        pub space: Space,
+        /// True if copy-on-write was performed (space had auction history + nontrivial changes)
+        pub was_copied: bool,
+        /// If was_copied is true, this contains the old space ID that was soft-deleted
+        pub old_space_id: Option<super::SpaceId>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -641,6 +652,21 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    /// Delete the current user's account.
+    pub async fn delete_user(&self) -> Result<(), ClientError> {
+        let response = self.empty_post("delete_user").await?;
+        ok_empty(response).await
+    }
+
+    /// Delete a community (leader only).
+    pub async fn delete_community(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_community", community_id).await?;
+        ok_empty(response).await
+    }
+
     /// Check if the user is logged in.
     pub async fn login_check(&self) -> Result<bool, ClientError> {
         let response = self.empty_post("login_check").await?;
@@ -825,6 +851,22 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn soft_delete_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("soft_delete_site", &site_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn restore_site(
+        &self,
+        site_id: &SiteId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("restore_site", &site_id).await?;
+        ok_empty(response).await
+    }
+
     pub async fn list_sites(
         &self,
         community_id: &CommunityId,
@@ -852,7 +894,7 @@ impl APIClient {
     pub async fn update_space(
         &self,
         details: &requests::UpdateSpace,
-    ) -> Result<responses::Space, ClientError> {
+    ) -> Result<responses::UpdateSpaceResult, ClientError> {
         let response = self.post("space", details).await?;
         ok_body(response).await
     }
@@ -860,7 +902,7 @@ impl APIClient {
     pub async fn update_spaces(
         &self,
         details: &requests::UpdateSpaces,
-    ) -> Result<Vec<responses::Space>, ClientError> {
+    ) -> Result<Vec<responses::UpdateSpaceResult>, ClientError> {
         let response = self.post("spaces_batch", details).await?;
         ok_body(response).await
     }
@@ -870,6 +912,22 @@ impl APIClient {
         space_id: &SpaceId,
     ) -> Result<(), ClientError> {
         let response = self.post("delete_space", &space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn soft_delete_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("soft_delete_space", &space_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn restore_space(
+        &self,
+        space_id: &SpaceId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("restore_space", &space_id).await?;
         ok_empty(response).await
     }
 

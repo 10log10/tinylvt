@@ -2,22 +2,18 @@
 
 Start a docker container runtime, such as [colima](https://github.com/abiosoft/colima).
 
-Spin up a local postgres database and migrate it:
+Spin up a local postgres database and migrate it, or reset it:
 
 ```
-docker pull postgres
-docker run --name postgres -e POSTGRES_PASSWORD=password -e POSTGRES_USER=user -e POSTGRES_DB=tinylvt -p 5433:5432 -d postgres:17-alpine
-cd api
-DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt sqlx migrate run
+# Requires an active docker runtime
+./reset-dev-db.sh
 ```
 
-To restart container, first do: `docker stop postgres && docker rm postgres`
-
-To cleanup space, use: `docker system prune -f`
+Note that it uses the `postgres` container name, attached to port 5433, and that the script will also cleanup the docker volume with `docker system prune -f`.
 
 ## Environment Configuration
 
-You can now configure the application using either:
+You can configure the application using either:
 
 1. **Environment variables** (traditional method)
 2. **`.env` file** (recommended for local development)

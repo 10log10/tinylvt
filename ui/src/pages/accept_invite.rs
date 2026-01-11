@@ -1,11 +1,10 @@
-use payloads::{InviteId, responses};
+use payloads::InviteId;
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
-use crate::components::{LoginForm, login_form::AuthMode};
+use crate::components::AuthForm;
 use crate::contexts::use_toast;
-use crate::utils::is_dev_mode;
 use crate::{AuthState, Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -98,15 +97,6 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
         }
     };
 
-    // Handle successful login - automatically accept the invite
-    let on_login_success = {
-        let accept_invite = accept_invite.clone();
-
-        Callback::from(move |_profile: responses::UserProfile| {
-            accept_invite();
-        })
-    };
-
     // Show loading if either auth or community name are loading
     if matches!(state.auth_state, AuthState::Unknown) || *is_loading_name {
         return html! {
@@ -125,12 +115,12 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
             unreachable!()
         }
         AuthState::LoggedOut => {
-            // User needs to login - show login form inline
+            // User needs to login - show auth form inline
             html! {
                 <div class="flex items-center justify-center min-h-[60vh]">
-                    <LoginForm
-                        title="Community Invite"
-                        description={
+                    <AuthForm
+                        login_title="Community Invite"
+                        login_description={
                             AttrValue::from(
                                 if let Some(name) = &*community_name {
                                     format!("You've been invited to join {} on TinyLVT. Please sign in to accept this invitation.", name)
@@ -139,10 +129,19 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                                 }
                             )
                         }
-                        submit_text="Sign in to Accept Invite"
-                        mode={AuthMode::Login}
-                        on_success={on_login_success}
-                        show_dev_credentials={is_dev_mode()}
+                        login_submit_text="Sign in to Accept Invite"
+                        signup_title="Create Account for Invite"
+                        signup_description={
+                            AttrValue::from(
+                                if let Some(name) = &*community_name {
+                                    format!("You've been invited to join {} on TinyLVT. Create an account to accept this invitation.", name)
+                                } else {
+                                    "You've been invited to join a community on TinyLVT. Create an account to accept this invitation.".to_string()
+                                }
+                            )
+                        }
+                        signup_submit_text="Create Account"
+                        on_success={Callback::noop()}
                     />
                 </div>
             }
