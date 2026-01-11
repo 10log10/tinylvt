@@ -33,13 +33,19 @@ pub fn LoggedOutHomePage() -> Html {
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Communities often struggle to equitably share scarce resources. A minority captures the resource value or the resource is wasted."}
+                    {"People regularly encounter situations where they need to share something. That thing cannot always be physically split into equal pieces."}
                 </p>
             </div>
 
             <div class="max-w-2xl mx-auto">
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"TinyLVT solves this problem. Auction the resource to the highest bidder, then redistribute the proceeds equally. Repeat on a schedule."}
+                    {"A perfect substitute is to determine the thing’s value, and share that equally, such that one person gets the thing and pays everyone else for their share of the thing’s value."}
+                </p>
+            </div>
+
+            <div class="max-w-2xl mx-auto">
+                <p class="text-lg text-neutral-600 dark:text-neutral-400">
+                    {"Simply auction the thing to the highest bidder, then redistribute the proceeds. Repeat on a schedule."}
                 </p>
             </div>
 
@@ -48,16 +54,16 @@ pub fn LoggedOutHomePage() -> Html {
                     {"What you can share"}
                 </h2>
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Space is the most common scarce resource in need of sharing. Rooms in a home, desks in a workspace, stalls in a market, urban land. Even wireless spectrum, URLs, and patent rights are types of space—radio space, namespace, and idea space."}
+                    {"Space is the most common thing in need of sharing: rooms in a home, desks in a workspace, stalls in a market, land."}
                 </p>
-                <div class="mt-4 p-4 bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg">
+                <div class="mt-8 p-4 bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg">
                     <a
                         href="https://github.com/10log10/tinylvt/blob/main/scenarios/1-student-desks.md"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="text-lg font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
                     >
-                        {"See a detailed scenario: TinyLVT for student desk allocation →"}
+                        {"See a detailed scenario: TinyLVT for desk assignment →"}
                     </a>
                 </div>
             </div>
@@ -71,20 +77,8 @@ pub fn LoggedOutHomePage() -> Html {
                     <li>{"2. Setup your site—home, workplace, market, city"}</li>
                     <li>{"3. Auction the spaces in the site"}</li>
                     <li>{"4. Redistribute the proceeds"}</li>
-                    <li>{"5. Repeat on a schedule"}</li>
+                    <li>{"5. Repeat every usage period"}</li>
                 </ol>
-            </div>
-
-            <div class="max-w-7xl mx-auto my-12 px-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    if state.is_dark_mode() {
-                        <img src="/auction-list-dark.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-700" />
-                        <img src="/auction-page-dark.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-700" />
-                    } else {
-                        <img src="/auction-list-light.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-300" />
-                        <img src="/auction-page-light.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-300" />
-                    }
-                </div>
             </div>
 
             <div class="max-w-2xl mx-auto">
@@ -98,13 +92,25 @@ pub fn LoggedOutHomePage() -> Html {
                 </ul>
             </div>
 
-            <div class="mt-8">
+            <div class="py-8">
                 <button
                     onclick={on_get_started}
                     class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors"
                 >
                     {"Get Started"}
                 </button>
+            </div>
+
+            <div class="max-w-7xl mx-auto my-12 px-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    if state.is_dark_mode() {
+                        <img src="/auction-list-dark.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                        <img src="/auction-page-dark.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-700" />
+                    } else {
+                        <img src="/auction-list-light.jpg" alt="TinyLVT screenshot showing auction list" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                        <img src="/auction-page-light.jpg" alt="TinyLVT screenshot showing auction page" class="w-full rounded-lg shadow-lg border border-neutral-300" />
+                    }
+                </div>
             </div>
         </div>
     }
