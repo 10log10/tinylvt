@@ -11,12 +11,23 @@
 -- - prepaid_credits: members buy credits from the treasury, which go back to
 --   the treasury
 --
--- mode                 | credit_limit | debts_callable | auction_settlement_flow | issuance_policy
--- ---------------------|--------------|----------------|-------------------------|----------------
--- points_allocation    |            0 |          false |             to_treasury |       allowance
--- distributed_clearing |  >=0 or null |            any |      equal_distribution |            none
--- deferred_payment     |  >=0 or null |            any |             to_treasury |            none
--- prepaid_credits      |            0 |            any |             to_treasury |        purchase
+-- Mode Configuration:
+--
+-- mode                 | credit_limit | debts_callable
+-- ---------------------|--------------|---------------
+-- points_allocation    |            0 |          false
+-- distributed_clearing |  >=0 or null |            any
+-- deferred_payment     |  >=0 or null |            any
+-- prepaid_credits      |            0 |            any
+--
+-- Mode Behavior:
+--
+-- mode                 | auction_settlement  | issuance_policy
+-- ---------------------|---------------------|----------------
+-- points_allocation    | to_treasury         | allowance
+-- distributed_clearing | equal_distribution  | none
+-- deferred_payment     | to_treasury         | none
+-- prepaid_credits      | to_treasury         | purchase
 --
 -- # Denomination
 --
@@ -44,7 +55,8 @@ CREATE TYPE CURRENCY_MODE AS ENUM (
 CREATE DOMAIN AMOUNT AS NUMERIC(20, 6) CHECK (VALUE >= 0);
 
 ALTER TABLE communities
-    ADD COLUMN currency_mode CURRENCY_MODE NOT NULL DEFAULT 'distributed_clearing',
+    ADD COLUMN currency_mode CURRENCY_MODE NOT NULL
+        DEFAULT 'distributed_clearing',
     -- The default credit limit given to members within a community.
     -- Can be overridden on a per-member basis.
     -- Null means there is no limit.
@@ -57,27 +69,33 @@ ALTER TABLE communities
     -- Allowance settings for points_allocation
     ADD COLUMN allowance_amount AMOUNT,
     ADD COLUMN allowance_period INTERVAL,
-    ADD COLUMN allowance_start TIMESTAMPTZ, -- Starting point for automated issuance
+    -- Starting point for automated issuance
+    ADD COLUMN allowance_start TIMESTAMPTZ,
     -- Points allocation constraints
     ADD CHECK (currency_mode != 'points_allocation' OR (
         debts_callable = false
-        AND default_credit_limit IS NOT NULL AND default_credit_limit = 0
+        AND default_credit_limit IS NOT NULL
+        AND default_credit_limit = 0
         AND allowance_amount IS NOT NULL
         AND allowance_period IS NOT NULL
         AND allowance_start IS NOT NULL
     )),
     -- Distributed clearing and deferred payment constraints
-    ADD CHECK (currency_mode NOT IN ('distributed_clearing', 'deferred_payment') OR (
-        allowance_amount IS NULL
-        AND allowance_period IS NULL
-        AND allowance_start IS NULL
-        -- Without callable debts, must have a finite credit limit to prevent
-        -- infinite debt accumulation
-        AND (debts_callable = true OR default_credit_limit IS NOT NULL)
-    )),
+    ADD CHECK (
+        currency_mode NOT IN ('distributed_clearing', 'deferred_payment')
+        OR (
+            allowance_amount IS NULL
+            AND allowance_period IS NULL
+            AND allowance_start IS NULL
+            -- Without callable debts, must have finite credit limit
+            -- to prevent infinite debt accumulation
+            AND (debts_callable = true OR default_credit_limit IS NOT NULL)
+        )
+    ),
     -- Prepaid credits constraints
     ADD CHECK (currency_mode != 'prepaid_credits' OR (
-        default_credit_limit IS NOT NULL AND default_credit_limit = 0
+        default_credit_limit IS NOT NULL
+        AND default_credit_limit = 0
         AND allowance_amount IS NULL
         AND allowance_period IS NULL
         AND allowance_start IS NULL
@@ -85,8 +103,8 @@ ALTER TABLE communities
 
 -- Currency account types:
 -- - 'member_main': a member's personal account
--- - 'community_treasury': the central community account that issues currency
---   or sinks payments when the mode is not distributed_clearing
+-- - 'community_treasury': the central community account that issues
+--   currency or sinks payments when mode is not distributed_clearing
 CREATE TYPE ACCOUNT_OWNER_TYPE AS ENUM (
     'member_main',
     'community_treasury'
@@ -101,42 +119,50 @@ CREATE TABLE accounts (
     -- Materialized balance kept in sync by application
     -- Positive = credit balance, Negative = debt
     balance_cached  NUMERIC(20, 6) NOT NULL DEFAULT 0,
-    -- Credit limit for this account (NULL = use community default_credit_limit)
-    -- Only applies to member_main accounts; treasury accounts have no limit
+    -- Credit limit for this account
+    -- NULL = use community default_credit_limit
+    -- Only applies to member_main accounts; treasury has no limit
     credit_limit    AMOUNT,
-    -- Application enforces: balance_cached >= -COALESCE(credit_limit, community.default_credit_limit, infinity)
+    -- Application enforces: balance_cached >=
+    --   -COALESCE(credit_limit, community.default_credit_limit, infinity)
     -- For member_main accounts, owner_id must be set
     -- For community_treasury accounts, owner_id must be null
     CHECK ((owner_type = 'member_main' AND owner_id IS NOT NULL) OR
            (owner_type = 'community_treasury' AND owner_id IS NULL))
 );
 
-CREATE TYPE ENTRY_TYPE AS ENUM ('issuance_grant', 'auction_settlement', 'transfer');
+CREATE TYPE ENTRY_TYPE AS ENUM (
+    'issuance_grant',
+    'auction_settlement',
+    'transfer'
+);
 
--- entries in the ledger
--- each entry has legs in journal_lines, which have amounts that sum to 0
+-- Entries in the ledger
+-- Each entry has legs in journal_lines with amounts that sum to 0
 CREATE TABLE journal_entries (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    community_id      UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    community_id      UUID NOT NULL REFERENCES communities (id)
+        ON DELETE CASCADE,
     entry_type        ENTRY_TYPE NOT NULL,
     idempotency_key   UUID NOT NULL,
-    auction_id        UUID REFERENCES auctions (id), -- optional auction ref
+    auction_id        UUID REFERENCES auctions (id),
     created_at        TIMESTAMPTZ NOT NULL,
     UNIQUE (idempotency_key),
     CHECK (entry_type != 'auction_settlement' OR auction_id IS NOT NULL)
-); -- no metadata JSONB; when new metadata forms are needed, add those as cols
+);
+-- No metadata JSONB; when new metadata forms are needed, add as cols
 
 CREATE TABLE journal_lines (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entry_id          UUID NOT NULL REFERENCES journal_entries (id) ON DELETE CASCADE,
+    entry_id          UUID NOT NULL REFERENCES journal_entries (id)
+        ON DELETE CASCADE,
     account_id        UUID NOT NULL REFERENCES accounts (id),
     amount            NUMERIC(20, 6) NOT NULL
 );
 
--- Application is responsible for ensuring that the sum of journal lines for an
--- entry_id is 0
+-- Application ensures sum of journal lines for each entry_id is 0
 
 -- Create treasury accounts for all existing communities
 INSERT INTO accounts (community_id, owner_type, owner_id, created_at)
-SELECT id, 'community_treasury', NULL, NOW()  -- NOW() OK in backfill
-FROM communities;
+SELECT id, 'community_treasury', NULL, NOW()
+FROM communities;  -- NOW() OK in backfill
