@@ -64,8 +64,12 @@ ALTER TABLE communities
     -- User-assigned name and symbol to currency
     ADD COLUMN currency_name VARCHAR(50) NOT NULL DEFAULT 'dollars',
     ADD COLUMN currency_symbol VARCHAR(4) NOT NULL DEFAULT '$',
-    -- Whether debts can be called for settlement in the denominated unit
+    -- Whether debts can be called for settlement in denominated unit
     ADD COLUMN debts_callable BOOLEAN NOT NULL DEFAULT true,
+    -- Whether ordinary members can see all member balances/limits
+    -- Coleaders/leaders always see all; this affects member visibility
+    ADD COLUMN balances_visible_to_members BOOLEAN NOT NULL
+        DEFAULT true,
     -- Allowance settings for points_allocation
     ADD COLUMN allowance_amount AMOUNT,
     ADD COLUMN allowance_period INTERVAL,
@@ -131,8 +135,27 @@ CREATE TABLE accounts (
            (owner_type = 'community_treasury' AND owner_id IS NULL))
 );
 
+-- Journal entry types
+--
+-- mode                 | treasury->member  | member->treasury
+-- ---------------------|-------------------|-------------------
+-- points_allocation    | issuance_grant    | auction_settlement
+-- distributed_clearing | --                | --
+-- deferred_payment     | --                | auction_settlement
+-- prepaid_credits      | credit_purchase   | auction_settlement
+--
+-- member->member: transfer
+--
+-- Account handling on user deletion
+--
+-- Accounts are NOT closed when users delete their accounts or leave. Instead:
+-- - Account remains intact with full transaction history
+-- - Balance stays visible to community leaders
+-- - Community can later transfer balance or absorb it as needed
+-- - If user rejoins, they can reconnect to existing account
 CREATE TYPE ENTRY_TYPE AS ENUM (
     'issuance_grant',
+    'credit_purchase',
     'auction_settlement',
     'transfer'
 );
@@ -146,6 +169,12 @@ CREATE TABLE journal_entries (
     entry_type        ENTRY_TYPE NOT NULL,
     idempotency_key   UUID NOT NULL,
     auction_id        UUID REFERENCES auctions (id),
+    -- User who initiated this entry (for treasury/admin operations)
+    -- NULL for member-to-member transfers (implicit from account)
+    initiated_by_id   UUID REFERENCES users (id)
+        ON DELETE SET NULL,
+    -- Optional user-provided description
+    note              VARCHAR(100),
     created_at        TIMESTAMPTZ NOT NULL,
     UNIQUE (idempotency_key),
     CHECK (entry_type != 'auction_settlement' OR auction_id IS NOT NULL)
