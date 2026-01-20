@@ -83,10 +83,6 @@ ALTER TABLE communities
         AND allowance_start IS NULL
     ));
 
-ALTER TABLE community_members
-    ADD COLUMN credit_limit AMOUNT;  -- Credit limit override for this member
-    -- TODO: add a balance_cached column with a materialized calculation of the user's balance?
-
 -- Currency account types:
 -- - 'member_main': a member's personal account
 -- - 'community_treasury': the central community account that issues currency
@@ -97,15 +93,22 @@ CREATE TYPE ACCOUNT_OWNER_TYPE AS ENUM (
 );
 
 CREATE TABLE accounts (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    community_id  UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
-    owner_type    ACCOUNT_OWNER_TYPE NOT NULL,
-    owner_id      UUID REFERENCES users (id) ON DELETE CASCADE,
-    created_at    TIMESTAMPTZ NOT NULL,
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id    UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    owner_type      ACCOUNT_OWNER_TYPE NOT NULL,
+    owner_id        UUID REFERENCES users (id) ON DELETE CASCADE,
+    created_at      TIMESTAMPTZ NOT NULL,
+    -- Materialized balance kept in sync by application
+    -- Positive = credit balance, Negative = debt
+    balance_cached  NUMERIC(20, 6) NOT NULL DEFAULT 0,
+    -- Credit limit for this account (NULL = use community default_credit_limit)
+    -- Only applies to member_main accounts; treasury accounts have no limit
+    credit_limit    AMOUNT,
+    -- Application enforces: balance_cached >= -COALESCE(credit_limit, community.default_credit_limit, infinity)
     -- For member_main accounts, owner_id must be set
     -- For community_treasury accounts, owner_id must be null
     CHECK ((owner_type = 'member_main' AND owner_id IS NOT NULL) OR
-         (owner_type = 'community_treasury' AND owner_id IS NULL))
+           (owner_type = 'community_treasury' AND owner_id IS NULL))
 );
 
 CREATE TYPE ENTRY_TYPE AS ENUM ('issuance_grant', 'auction_settlement', 'transfer');
