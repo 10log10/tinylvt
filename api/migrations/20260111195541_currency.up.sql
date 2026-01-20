@@ -195,3 +195,8 @@ CREATE TABLE journal_lines (
 INSERT INTO accounts (community_id, owner_type, owner_id, created_at)
 SELECT id, 'community_treasury', NULL, NOW()
 FROM communities;  -- NOW() OK in backfill
+
+-- Create member_main accounts for all existing community members
+INSERT INTO accounts (community_id, owner_type, owner_id, created_at)
+SELECT community_id, 'member_main', user_id, NOW()
+FROM community_members;  -- NOW() OK in backfill
