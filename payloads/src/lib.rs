@@ -208,6 +208,268 @@ pub struct Bid {
     pub updated_at: Timestamp,
 }
 
+// Currency system types
+
+/// Currency mode enum for UI selection and mode identification
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "use-sqlx",
+    sqlx(type_name = "currency_mode", rename_all = "snake_case")
+)]
+pub enum CurrencyMode {
+    PointsAllocation,
+    DistributedClearing,
+    DeferredPayment,
+    PrepaidCredits,
+}
+
+/// Points allocation configuration
+/// Members are issued points by the treasury on a regular schedule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PointsAllocationConfig {
+    /// Amount issued per allowance period
+    pub allowance_amount: rust_decimal::Decimal,
+    /// Period between allowances
+    pub allowance_period: jiff::Span,
+    /// Starting point for automated issuance
+    pub allowance_start: jiff::Timestamp,
+}
+
+impl PartialEq for PointsAllocationConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.allowance_amount == other.allowance_amount
+            && self.allowance_period.fieldwise()
+                == other.allowance_period.fieldwise()
+            && self.allowance_start == other.allowance_start
+    }
+}
+
+impl Eq for PointsAllocationConfig {}
+
+impl PointsAllocationConfig {
+    /// Credit limit is always 0 for points allocation
+    pub fn credit_limit(&self) -> rust_decimal::Decimal {
+        rust_decimal::Decimal::ZERO
+    }
+
+    /// Debts are never callable for points allocation
+    pub fn debts_callable(&self) -> bool {
+        false
+    }
+}
+
+/// Distributed clearing configuration
+/// Members issue IOUs to each other, settled among themselves
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DistributedClearingConfig {
+    /// Optional default credit limit for members
+    pub default_credit_limit: Option<rust_decimal::Decimal>,
+    /// Whether debts carry promise of settlement
+    pub debts_callable: bool,
+}
+
+/// Deferred payment configuration
+/// Members issue IOUs to the treasury, settled later
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeferredPaymentConfig {
+    /// Optional default credit limit for members
+    pub default_credit_limit: Option<rust_decimal::Decimal>,
+    /// Whether debts carry promise of settlement
+    pub debts_callable: bool,
+}
+
+/// Prepaid credits configuration
+/// Members purchase credits from treasury upfront
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrepaidCreditsConfig {
+    /// Whether debts carry promise of settlement
+    pub debts_callable: bool,
+}
+
+impl PrepaidCreditsConfig {
+    /// Credit limit is always 0 for prepaid credits
+    pub fn credit_limit(&self) -> rust_decimal::Decimal {
+        rust_decimal::Decimal::ZERO
+    }
+}
+
+/// Currency configuration enum with mode-specific data
+/// Makes invalid currency configurations unrepresentable
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CurrencyConfig {
+    PointsAllocation(Box<PointsAllocationConfig>),
+    DistributedClearing(DistributedClearingConfig),
+    DeferredPayment(DeferredPaymentConfig),
+    PrepaidCredits(PrepaidCreditsConfig),
+}
+
+impl CurrencyConfig {
+    /// Get the currency mode for this configuration
+    pub fn mode(&self) -> CurrencyMode {
+        match self {
+            CurrencyConfig::PointsAllocation(_) => {
+                CurrencyMode::PointsAllocation
+            }
+            CurrencyConfig::DistributedClearing(_) => {
+                CurrencyMode::DistributedClearing
+            }
+            CurrencyConfig::DeferredPayment(_) => CurrencyMode::DeferredPayment,
+            CurrencyConfig::PrepaidCredits(_) => CurrencyMode::PrepaidCredits,
+        }
+    }
+
+    /// Get the default credit limit for this configuration
+    pub fn default_credit_limit(&self) -> Option<rust_decimal::Decimal> {
+        match self {
+            CurrencyConfig::PointsAllocation(cfg) => Some(cfg.credit_limit()),
+            CurrencyConfig::DistributedClearing(cfg) => {
+                cfg.default_credit_limit
+            }
+            CurrencyConfig::DeferredPayment(cfg) => cfg.default_credit_limit,
+            CurrencyConfig::PrepaidCredits(cfg) => Some(cfg.credit_limit()),
+        }
+    }
+
+    /// Get whether debts are callable for this configuration
+    pub fn debts_callable(&self) -> bool {
+        match self {
+            CurrencyConfig::PointsAllocation(cfg) => cfg.debts_callable(),
+            CurrencyConfig::DistributedClearing(cfg) => cfg.debts_callable,
+            CurrencyConfig::DeferredPayment(cfg) => cfg.debts_callable,
+            CurrencyConfig::PrepaidCredits(cfg) => cfg.debts_callable,
+        }
+    }
+}
+
+/// Database-level account owner type enum (used only for DB serialization)
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type))]
+#[cfg_attr(
+    feature = "use-sqlx",
+    sqlx(type_name = "account_owner_type", rename_all = "snake_case")
+)]
+pub enum AccountOwnerType {
+    MemberMain,
+    CommunityTreasury,
+}
+
+/// Proper sum type for account ownership that makes invalid states
+/// unrepresentable
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccountOwner {
+    Member(UserId),
+    Treasury,
+}
+
+impl AccountOwner {
+    pub fn owner_type(&self) -> AccountOwnerType {
+        match self {
+            AccountOwner::Member(_) => AccountOwnerType::MemberMain,
+            AccountOwner::Treasury => AccountOwnerType::CommunityTreasury,
+        }
+    }
+
+    pub fn owner_id(&self) -> Option<UserId> {
+        match self {
+            AccountOwner::Member(user_id) => Some(*user_id),
+            AccountOwner::Treasury => None,
+        }
+    }
+
+    pub fn from_parts(
+        owner_type: AccountOwnerType,
+        owner_id: Option<UserId>,
+    ) -> Option<Self> {
+        match (owner_type, owner_id) {
+            (AccountOwnerType::MemberMain, Some(user_id)) => {
+                Some(AccountOwner::Member(user_id))
+            }
+            (AccountOwnerType::CommunityTreasury, None) => {
+                Some(AccountOwner::Treasury)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type))]
+#[cfg_attr(
+    feature = "use-sqlx",
+    sqlx(type_name = "entry_type", rename_all = "snake_case")
+)]
+pub enum EntryType {
+    IssuanceGrant,
+    CreditPurchase,
+    AuctionSettlement,
+    Transfer,
+}
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct AccountId(pub Uuid);
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct JournalEntryId(pub Uuid);
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct JournalLineId(pub Uuid);
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct IdempotencyKey(pub Uuid);
+
+/// Domain-level Account with type-safe ownership
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Account {
+    pub id: AccountId,
+    pub community_id: CommunityId,
+    pub owner: AccountOwner,
+    pub created_at: Timestamp,
+    pub balance_cached: Decimal,
+    pub credit_limit: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
+pub struct JournalEntry {
+    pub id: JournalEntryId,
+    pub community_id: CommunityId,
+    pub entry_type: EntryType,
+    pub idempotency_key: IdempotencyKey,
+    pub auction_id: Option<AuctionId>,
+    pub initiated_by_id: Option<UserId>,
+    pub note: Option<String>,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
+pub struct JournalLine {
+    pub id: JournalLineId,
+    pub entry_id: JournalEntryId,
+    pub account_id: AccountId,
+    pub amount: Decimal,
+}
+
 pub mod requests {
     use crate::CommunityId;
     use rust_decimal::Decimal;
@@ -340,15 +602,16 @@ pub mod responses {
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct Community {
         pub id: CommunityId,
         pub name: String,
         pub new_members_default_active: bool,
-        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
         pub created_at: Timestamp,
-        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
         pub updated_at: Timestamp,
+        pub currency_config: super::CurrencyConfig,
+        pub currency_name: String,
+        pub currency_symbol: String,
+        pub balances_visible_to_members: bool,
     }
 
     /// A community invite that has been issued from a given community.
@@ -386,19 +649,20 @@ pub mod responses {
     /// This is used by the get_communities endpoint to provide role information
     /// so the frontend can show/hide controls based on permissions.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct CommunityWithRole {
-        pub id: CommunityId,
-        pub name: String,
-        pub new_members_default_active: bool,
-        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
-        pub created_at: Timestamp,
-        #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
-        pub updated_at: Timestamp,
+        pub community: Community,
         /// The current user's role in this community
         pub user_role: super::Role,
         /// Whether the current user is active in this community
         pub user_is_active: bool,
+    }
+
+    impl std::ops::Deref for CommunityWithRole {
+        type Target = Community;
+
+        fn deref(&self) -> &Self::Target {
+            &self.community
+        }
     }
 
     /// Details about a community member for a community one is a part of.
@@ -493,6 +757,31 @@ use derive_more::Display;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+// Helper types for optional jiff types with sqlx
+#[cfg(feature = "use-sqlx")]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
+pub struct OptionalSpan(pub Option<SqlxSpan>);
+
+#[cfg(feature = "use-sqlx")]
+impl From<OptionalSpan> for Option<jiff::Span> {
+    fn from(x: OptionalSpan) -> Option<jiff::Span> {
+        x.0.map(|x| x.to_jiff())
+    }
+}
+
+#[cfg(feature = "use-sqlx")]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
+pub struct OptionalTimestamp(pub Option<SqlxTs>);
+
+#[cfg(feature = "use-sqlx")]
+impl From<OptionalTimestamp> for Option<jiff::Timestamp> {
+    fn from(x: OptionalTimestamp) -> Option<jiff::Timestamp> {
+        x.0.map(|x| x.to_jiff())
+    }
+}
 
 /// Id type wrappers help ensure we don't mix up ids for different tables.
 #[derive(

@@ -144,7 +144,7 @@ CREATE TABLE accounts (
 -- deferred_payment     | --                | auction_settlement
 -- prepaid_credits      | credit_purchase   | auction_settlement
 --
--- member->member: transfer
+-- member->member: transfer, unless it's fram a distributed_clearing auction
 --
 -- Account handling on user deletion
 --

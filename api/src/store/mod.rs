@@ -3,28 +3,36 @@
 //! ## Design Decisions
 //!
 //! ### Token Management
-//! - **Auto-generated UUIDs**: The database automatically generates UUIDs for tokens using `DEFAULT gen_random_uuid()`.
-//!   This ensures consistent UUID generation and reduces network overhead.
-//! - **Single-use tokens**: All tokens (email verification, password reset) are marked as used after consumption
-//!   and cannot be reused.
-//! - **Time-based expiration**: Tokens have database-enforced expiration times. Email verification tokens
-//!   expire after 24 hours, password reset tokens after 1 hour.
+//! - **Auto-generated UUIDs**: The database automatically generates UUIDs
+//!   for tokens using `DEFAULT gen_random_uuid()`. This ensures consistent
+//!   UUID generation and reduces network overhead.
+//! - **Single-use tokens**: All tokens (email verification, password
+//!   reset) are marked as used after consumption and cannot be reused.
+//! - **Time-based expiration**: Tokens have database-enforced expiration
+//!   times. Email verification tokens expire after 24 hours, password
+//!   reset tokens after 1 hour.
 //!
 //! ### Time Source Dependency
-//! - **Mocked time for testing**: Functions that need current time (`consume_token`, `cleanup_expired_tokens`)
-//!   accept a `TimeSource` parameter instead of creating their own. This allows time to be mocked during tests.
-//! - **Consistent time handling**: All time-sensitive operations use the same `TimeSource` instance passed
-//!   from the application routes.
+//! - **Mocked time for testing**: Functions that need current time
+//!   (`consume_token`, `cleanup_expired_tokens`) accept a `TimeSource`
+//!   parameter instead of creating their own. This allows time to be
+//!   mocked during tests.
+//! - **Consistent time handling**: All time-sensitive operations use the
+//!   same `TimeSource` instance passed from the application routes.
 //!
 //! ### Database Triggers
-//! - **Auto-updated timestamps**: The database has triggers that automatically update `updated_at` fields,
-//!   so application code doesn't need to manually set these values.
-//! - **Consistent audit trail**: All modifications are tracked at the database level for reliability.
+//! - **Auto-updated timestamps**: The database has triggers that
+//!   automatically update `updated_at` fields, so application code doesn't
+//!   need to manually set these values.
+//! - **Consistent audit trail**: All modifications are tracked at the
+//!   database level for reliability.
 //!
 //! ### Type Safety
-//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it can be used directly with sqlx
-//!   queries without accessing the inner UUID value (`.0`).
-//! - **UserId binding**: Similar pattern for all ID types to ensure type safety at the query level.
+//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it
+//!   can be used directly with sqlx queries without accessing the inner
+//!   UUID value (`.0`).
+//! - **UserId binding**: Similar pattern for all ID types to ensure type
+//!   safety at the query level.
 
 use anyhow::Context;
 use derive_more::Display;
@@ -35,18 +43,20 @@ use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
-use sqlx::{FromRow, PgPool, Postgres, Transaction, Type};
+use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, Type};
 use sqlx_postgres::types::PgInterval;
 use tracing::Level;
 use uuid::Uuid;
 
 use payloads::{
-    AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, SiteId, SiteImageId, SpaceId, UserId, requests,
+    AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, OptionalTimestamp,
+    PermissionLevel, Role, SiteId, SiteImageId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
 use crate::time::TimeSource;
+
+pub mod currency;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize, Type,
@@ -128,16 +138,6 @@ pub struct CommunityMember {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
-}
-
-#[derive(sqlx::Type)]
-#[sqlx(transparent)]
-struct OptionalTimestamp(Option<SqlxTs>);
-
-impl From<OptionalTimestamp> for Option<Timestamp> {
-    fn from(x: OptionalTimestamp) -> Option<Timestamp> {
-        x.0.map(|x| x.to_jiff())
-    }
 }
 
 /// A type that can only exist if the interior CommunityMember has been
@@ -686,6 +686,57 @@ pub async fn delete_proxy_bidding(
 #[sqlx(transparent)]
 pub struct AuditLogId(pub Uuid);
 
+/// Database-level Community struct that matches the communities table schema
+#[derive(Debug, Clone, FromRow)]
+struct DbCommunity {
+    id: CommunityId,
+    name: String,
+    new_members_default_active: bool,
+    #[sqlx(try_from = "SqlxTs")]
+    created_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    updated_at: Timestamp,
+    currency_mode: payloads::CurrencyMode,
+    default_credit_limit: Option<Decimal>,
+    currency_name: String,
+    currency_symbol: String,
+    debts_callable: bool,
+    balances_visible_to_members: bool,
+    allowance_amount: Option<Decimal>,
+    #[sqlx(try_from = "payloads::OptionalSpan")]
+    allowance_period: Option<jiff::Span>,
+    #[sqlx(try_from = "payloads::OptionalTimestamp")]
+    allowance_start: Option<Timestamp>,
+}
+
+impl TryFrom<DbCommunity> for Community {
+    type Error = StoreError;
+
+    fn try_from(db: DbCommunity) -> Result<Self, Self::Error> {
+        let currency_config = currency::currency_config_from_db(
+            db.currency_mode,
+            db.default_credit_limit,
+            db.debts_callable,
+            db.allowance_amount,
+            db.allowance_period,
+            db.allowance_start,
+        )
+        .ok_or(StoreError::InvalidCurrencyConfiguration)?;
+
+        Ok(Community {
+            id: db.id,
+            name: db.name,
+            new_members_default_active: db.new_members_default_active,
+            created_at: db.created_at,
+            updated_at: db.updated_at,
+            currency_config,
+            currency_name: db.currency_name,
+            currency_symbol: db.currency_symbol,
+            balances_visible_to_members: db.balances_visible_to_members,
+        })
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct AuditLog {
     pub id: AuditLogId,
@@ -714,7 +765,7 @@ pub async fn create_community(
     }
     let mut tx = pool.begin().await?;
 
-    let community = sqlx::query_as::<_, Community>(
+    let db_community = sqlx::query_as::<_, DbCommunity>(
         "INSERT INTO communities (
             name,
             new_members_default_active,
@@ -728,6 +779,8 @@ pub async fn create_community(
     .fetch_one(&mut *tx)
     .await?;
 
+    let community: Community = db_community.try_into()?;
+
     sqlx::query(
         "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4);",
@@ -737,6 +790,26 @@ pub async fn create_community(
     .bind(Role::Leader)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
+    .await?;
+
+    // Create treasury account
+    currency::create_account_tx(
+        &community.id,
+        payloads::AccountOwner::Treasury,
+        None,
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    // Create leader's member_main account
+    currency::create_account_tx(
+        &community.id,
+        payloads::AccountOwner::Member(user_id),
+        None,
+        time_source,
+        &mut tx,
+    )
     .await?;
 
     tx.commit().await?;
@@ -1203,6 +1276,16 @@ pub async fn accept_invite(
         return Err(StoreError::AlreadyMember);
     }
 
+    // Create member_main account for the new member
+    currency::create_account_tx(
+        &invite.community_id,
+        payloads::AccountOwner::Member(*user_id),
+        None,
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
     if invite.email.is_some() || invite.single_use {
         sqlx::query("DELETE FROM community_invites WHERE id = $1")
             .bind(invite_id)
@@ -1250,13 +1333,9 @@ pub async fn get_communities(
     user_id: &UserId,
     pool: &PgPool,
 ) -> Result<Vec<payloads::responses::CommunityWithRole>, StoreError> {
-    Ok(sqlx::query_as::<_, payloads::responses::CommunityWithRole>(
-        "SELECT 
-            b.id,
-            b.name,
-            b.new_members_default_active,
-            b.created_at,
-            b.updated_at,
+    let rows = sqlx::query(
+        "SELECT
+            b.*,
             a.role as user_role,
             a.is_active as user_is_active
         FROM community_members a
@@ -1265,21 +1344,37 @@ pub async fn get_communities(
     )
     .bind(user_id)
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    let mut communities = Vec::new();
+    for row in rows {
+        let db_community = DbCommunity::from_row(&row)?;
+        let community: Community = db_community.try_into()?;
+        let user_role: Role = row.try_get("user_role")?;
+        let user_is_active: bool = row.try_get("user_is_active")?;
+        communities.push(payloads::responses::CommunityWithRole {
+            community,
+            user_role,
+            user_is_active,
+        });
+    }
+
+    Ok(communities)
 }
 
 pub async fn get_community_by_id(
     community_id: &CommunityId,
     pool: &PgPool,
 ) -> Result<Community, StoreError> {
-    let community = sqlx::query_as::<_, Community>(
+    let db_community = sqlx::query_as::<_, DbCommunity>(
         "SELECT * FROM communities WHERE id = $1",
     )
     .bind(community_id)
     .fetch_optional(pool)
-    .await?;
+    .await?
+    .ok_or(StoreError::CommunityNotFound)?;
 
-    community.ok_or(StoreError::CommunityNotFound)
+    db_community.try_into()
 }
 
 pub async fn get_received_invites(
@@ -1940,8 +2035,9 @@ pub async fn list_sites(
     Ok(site_responses)
 }
 
-/// Get a space and validate that the user has the required permission level in the site's community.
-/// Returns both the space and the validated member if successful.
+/// Get a space and validate that the user has the required permission
+/// level in the site's community. Returns both the space and the
+/// validated member if successful.
 async fn get_validated_space(
     space_id: &SpaceId,
     user_id: &UserId,
@@ -1979,7 +2075,8 @@ async fn get_validated_space(
 }
 
 /// Internal transaction-aware space creation function.
-/// Caller is responsible for managing the transaction and validating permissions.
+/// Caller is responsible for managing the transaction and validating
+/// permissions.
 async fn create_space_tx(
     details: &payloads::Space,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -2306,8 +2403,9 @@ pub async fn list_spaces(
     Ok(spaces.into_iter().map(Into::into).collect())
 }
 
-/// Get an auction and validate that the user has the required permission level in the site's community.
-/// Returns both the auction and the validated member if successful.
+/// Get an auction and validate that the user has the required permission
+/// level in the site's community. Returns both the auction and the
+/// validated member if successful.
 async fn get_validated_auction(
     auction_id: &AuctionId,
     user_id: &UserId,
@@ -2354,7 +2452,7 @@ pub async fn create_auction(
 
     // Check if the site has been deleted
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
-        .bind(&details.site_id)
+        .bind(details.site_id)
         .fetch_one(pool)
         .await?;
 
@@ -2643,7 +2741,7 @@ pub async fn create_bid_tx(
 
     // Check if the site has been deleted
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
-        .bind(&space.site_id)
+        .bind(space.site_id)
         .fetch_one(pool)
         .await?;
 
@@ -3116,22 +3214,34 @@ pub enum StoreError {
     TokenExpired,
     #[error("Cannot delete user who is a leader of a community")]
     UserIsLeader,
+    #[error("Account not found")]
+    AccountNotFound,
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    #[error("Database invariant violation: invalid account ownership")]
+    InvalidAccountOwnership,
+    #[error("Database invariant violation: invalid currency configuration")]
+    InvalidCurrencyConfiguration,
+    #[error("Journal entry lines must sum to zero, got {0}")]
+    JournalLinesDoNotSumToZero(rust_decimal::Decimal),
 }
 
 /// Convert a space name unique constraint violation into a more specific error.
 /// If the error is a unique violation on the spaces_site_id_name_unique index,
 /// returns SpaceNameNotUnique. Otherwise returns the original error.
 fn map_space_name_unique_error(e: sqlx::Error, space_name: &str) -> StoreError {
-    if let sqlx::Error::Database(db_err) = &e {
-        if db_err.is_unique_violation() {
-            // Check if this is the spaces_site_id_name_unique constraint
-            if let Some(constraint) = db_err.constraint() {
-                if constraint == "spaces_site_id_name_unique" {
-                    return StoreError::SpaceNameNotUnique {
-                        name: space_name.to_string(),
-                    };
-                }
-            }
+    if let sqlx::Error::Database(db_err) = &e
+        && db_err.is_unique_violation()
+    {
+        // Check if this is the spaces_site_id_name_unique constraint
+        if let Some(constraint) = db_err.constraint()
+            && constraint == "spaces_site_id_name_unique"
+        {
+            return StoreError::SpaceNameNotUnique {
+                name: space_name.to_string(),
+            };
         }
     }
     e.into()
