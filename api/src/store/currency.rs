@@ -130,10 +130,39 @@ pub async fn get_account(
     db_account.try_into()
 }
 
-/// Get current cached balance for an account
-pub async fn get_balance(
+/// Get account by owner and lock for update
+///
+/// Locks the account row using SELECT FOR UPDATE, preventing concurrent
+/// modifications until the transaction commits. Must be called inside a
+/// transaction.
+pub async fn get_account_for_update_tx(
+    community_id: &CommunityId,
+    owner: AccountOwner,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Account, StoreError> {
+    let db_account = sqlx::query_as::<_, DbAccount>(
+        r#"
+        SELECT * FROM accounts
+        WHERE community_id = $1
+          AND owner_type = $2
+          AND owner_id IS NOT DISTINCT FROM $3
+        FOR UPDATE
+        "#,
+    )
+    .bind(community_id)
+    .bind(owner.owner_type())
+    .bind(owner.owner_id())
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(StoreError::AccountNotFound)?;
+
+    db_account.try_into()
+}
+
+/// Get current cached balance for an account (transaction version)
+pub async fn get_balance_tx(
     account_id: &AccountId,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Decimal, StoreError> {
     let row: (Decimal,) = sqlx::query_as(
         r#"
@@ -141,19 +170,20 @@ pub async fn get_balance(
         "#,
     )
     .bind(account_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or(StoreError::AccountNotFound)?;
 
     Ok(row.0)
 }
 
-/// Get effective credit limit for an account
+/// Get effective credit limit for an account, excluding any locked balance
+/// pledged via auction bids.
 ///
 /// Returns account-specific limit if set, otherwise community default
-pub async fn get_effective_credit_limit(
+pub async fn get_effective_credit_limit_tx(
     account_id: &AccountId,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<Decimal>, StoreError> {
     let row: (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
         r#"
@@ -164,11 +194,166 @@ pub async fn get_effective_credit_limit(
         "#,
     )
     .bind(account_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or(StoreError::AccountNotFound)?;
 
     Ok(row.0.or(row.1))
+}
+
+/// Get locked balance for an account.
+///
+/// The locked balance reduce's the user's available credit.
+///
+/// Works within an active transaction and will see uncommitted changes made
+/// by the same transaction (e.g., bids inserted but not yet committed).
+///
+/// Locked balance includes:
+/// - Current round bids: current price + bid increment
+/// - Outstanding high bids: current value from round_space_results
+pub async fn get_locked_balance_tx(
+    account_id: &AccountId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Decimal, StoreError> {
+    let locked: Option<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(
+            CASE
+                -- User is winning: lock the current value
+                WHEN rsr.winning_user_id = a.owner_id THEN rsr.value
+                -- User has bid but isn't winning: lock next bid amount
+                -- (previous round value + bid increment)
+                WHEN b.user_id = a.owner_id THEN
+                    COALESCE(prev_rsr.value, 0) + ap.bid_increment
+                ELSE 0
+            END
+        ), 0)
+        FROM accounts a
+        -- Join to get all active rounds in the community
+        CROSS JOIN LATERAL (
+            SELECT ar.id as round_id, ar.auction_id, ar.round_num,
+                   auc.auction_params_id
+            FROM auction_rounds ar
+            JOIN auctions auc ON ar.auction_id = auc.id
+            JOIN sites s ON auc.site_id = s.id
+            WHERE s.community_id = a.community_id
+              AND ar.start_at <= NOW()
+              AND ar.end_at > NOW()
+        ) active_rounds
+        -- Join auction_params for bid increment
+        JOIN auction_params ap ON ap.id = active_rounds.auction_params_id
+        -- Left join bids for this user in active rounds
+        LEFT JOIN bids b ON b.user_id = a.owner_id
+                         AND b.round_id = active_rounds.round_id
+        -- Left join current round results to see if user is winning
+        LEFT JOIN round_space_results rsr
+            ON rsr.round_id = active_rounds.round_id
+           AND rsr.space_id = b.space_id
+        -- Left join previous round results to get starting price for bids
+        LEFT JOIN LATERAL (
+            SELECT prev_ar.id as prev_round_id
+            FROM auction_rounds prev_ar
+            WHERE prev_ar.auction_id = active_rounds.auction_id
+              AND prev_ar.round_num = active_rounds.round_num - 1
+        ) prev_round ON TRUE
+        LEFT JOIN round_space_results prev_rsr
+            ON prev_rsr.round_id = prev_round.prev_round_id
+           AND prev_rsr.space_id = b.space_id
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(account_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(locked.unwrap_or(Decimal::ZERO))
+}
+
+/// Get available credit for an account
+///
+/// Returns the amount the account can still spend, accounting for:
+/// - Current balance (positive = credit, negative = debt)
+/// - Locked balance from outstanding auction bids
+/// - Credit limit (the maximum negative balance allowed)
+///
+/// Formula: available = balance - locked_balance + credit_limit
+///
+/// Examples:
+/// - balance=100, locked=20, limit=50 -> available=130
+/// - balance=0, locked=0, limit=50 -> available=50
+/// - balance=-30, locked=0, limit=50 -> available=20
+/// - balance=100, locked=50, limit=None -> available=None (unlimited)
+///
+/// Returns None if there's no credit limit (unlimited credit)
+pub async fn get_available_credit_tx(
+    account_id: &AccountId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Option<Decimal>, StoreError> {
+    // Get account info including balance and owner_type
+    let (balance, owner_type, credit_limit, default_limit): (
+        Decimal,
+        AccountOwnerType,
+        Option<Decimal>,
+        Option<Decimal>,
+    ) = sqlx::query_as(
+        r#"
+        SELECT a.balance_cached, a.owner_type, a.credit_limit,
+               c.default_credit_limit
+        FROM accounts a
+        JOIN communities c ON a.community_id = c.id
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(account_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(StoreError::AccountNotFound)?;
+
+    // Treasury accounts have unlimited credit
+    if owner_type == AccountOwnerType::CommunityTreasury {
+        return Ok(None);
+    }
+
+    // Get locked balance
+    let locked = get_locked_balance_tx(account_id, tx).await?;
+
+    // Calculate effective credit limit
+    let effective_limit = credit_limit.or(default_limit);
+
+    // If no limit, return None (unlimited)
+    let Some(limit) = effective_limit else {
+        return Ok(None);
+    };
+
+    // Calculate available credit
+    // available = balance - locked + limit
+    // This is equivalent to: limit - (locked - balance)
+    let available = balance - locked + limit;
+
+    Ok(Some(available))
+}
+
+/// Check if an account has sufficient credit for a transaction
+///
+/// Returns Ok(()) if the account can spend the given amount, or
+/// Err(StoreError::InsufficientBalance) if not.
+pub async fn check_sufficient_credit_tx(
+    account_id: &AccountId,
+    amount: Decimal,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    let available = get_available_credit_tx(account_id, tx).await?;
+
+    // If available is None, unlimited credit
+    let Some(available_amount) = available else {
+        return Ok(());
+    };
+
+    if available_amount < amount {
+        return Err(StoreError::InsufficientBalance);
+    }
+
+    Ok(())
 }
 
 /// Create a journal entry with lines, updating balances atomically
@@ -205,6 +390,13 @@ pub async fn create_entry(
         return Ok(()); // Idempotent - already processed
     }
 
+    // Validate only one line per account
+    let accounts: std::collections::HashSet<AccountId> =
+        lines.iter().map(|(account_id, _)| *account_id).collect();
+    if accounts.len() != lines.len() {
+        return Err(StoreError::DuplicateAccountInJournalEntry);
+    }
+
     // Validate lines sum to zero
     let sum: Decimal = lines.iter().map(|(_, amount)| amount).sum();
     if sum != Decimal::ZERO {
@@ -215,6 +407,39 @@ pub async fn create_entry(
 
     // Begin transaction
     let mut tx = pool.begin().await?;
+
+    // Collect debited accounts and sort by ID to prevent deadlocks
+    let mut debited_accounts: Vec<_> = lines
+        .iter()
+        .filter(|(_, amount)| *amount < Decimal::ZERO)
+        .map(|(account_id, _)| *account_id)
+        .collect();
+    debited_accounts.sort_by_key(|id| id.to_string());
+    debited_accounts.dedup();
+
+    // Lock debited accounts using SELECT FOR UPDATE
+    // Ensures there's no changes between when the available credit is checked
+    // and when the debit is committed.
+    for account_id in &debited_accounts {
+        sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE")
+            .bind(account_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Check credit limits BEFORE making changes
+    // We only need to check each line since we've validated there's only one
+    // line per account.
+    for (account_id, amount) in &lines {
+        if *amount >= Decimal::ZERO {
+            continue; // Skip credits, only check debits
+        }
+
+        // Check if account has sufficient credit for this debit
+        // Pass absolute value since check_sufficient_credit_tx expects
+        // positive amount
+        check_sufficient_credit_tx(account_id, amount.abs(), &mut tx).await?;
+    }
 
     // Create journal entry
     let entry_id: JournalEntryId = sqlx::query_scalar(
@@ -243,7 +468,7 @@ pub async fn create_entry(
     .await?;
 
     // Create journal lines and update balances
-    for (account_id, amount) in lines {
+    for (account_id, amount) in &lines {
         // Insert journal line
         sqlx::query(
             r#"
@@ -258,6 +483,7 @@ pub async fn create_entry(
         .await?;
 
         // Update balance_cached
+        // We don't need to lock credited accounts since the update is atomic.
         sqlx::query(
             r#"
             UPDATE accounts
@@ -269,26 +495,6 @@ pub async fn create_entry(
         .bind(account_id)
         .execute(&mut *tx)
         .await?;
-    }
-
-    // Check credit limits after updates
-    let violations: Vec<(AccountId, Decimal, Option<Decimal>)> =
-        sqlx::query_as(
-            r#"
-        SELECT a.id, a.balance_cached, COALESCE(a.credit_limit, c.default_credit_limit)
-        FROM accounts a
-        JOIN communities c ON a.community_id = c.id
-        WHERE a.community_id = $1
-          AND a.owner_type = 'member_main'
-          AND a.balance_cached < -COALESCE(a.credit_limit, c.default_credit_limit, 0)
-        "#,
-        )
-        .bind(community_id)
-        .fetch_all(&mut *tx)
-        .await?;
-
-    if !violations.is_empty() {
-        return Err(StoreError::InsufficientBalance);
     }
 
     // Commit transaction

@@ -2846,6 +2846,39 @@ pub async fn create_bid_tx(
         }
     }
 
+    // Check credit limit before creating bid
+    // Get and lock the account for this user in the community
+    let account = currency::get_account_for_update_tx(
+        &site.community_id,
+        payloads::AccountOwner::Member(*user_id),
+        tx,
+    )
+    .await?;
+
+    // Get bid increment from auction params
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(round.auction_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    let auction_params = sqlx::query_as::<_, AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(auction.auction_params_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Check if user has sufficient credit for this bid
+    // The bid will lock (prev_value + bid_increment) which is checked
+    // against available credit by check_sufficient_credit_tx
+    currency::check_sufficient_credit_tx(
+        &account.id,
+        auction_params.bid_increment,
+        tx,
+    )
+    .await?;
+
     // Create the bid
     sqlx::query(
         "INSERT INTO bids (space_id, round_id, user_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
@@ -3226,6 +3259,8 @@ pub enum StoreError {
     InvalidCurrencyConfiguration,
     #[error("Journal entry lines must sum to zero, got {0}")]
     JournalLinesDoNotSumToZero(rust_decimal::Decimal),
+    #[error("Duplicate account in journal entry")]
+    DuplicateAccountInJournalEntry,
 }
 
 /// Convert a space name unique constraint violation into a more specific error.
