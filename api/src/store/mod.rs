@@ -2869,15 +2869,42 @@ pub async fn create_bid_tx(
     .fetch_one(&mut **tx)
     .await?;
 
+    // Calculate the amount this bid will lock
+    // Get previous round's value for this space (if any)
+    let prev_value: Option<Decimal> = if round.round_num > 0 {
+        let prev_round_id: Option<payloads::AuctionRoundId> =
+            sqlx::query_scalar(
+                "SELECT id FROM auction_rounds
+                WHERE auction_id = $1 AND round_num = $2",
+            )
+            .bind(round.auction_id)
+            .bind(round.round_num - 1)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+        if let Some(prev_id) = prev_round_id {
+            sqlx::query_scalar(
+                "SELECT value FROM round_space_results
+                WHERE round_id = $1 AND space_id = $2",
+            )
+            .bind(prev_id)
+            .bind(space_id)
+            .fetch_optional(&mut **tx)
+            .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Bid amount = (prev value + bid increment) OR zero
+    let bid_amount = prev_value
+        .map(|v| v + auction_params.bid_increment)
+        .unwrap_or(Decimal::ZERO);
+
     // Check if user has sufficient credit for this bid
-    // The bid will lock (prev_value + bid_increment) which is checked
-    // against available credit by check_sufficient_credit_tx
-    currency::check_sufficient_credit_tx(
-        &account.id,
-        auction_params.bid_increment,
-        tx,
-    )
-    .await?;
+    currency::check_sufficient_credit_tx(&account.id, bid_amount, tx).await?;
 
     // Create the bid
     sqlx::query(
