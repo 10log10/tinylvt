@@ -122,7 +122,18 @@ impl ResponseError for APIError {
 impl From<StoreError> for APIError {
     fn from(e: StoreError) -> Self {
         match e {
+            // Database errors
             StoreError::Database(_) => APIError::UnexpectedError(e.into()),
+
+            // Database invariant violations (should never happen)
+            StoreError::InvalidAccountOwnership => {
+                APIError::UnexpectedError(e.into())
+            }
+            StoreError::InvalidCurrencyConfiguration => {
+                APIError::UnexpectedError(e.into())
+            }
+
+            // Not found errors
             StoreError::MemberNotFound => APIError::AuthError(e.into()),
             StoreError::TokenNotFound => APIError::NotFound(e.into()),
             StoreError::UserNotFound => APIError::NotFound(e.into()),
@@ -141,6 +152,9 @@ impl From<StoreError> for APIError {
             StoreError::CommunityInviteNotFound => APIError::NotFound(e.into()),
             StoreError::OpenHoursNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionParamsNotFound => APIError::NotFound(e.into()),
+            StoreError::AccountNotFound => APIError::NotFound(e.into()),
+
+            // All other errors are bad requests (client errors)
             _ => APIError::BadRequest(e.into()),
         }
     }
