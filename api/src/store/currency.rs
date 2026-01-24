@@ -201,72 +201,153 @@ pub async fn get_effective_credit_limit_tx(
     Ok(row.0.or(row.1))
 }
 
-/// Get locked balance for an account.
+/// Get locked balance for an account (Rust-based implementation).
 ///
-/// The locked balance reduce's the user's available credit.
+/// The locked balance reduces the user's available credit.
 ///
 /// Works within an active transaction and will see uncommitted changes made
 /// by the same transaction (e.g., bids inserted but not yet committed).
 ///
 /// Locked balance includes:
-/// - Current round bids: current price + bid increment
-/// - Outstanding high bids: current value from round_space_results
+/// - Winning bids: value from latest processed round_space_results
+/// - Outstanding bids: (prev round value + bid increment) for unprocessed
+///   rounds
 pub async fn get_locked_balance_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Decimal, StoreError> {
-    let locked: Option<Decimal> = sqlx::query_scalar(
+    // Step 1: Get the account to find its community
+    let community_id: payloads::CommunityId =
+        sqlx::query_scalar("SELECT community_id FROM accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or(StoreError::AccountNotFound)?;
+
+    // Step 2: Get all active auctions in this community
+    #[derive(sqlx::FromRow)]
+    struct ActiveAuction {
+        auction_id: payloads::AuctionId,
+        auction_params_id: uuid::Uuid,
+    }
+
+    let active_auctions: Vec<ActiveAuction> = sqlx::query_as(
         r#"
-        SELECT COALESCE(SUM(
-            CASE
-                -- User is winning: lock the current value
-                WHEN rsr.winning_user_id = a.owner_id THEN rsr.value
-                -- User has bid but isn't winning: lock next bid amount
-                -- (previous round value + bid increment)
-                WHEN b.user_id = a.owner_id THEN
-                    COALESCE(prev_rsr.value, 0) + ap.bid_increment
-                ELSE 0
-            END
-        ), 0)
-        FROM accounts a
-        -- Join to get all active rounds in the community
-        CROSS JOIN LATERAL (
-            SELECT ar.id as round_id, ar.auction_id, ar.round_num,
-                   auc.auction_params_id
-            FROM auction_rounds ar
-            JOIN auctions auc ON ar.auction_id = auc.id
-            JOIN sites s ON auc.site_id = s.id
-            WHERE s.community_id = a.community_id
-              AND ar.start_at <= NOW()
-              AND ar.end_at > NOW()
-        ) active_rounds
-        -- Join auction_params for bid increment
-        JOIN auction_params ap ON ap.id = active_rounds.auction_params_id
-        -- Left join bids for this user in active rounds
-        LEFT JOIN bids b ON b.user_id = a.owner_id
-                         AND b.round_id = active_rounds.round_id
-        -- Left join current round results to see if user is winning
-        LEFT JOIN round_space_results rsr
-            ON rsr.round_id = active_rounds.round_id
-           AND rsr.space_id = b.space_id
-        -- Left join previous round results to get starting price for bids
-        LEFT JOIN LATERAL (
-            SELECT prev_ar.id as prev_round_id
-            FROM auction_rounds prev_ar
-            WHERE prev_ar.auction_id = active_rounds.auction_id
-              AND prev_ar.round_num = active_rounds.round_num - 1
-        ) prev_round ON TRUE
-        LEFT JOIN round_space_results prev_rsr
-            ON prev_rsr.round_id = prev_round.prev_round_id
-           AND prev_rsr.space_id = b.space_id
-        WHERE a.id = $1
+        SELECT auc.id as auction_id, auc.auction_params_id
+        FROM auctions auc
+        JOIN sites s ON auc.site_id = s.id
+        WHERE s.community_id = $1 AND auc.end_at IS NULL
         "#,
     )
-    .bind(account_id)
-    .fetch_one(&mut **tx)
+    .bind(community_id)
+    .fetch_all(&mut **tx)
     .await?;
 
-    Ok(locked.unwrap_or(Decimal::ZERO))
+    let mut total_locked = Decimal::ZERO;
+
+    // Step 3: For each auction, calculate locked balance
+    for auction in active_auctions {
+        // Get the latest processed round number (highest round with results)
+        let max_processed_round: Option<i32> = sqlx::query_scalar(
+            r#"
+            SELECT MAX(ar.round_num)
+            FROM round_space_results rsr
+            JOIN auction_rounds ar ON rsr.round_id = ar.id
+            WHERE ar.auction_id = $1
+            "#,
+        )
+        .bind(auction.auction_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .flatten();
+
+        // Get bid increment for calculating bid amounts
+        let bid_increment: Decimal = sqlx::query_scalar(
+            "SELECT bid_increment FROM auction_params WHERE id = $1",
+        )
+        .bind(auction.auction_params_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // Step 3a: Add locked balance from winning bids in latest processed
+        // round
+        if let Some(processed_round_num) = max_processed_round {
+            let winning_values: Vec<Decimal> = sqlx::query_scalar(
+                r#"
+                SELECT rsr.value
+                FROM round_space_results rsr
+                JOIN auction_rounds ar ON rsr.round_id = ar.id
+                WHERE ar.auction_id = $1
+                  AND ar.round_num = $2
+                  AND rsr.winning_user_id = $3
+                "#,
+            )
+            .bind(auction.auction_id)
+            .bind(processed_round_num)
+            .bind(account_id)
+            .fetch_all(&mut **tx)
+            .await?;
+
+            for value in winning_values {
+                total_locked += value;
+            }
+        }
+
+        // Step 3b: Add locked balance from bids in unprocessed rounds
+        #[derive(sqlx::FromRow)]
+        struct UnprocessedBid {
+            space_id: payloads::SpaceId,
+            round_num: i32,
+        }
+
+        let unprocessed_bids: Vec<UnprocessedBid> = sqlx::query_as(
+            r#"
+            SELECT b.space_id, ar.round_num
+            FROM bids b
+            JOIN auction_rounds ar ON b.round_id = ar.id
+            WHERE ar.auction_id = $1
+              AND ar.round_num > $2
+              AND b.user_id = $3
+            "#,
+        )
+        .bind(auction.auction_id)
+        .bind(max_processed_round.unwrap_or(-1))
+        .bind(account_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for bid in unprocessed_bids {
+            // Get the previous round's value for this space (if any)
+            let prev_round_value: Option<Decimal> = if bid.round_num > 0 {
+                sqlx::query_scalar(
+                    r#"
+                    SELECT rsr.value
+                    FROM round_space_results rsr
+                    JOIN auction_rounds ar ON rsr.round_id = ar.id
+                    WHERE ar.auction_id = $1
+                      AND ar.round_num = $2
+                      AND rsr.space_id = $3
+                    "#,
+                )
+                .bind(auction.auction_id)
+                .bind(bid.round_num - 1)
+                .bind(bid.space_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten()
+            } else {
+                None
+            };
+
+            // Locked amount = (prev value + bid increment) OR zero
+            let locked_for_bid = prev_round_value
+                .map(|v| v + bid_increment)
+                .unwrap_or(Decimal::ZERO);
+            total_locked += locked_for_bid;
+        }
+    }
+
+    Ok(total_locked)
 }
 
 /// Get available credit for an account
