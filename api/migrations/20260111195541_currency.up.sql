@@ -44,6 +44,13 @@
 -- Without callable debts, the currency maintains its value either through the
 -- cost to purchase it (prepaid_credits), or a finite credit limit
 -- (distributed_clearing and deferred_payment).
+--
+-- # Edge Cases
+--
+-- If the mode is distributed_clearing and there are no active members when
+-- auction settlement occurs, the community treasury account is credited. This
+-- makes the settlement behave like deferred_payment, and gives the community
+-- leaders the opportunity to rectify the distribution after the fact.
 
 CREATE TYPE CURRENCY_MODE AS ENUM (
     'points_allocation',

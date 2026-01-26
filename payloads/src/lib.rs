@@ -785,7 +785,7 @@ impl From<OptionalTimestamp> for Option<jiff::Timestamp> {
 
 /// Id type wrappers help ensure we don't mix up ids for different tables.
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Display, Serialize, Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct UserId(pub Uuid);

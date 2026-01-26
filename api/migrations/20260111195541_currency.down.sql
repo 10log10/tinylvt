@@ -1,21 +1,30 @@
--- Reverses the currency migration by removing all currency-related columns and types
+-- Reverses the currency migration by removing all currency-related columns,
+-- tables, and types
 
-ALTER TABLE community_members
-    DROP COLUMN credit_limit;
+-- Drop tables in dependency order
+DROP TABLE journal_lines;
 
+DROP TABLE journal_entries;
+
+DROP TABLE accounts;
+
+-- Drop columns from communities table
 ALTER TABLE communities
     DROP COLUMN currency_mode,
     DROP COLUMN default_credit_limit,
     DROP COLUMN currency_name,
     DROP COLUMN currency_symbol,
-    DROP COLUMN tether_type,
-    DROP COLUMN tether_currency,
+    DROP COLUMN debts_callable,
+    DROP COLUMN balances_visible_to_members,
     DROP COLUMN allowance_amount,
     DROP COLUMN allowance_period,
     DROP COLUMN allowance_start;
 
-DROP DOMAIN amount;
+-- Drop types in reverse dependency order
+DROP TYPE ENTRY_TYPE;
 
-DROP TYPE TETHER_TYPE;
+DROP TYPE ACCOUNT_OWNER_TYPE;
 
 DROP TYPE CURRENCY_MODE;
+
+DROP DOMAIN AMOUNT;

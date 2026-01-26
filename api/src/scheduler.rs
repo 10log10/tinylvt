@@ -39,6 +39,7 @@ use jiff_sqlx::ToSqlx;
 use payloads::SpaceId;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 
@@ -173,6 +174,10 @@ async fn process_next_auction(
 /// Lock the next auction that needs updating, using advisory locks to prevent
 /// blocking and enable concurrent scheduler instances.
 /// Uses exponential backoff to avoid repeatedly processing failing auctions.
+///
+/// Auctions that need processing are those that are still ongoing (the
+/// start_at is past and end_at is NULL) and which do not have an ongoing round
+/// (now < end_at for any round).
 #[tracing::instrument(skip(tx, time_source))]
 async fn lock_next_auction_needing_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -261,6 +266,7 @@ async fn process_locked_auction(
             auction,
             previous_round,
             &mut tx,
+            time_source,
         )
         .await?;
 
@@ -311,11 +317,12 @@ async fn process_locked_auction(
 /// concluded by defining end_at in the auction table with the current time.
 ///
 /// Returns whether the auction is still ongoing.
-#[tracing::instrument(skip(tx))]
+#[tracing::instrument(skip(tx, time_source))]
 async fn update_round_space_results_within_tx(
     auction: &store::Auction,
     previous_round: &store::AuctionRound,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    time_source: &TimeSource,
 ) -> anyhow::Result<bool> {
     // Get the auction params to know the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
@@ -336,6 +343,9 @@ async fn update_round_space_results_within_tx(
     .context("failed to get available spaces for site")?;
 
     let mut any_bids = false;
+    // Collect winner payments for settlement (user_id -> total amount owed)
+    let mut winner_payments: HashMap<payloads::UserId, Decimal> =
+        HashMap::new();
 
     for space in &spaces {
         // Check how many bids exist for this space in the concluded round
@@ -428,6 +438,11 @@ async fn update_round_space_results_within_tx(
         .with_context(|| {
             format!("failed to create space round entry for space {}", space.id)
         })?;
+
+        // Accumulate payment owed by this winner
+        *winner_payments
+            .entry(winning_user_id)
+            .or_insert(Decimal::ZERO) += new_value;
     }
 
     // Conclude the auction if there are no more bids
@@ -444,6 +459,25 @@ async fn update_round_space_results_within_tx(
         .with_context(|| {
             format!("failed to conclude auction {}", auction.id)
         })?;
+
+        // Get community_id from site for settlement
+        let community_id: payloads::CommunityId =
+            sqlx::query_scalar("SELECT community_id FROM sites WHERE id = $1")
+                .bind(auction.site_id)
+                .fetch_one(&mut **tx)
+                .await
+                .context("failed to get community_id for auction settlement")?;
+
+        // Create auction settlement journal entry
+        store::currency::create_auction_settlement_entry(
+            &community_id,
+            &auction.id,
+            winner_payments,
+            time_source,
+            tx,
+        )
+        .await
+        .context("failed to create auction settlement journal entry")?;
     }
 
     Ok(any_bids)
@@ -1142,6 +1176,14 @@ async fn process_user_proxy_bidding(
                 // Expected errors - try next space
                 tracing::info!(
                     "Failed to bid on {:?}: eligibility or already winning",
+                    space_id
+                );
+                continue;
+            }
+            Err(store::StoreError::InsufficientBalance) => {
+                // User has run out of credit - try next space
+                tracing::info!(
+                    "Failed to bid on {:?}: insufficient credit, trying next space",
                     space_id
                 );
                 continue;

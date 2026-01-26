@@ -15,6 +15,7 @@ use payloads::{
 };
 use rust_decimal::Decimal;
 use sqlx::{FromRow, PgPool};
+use std::collections::HashMap;
 
 use super::StoreError;
 use crate::time::TimeSource;
@@ -112,22 +113,8 @@ pub async fn get_account(
     owner: AccountOwner,
     pool: &PgPool,
 ) -> Result<Account, StoreError> {
-    let db_account = sqlx::query_as::<_, DbAccount>(
-        r#"
-        SELECT * FROM accounts
-        WHERE community_id = $1
-          AND owner_type = $2
-          AND owner_id IS NOT DISTINCT FROM $3
-        "#,
-    )
-    .bind(community_id)
-    .bind(owner.owner_type())
-    .bind(owner.owner_id())
-    .fetch_optional(pool)
-    .await?
-    .ok_or(StoreError::AccountNotFound)?;
-
-    db_account.try_into()
+    let mut tx = pool.begin().await?;
+    return get_account_tx(community_id, owner, &mut tx).await;
 }
 
 /// Get account by owner and lock for update
@@ -441,9 +428,19 @@ pub async fn check_sufficient_credit_tx(
 ///
 /// This is the core ledger operation. It:
 /// 1. Validates that lines sum to zero
-/// 2. Checks credit limits for all affected accounts
-/// 3. Creates the journal entry and lines
-/// 4. Updates balance_cached for all accounts
+/// 2. Validates one line per account (unless is_auction_settlement)
+/// 3. Locks debited accounts and checks credit limits (unless
+///    is_auction_settlement)
+/// 4. Creates the journal entry and lines
+/// 5. Updates balance_cached for all accounts
+///
+/// The `is_auction_settlement` parameter should be true only for auction
+/// settlements. It enables:
+/// - Multiple lines per account (for distributed_clearing transparency)
+/// - Skipping credit checks (locked balance includes the debits being settled)
+///
+/// Must be called within a transaction. The caller is responsible for
+/// committing or rolling back the transaction.
 ///
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
@@ -456,26 +453,20 @@ pub async fn create_entry(
     auction_id: Option<&payloads::AuctionId>,
     initiated_by_id: Option<&UserId>,
     note: Option<String>,
+    is_auction_settlement: bool,
     time_source: &TimeSource,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
     // Check idempotency
     let existing: Option<JournalEntryId> = sqlx::query_scalar(
         "SELECT id FROM journal_entries WHERE idempotency_key = $1",
     )
     .bind(idempotency_key)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?;
 
     if existing.is_some() {
         return Ok(()); // Idempotent - already processed
-    }
-
-    // Validate only one line per account
-    let accounts: std::collections::HashSet<AccountId> =
-        lines.iter().map(|(account_id, _)| *account_id).collect();
-    if accounts.len() != lines.len() {
-        return Err(StoreError::DuplicateAccountInJournalEntry);
     }
 
     // Validate lines sum to zero
@@ -486,40 +477,42 @@ pub async fn create_entry(
 
     let now = time_source.now();
 
-    // Begin transaction
-    let mut tx = pool.begin().await?;
-
-    // Collect debited accounts and sort by ID to prevent deadlocks
-    let mut debited_accounts: Vec<_> = lines
-        .iter()
-        .filter(|(_, amount)| *amount < Decimal::ZERO)
-        .map(|(account_id, _)| *account_id)
-        .collect();
-    debited_accounts.sort_by_key(|id| id.to_string());
-    debited_accounts.dedup();
-
-    // Lock debited accounts using SELECT FOR UPDATE
-    // Ensures there's no changes between when the available credit is checked
-    // and when the debit is committed.
-    for account_id in &debited_accounts {
-        sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE")
-            .bind(account_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    // Check credit limits BEFORE making changes
-    // We only need to check each line since we've validated there's only one
-    // line per account.
-    for (account_id, amount) in &lines {
-        if *amount >= Decimal::ZERO {
-            continue; // Skip credits, only check debits
+    // For non-settlement entries, validate and check credit limits
+    if !is_auction_settlement {
+        // Validate one line per account
+        let unique_accounts: std::collections::HashSet<AccountId> =
+            lines.iter().map(|(account_id, _)| *account_id).collect();
+        if unique_accounts.len() != lines.len() {
+            return Err(StoreError::DuplicateAccountInJournalEntry);
         }
 
-        // Check if account has sufficient credit for this debit
-        // Pass absolute value since check_sufficient_credit_tx expects
-        // positive amount
-        check_sufficient_credit_tx(account_id, amount.abs(), &mut tx).await?;
+        // Collect debited accounts and sort by ID to prevent deadlocks
+        let mut debited_accounts: Vec<_> = lines
+            .iter()
+            .filter(|(_, amount)| *amount < Decimal::ZERO)
+            .map(|(account_id, _)| *account_id)
+            .collect();
+        debited_accounts.sort_by_key(|id| id.to_string());
+        debited_accounts.dedup(); // Should be no-op given one line per account
+
+        // Lock debited accounts using SELECT FOR UPDATE
+        // Ensures there's no changes between when the available credit is
+        // checked and when the debit is committed.
+        for account_id in &debited_accounts {
+            sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE")
+                .bind(account_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+
+        // Check credit limits BEFORE making changes
+        for (account_id, amount) in &lines {
+            if *amount >= Decimal::ZERO {
+                continue; // Skip credits, only check debits
+            }
+
+            check_sufficient_credit_tx(account_id, amount.abs(), tx).await?;
+        }
     }
 
     // Create journal entry
@@ -545,7 +538,7 @@ pub async fn create_entry(
     .bind(initiated_by_id)
     .bind(&note)
     .bind(now.to_sqlx())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     // Create journal lines and update balances
@@ -560,7 +553,7 @@ pub async fn create_entry(
         .bind(entry_id)
         .bind(account_id)
         .bind(amount)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         // Update balance_cached
@@ -574,14 +567,180 @@ pub async fn create_entry(
         )
         .bind(amount)
         .bind(account_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
-    // Commit transaction
-    tx.commit().await?;
+    Ok(())
+}
+
+/// Create auction settlement journal entry based on currency mode
+///
+/// The settlement behavior depends on the community's currency_mode:
+/// - points_allocation: Winners pay treasury
+/// - distributed_clearing: Winners pay, split equally among active members
+/// - deferred_payment: Winners pay treasury
+/// - prepaid_credits: Winners pay treasury
+///
+/// For distributed_clearing, distributions go only to members currently marked
+/// as active (allows observer members, decouples bidding rights from
+/// distribution rights).
+///
+/// Multiple lines per account are only used to separate debits and credits in
+/// distributed_clearing mode (a winner who is also an active member will have
+/// both a debit line for what they owe and a credit line for their share).
+///
+/// The caller must aggregate payments by user. Individual space wins are
+/// tracked in round_space_results, not in the journal.
+///
+/// This function must call create_entry with skip_credit_check=true, since the
+/// locked balance includes the very bids being settled. For this reason, it is
+/// not nessecary to lock the account.
+///
+/// Generates a random idempotency key. Exactly-once settlement is guaranteed
+/// by the scheduler's advisory lock, not the idempotency key. Using a random
+/// key prevents malicious actors from blocking settlement by preemptively
+/// creating a journal entry with a predictable idempotency key.
+pub async fn create_auction_settlement_entry(
+    community_id: &CommunityId,
+    auction_id: &payloads::AuctionId,
+    winner_payments: HashMap<UserId, Decimal>,
+    time_source: &TimeSource,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    // Generate random idempotency key to prevent predictable key attacks
+    let idempotency_key = IdempotencyKey(uuid::Uuid::new_v4());
+
+    // Get community currency mode
+    let currency_mode: CurrencyMode = sqlx::query_scalar(
+        "SELECT currency_mode FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Filter out zero payments and calculate total
+    let winner_payments: HashMap<UserId, Decimal> = winner_payments
+        .into_iter()
+        .filter(|(_, amount)| *amount > Decimal::ZERO)
+        .collect();
+
+    let total_paid: Decimal = winner_payments.values().sum();
+
+    if total_paid == Decimal::ZERO {
+        // No payments to process, return early
+        return Ok(());
+    }
+
+    // Build journal lines based on currency mode
+    let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
+
+    // Add debit lines for winners (negative amounts)
+    // One debit line per user for their total payment
+    for (winner_user_id, amount) in &winner_payments {
+        let winner_account = get_account_tx(
+            community_id,
+            AccountOwner::Member(*winner_user_id),
+            tx,
+        )
+        .await?;
+        lines.push((winner_account.id, -amount));
+    }
+
+    match currency_mode {
+        CurrencyMode::PointsAllocation
+        | CurrencyMode::DeferredPayment
+        | CurrencyMode::PrepaidCredits => {
+            // All payments go to treasury
+            let treasury_account =
+                get_account_tx(community_id, AccountOwner::Treasury, tx)
+                    .await?;
+            lines.push((treasury_account.id, total_paid));
+        }
+        CurrencyMode::DistributedClearing => {
+            // Distribute equally among active members
+            let active_member_ids: Vec<UserId> = sqlx::query_scalar(
+                r#"
+                SELECT user_id
+                FROM community_members
+                WHERE community_id = $1 AND is_active = true
+                "#,
+            )
+            .bind(community_id)
+            .fetch_all(&mut **tx)
+            .await?;
+
+            if active_member_ids.is_empty() {
+                // Fallback: if no active members, send to treasury
+                // This can occur if membership schedules expire or all members
+                // are manually set to inactive
+                let treasury_account =
+                    get_account_tx(community_id, AccountOwner::Treasury, tx)
+                        .await?;
+                lines.push((treasury_account.id, total_paid));
+            } else {
+                // Calculate per-member distribution
+                let num_active = Decimal::from(active_member_ids.len());
+                let per_member = total_paid / num_active;
+
+                // Add credit lines for each active member
+                // Winners who are also active members will have both debit
+                // (above) and credit (here) lines, making the journal
+                // transparent
+                for member_user_id in active_member_ids {
+                    let member_account = get_account_tx(
+                        community_id,
+                        AccountOwner::Member(member_user_id),
+                        tx,
+                    )
+                    .await?;
+                    lines.push((member_account.id, per_member));
+                }
+            }
+        }
+    }
+
+    // Create the journal entry as an auction settlement
+    // This allows multiple lines per account and skips credit checks
+    create_entry(
+        community_id,
+        EntryType::AuctionSettlement,
+        idempotency_key,
+        lines,
+        Some(auction_id),
+        None, // No initiated_by_id for automated settlements
+        None, // No note
+        true, // is_auction_settlement
+        time_source,
+        tx,
+    )
+    .await?;
 
     Ok(())
+}
+
+/// Get account by owner within a transaction
+async fn get_account_tx(
+    community_id: &CommunityId,
+    owner: AccountOwner,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Account, StoreError> {
+    let db_account = sqlx::query_as::<_, DbAccount>(
+        r#"
+        SELECT * FROM accounts
+        WHERE community_id = $1
+          AND owner_type = $2
+          AND owner_id IS NOT DISTINCT FROM $3
+        "#,
+    )
+    .bind(community_id)
+    .bind(owner.owner_type())
+    .bind(owner.owner_id())
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(StoreError::AccountNotFound)?;
+
+    db_account.try_into()
 }
 
 /// Get journal entries for an account
