@@ -86,29 +86,8 @@ pub async fn create_account_tx(
     db_account.try_into()
 }
 
-/// Create an account for a member or treasury (pool version)
-pub async fn create_account(
-    community_id: &CommunityId,
-    owner: AccountOwner,
-    credit_limit: Option<Decimal>,
-    time_source: &TimeSource,
-    pool: &PgPool,
-) -> Result<Account, StoreError> {
-    let mut tx = pool.begin().await?;
-    let account = create_account_tx(
-        community_id,
-        owner,
-        credit_limit,
-        time_source,
-        &mut tx,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(account)
-}
-
 /// Get account by owner
-pub async fn get_account(
+async fn get_account(
     community_id: &CommunityId,
     owner: AccountOwner,
     pool: &PgPool,
@@ -122,7 +101,7 @@ pub async fn get_account(
 /// Locks the account row using SELECT FOR UPDATE, preventing concurrent
 /// modifications until the transaction commits. Must be called inside a
 /// transaction.
-pub async fn get_account_for_update_tx(
+pub(crate) async fn get_account_for_update_tx(
     community_id: &CommunityId,
     owner: AccountOwner,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -146,29 +125,11 @@ pub async fn get_account_for_update_tx(
     db_account.try_into()
 }
 
-/// Get current cached balance for an account (transaction version)
-pub async fn get_balance_tx(
-    account_id: &AccountId,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Decimal, StoreError> {
-    let row: (Decimal,) = sqlx::query_as(
-        r#"
-        SELECT balance_cached FROM accounts WHERE id = $1
-        "#,
-    )
-    .bind(account_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(StoreError::AccountNotFound)?;
-
-    Ok(row.0)
-}
-
 /// Get effective credit limit for an account, excluding any locked balance
 /// pledged via auction bids.
 ///
 /// Returns account-specific limit if set, otherwise community default
-pub async fn get_effective_credit_limit_tx(
+pub(crate) async fn get_effective_credit_limit_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<Decimal>, StoreError> {
@@ -199,7 +160,7 @@ pub async fn get_effective_credit_limit_tx(
 /// - Winning bids: value from latest processed round_space_results
 /// - Outstanding bids: (prev round value + bid increment) for unprocessed
 ///   rounds
-pub async fn get_locked_balance_tx(
+async fn get_locked_balance_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Decimal, StoreError> {
@@ -353,7 +314,7 @@ pub async fn get_locked_balance_tx(
 /// - balance=100, locked=50, limit=None -> available=None (unlimited)
 ///
 /// Returns None if there's no credit limit (unlimited credit)
-pub async fn get_available_credit_tx(
+async fn get_available_credit_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<Decimal>, StoreError> {
@@ -405,7 +366,7 @@ pub async fn get_available_credit_tx(
 ///
 /// Returns Ok(()) if the account can spend the given amount, or
 /// Err(StoreError::InsufficientBalance) if not.
-pub async fn check_sufficient_credit_tx(
+pub(crate) async fn check_sufficient_credit_tx(
     account_id: &AccountId,
     amount: Decimal,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -445,7 +406,7 @@ pub async fn check_sufficient_credit_tx(
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
 #[allow(clippy::too_many_arguments)]
-pub async fn create_entry(
+async fn create_entry(
     community_id: &CommunityId,
     entry_type: EntryType,
     idempotency_key: IdempotencyKey,
@@ -743,13 +704,70 @@ async fn get_account_tx(
     db_account.try_into()
 }
 
-/// Get journal entries for an account
-pub async fn get_transactions(
-    account_id: &AccountId,
+/// Get currency information for a member
+///
+/// Returns account balance, effective credit limit (uses community default if
+/// not set), locked balance (from auction bids), and available credit for the
+/// member in their community.
+pub async fn get_member_currency_info(
+    actor: &super::ValidatedMember,
+    pool: &PgPool,
+) -> Result<payloads::responses::MemberCurrencyInfo, StoreError> {
+    let mut tx = pool.begin().await?;
+
+    // Get the member's account
+    let account = get_account_tx(
+        &actor.0.community_id,
+        AccountOwner::Member(actor.0.user_id),
+        &mut tx,
+    )
+    .await?;
+
+    // Get effective credit limit (account-specific or community default)
+    let effective_credit_limit =
+        get_effective_credit_limit_tx(&account.id, &mut tx).await?;
+
+    // Get locked balance
+    let locked_balance = get_locked_balance_tx(&account.id, &mut tx).await?;
+
+    // Get available credit
+    let available_credit =
+        get_available_credit_tx(&account.id, &mut tx).await?;
+
+    tx.commit().await?;
+
+    Ok(payloads::responses::MemberCurrencyInfo {
+        account_id: account.id,
+        balance: account.balance_cached,
+        credit_limit: effective_credit_limit,
+        locked_balance,
+        available_credit,
+    })
+}
+
+/// Get journal entries for a member's account
+///
+/// Returns transaction history for the requesting member's account in their
+/// community. Members can only view their own transactions.
+///
+/// The response includes user-friendly information (usernames instead of
+/// account IDs) and filters lines to show only those relevant to the
+/// requesting member.
+pub async fn get_member_transactions(
+    actor: &super::ValidatedMember,
     limit: i64,
     offset: i64,
     pool: &PgPool,
-) -> Result<Vec<JournalEntry>, StoreError> {
+) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
+    // Get the member's account
+    let account = get_account(
+        &actor.0.community_id,
+        AccountOwner::Member(actor.0.user_id),
+        pool,
+    )
+    .await?;
+
+    // Fetch entries that involve this account
     let entries = sqlx::query_as::<_, JournalEntry>(
         r#"
         SELECT DISTINCT je.*
@@ -760,13 +778,88 @@ pub async fn get_transactions(
         LIMIT $2 OFFSET $3
         "#,
     )
-    .bind(account_id)
+    .bind(account.id)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
     .await?;
 
-    Ok(entries)
+    // For each entry, fetch all lines and convert to user-friendly format
+    let mut transactions = Vec::new();
+    for entry in entries {
+        // Fetch all lines for this entry with user info in a single query
+        #[derive(sqlx::FromRow)]
+        struct LineWithUserInfo {
+            amount: Decimal,
+            owner_type: AccountOwnerType,
+            owner_id: Option<UserId>,
+            username: Option<String>,
+            display_name: Option<String>,
+        }
+
+        let lines: Vec<LineWithUserInfo> = sqlx::query_as(
+            r#"
+            SELECT
+                jl.amount,
+                a.owner_type,
+                a.owner_id,
+                u.username,
+                cm.display_name
+            FROM journal_lines jl
+            JOIN accounts a ON jl.account_id = a.id
+            LEFT JOIN users u ON a.owner_id = u.id
+            LEFT JOIN community_members cm
+                ON cm.user_id = a.owner_id
+                AND cm.community_id = $1
+            WHERE jl.entry_id = $2
+            "#,
+        )
+        .bind(&actor.0.community_id)
+        .bind(entry.id)
+        .fetch_all(pool)
+        .await?;
+
+        // Convert lines to TransactionLine with user-friendly info
+        let mut transaction_lines = Vec::new();
+        for line in lines {
+            let party = match line.owner_type {
+                AccountOwnerType::CommunityTreasury => {
+                    payloads::responses::TransactionParty::Treasury
+                }
+                AccountOwnerType::MemberMain => {
+                    let user_id = line
+                        .owner_id
+                        .ok_or(StoreError::InvalidAccountOwnership)?;
+                    let username = line
+                        .username
+                        .ok_or(StoreError::InvalidAccountOwnership)?;
+
+                    payloads::responses::TransactionParty::Member(
+                        payloads::responses::UserIdentity {
+                            user_id,
+                            username,
+                            display_name: line.display_name,
+                        },
+                    )
+                }
+            };
+
+            transaction_lines.push(payloads::responses::TransactionLine {
+                party,
+                amount: line.amount,
+            });
+        }
+
+        transactions.push(payloads::responses::MemberTransaction {
+            entry_type: entry.entry_type,
+            auction_id: entry.auction_id,
+            note: entry.note,
+            created_at: entry.created_at,
+            lines: transaction_lines,
+        });
+    }
+
+    Ok(transactions)
 }
 
 /// Convert database columns to CurrencyConfig
@@ -905,13 +998,20 @@ pub fn currency_config_to_db(
     }
 }
 
-/// Update the credit limit for a member account
+/// Update the credit limit for a member account with permission checking
+///
+/// Requires moderator or higher permissions.
 pub async fn update_credit_limit(
-    community_id: &CommunityId,
+    actor: &super::ValidatedMember,
     member_user_id: &UserId,
     credit_limit: Option<Decimal>,
     pool: &PgPool,
 ) -> Result<Account, StoreError> {
+    // Check permissions
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
     let mut tx = pool.begin().await?;
 
     // Update the credit limit
@@ -925,14 +1025,14 @@ pub async fn update_credit_limit(
         "#,
     )
     .bind(credit_limit)
-    .bind(community_id)
+    .bind(actor.0.community_id)
     .bind(member_user_id)
     .execute(&mut *tx)
     .await?;
 
     // Fetch and return the updated account
     let account = get_account_tx(
-        community_id,
+        &actor.0.community_id,
         AccountOwner::Member(*member_user_id),
         &mut tx,
     )
@@ -947,9 +1047,11 @@ pub async fn update_credit_limit(
 ///
 /// Creates a journal entry with entry_type='transfer' that debits the
 /// sender's account and credits the recipient's account.
+///
+/// The sender must be a validated member of the community. Any member can
+/// send transfers to other members in the same community.
 pub async fn create_transfer(
-    community_id: &CommunityId,
-    from_user_id: &UserId,
+    sender: &super::ValidatedMember,
     to_user_id: &UserId,
     amount: Decimal,
     note: Option<String>,
@@ -965,13 +1067,13 @@ pub async fn create_transfer(
 
     // Get both accounts
     let from_account = get_account_tx(
-        community_id,
-        AccountOwner::Member(*from_user_id),
+        &sender.0.community_id,
+        AccountOwner::Member(sender.0.user_id),
         &mut tx,
     )
     .await?;
     let to_account = get_account_tx(
-        community_id,
+        &sender.0.community_id,
         AccountOwner::Member(*to_user_id),
         &mut tx,
     )
@@ -985,7 +1087,7 @@ pub async fn create_transfer(
 
     // Create the journal entry
     create_entry(
-        community_id,
+        &sender.0.community_id,
         EntryType::Transfer,
         idempotency_key,
         lines,
@@ -1003,11 +1105,13 @@ pub async fn create_transfer(
     Ok(())
 }
 
-/// Unified treasury credit operation
+/// Unified treasury credit operation with permission checking
 ///
 /// Credits one or more member accounts from the treasury. The entry type is
 /// determined automatically based on the community's currency mode and the
 /// recipient pattern.
+///
+/// Requires coleader or higher permissions.
 ///
 /// Entry type selection:
 /// - points_allocation + SingleMember → IssuanceGrantSingle
@@ -1018,18 +1122,25 @@ pub async fn create_transfer(
 ///
 /// Returns the number of recipients and total amount debited from treasury.
 pub async fn treasury_credit_operation(
-    community_id: &CommunityId,
+    actor: &super::ValidatedMember,
     recipient: payloads::TreasuryRecipient,
     amount_per_recipient: Decimal,
     note: Option<String>,
     idempotency_key: IdempotencyKey,
-    initiated_by_id: &UserId,
     time_source: &TimeSource,
     pool: &PgPool,
 ) -> Result<payloads::TreasuryOperationResult, StoreError> {
+    // Check permissions
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
     if amount_per_recipient <= Decimal::ZERO {
         return Err(StoreError::AmountMustBePositive);
     }
+
+    let community_id = &actor.0.community_id;
+    let initiated_by_id = &actor.0.user_id;
 
     let mut tx = pool.begin().await?;
 

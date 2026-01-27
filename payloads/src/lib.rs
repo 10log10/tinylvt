@@ -615,12 +615,25 @@ pub mod requests {
 }
 
 pub mod responses {
-    use crate::{CommunityId, InviteId};
+    use crate::{CommunityId, InviteId, UserId};
     use jiff::Timestamp;
     #[cfg(feature = "use-sqlx")]
     use jiff_sqlx::Timestamp as SqlxTs;
     use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
+
+    /// User identification bundled with display information
+    ///
+    /// This is the standard way to reference users in API responses.
+    /// The frontend should display display_name (if present) or username,
+    /// but use user_id for any API calls that reference the user.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct UserIdentity {
+        pub user_id: UserId,
+        pub username: String,
+        /// Community-specific display name (if set for this community)
+        pub display_name: Option<String>,
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Community {
@@ -771,6 +784,43 @@ pub mod responses {
         pub created_at: Timestamp,
         #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
         pub updated_at: Timestamp,
+    }
+
+    /// Currency information for a member account
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MemberCurrencyInfo {
+        pub account_id: super::AccountId,
+        pub balance: Decimal,
+        pub credit_limit: Option<Decimal>,
+        pub locked_balance: Decimal,
+        pub available_credit: Option<Decimal>,
+    }
+
+    /// Represents a participant in a transaction (member or treasury)
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum TransactionParty {
+        Member(UserIdentity),
+        Treasury,
+    }
+
+    /// A line in a transaction showing who sent/received currency
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct TransactionLine {
+        pub party: TransactionParty,
+        /// Positive = received, Negative = sent
+        pub amount: Decimal,
+    }
+
+    /// Transaction history entry for display to members
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MemberTransaction {
+        pub entry_type: super::EntryType,
+        pub auction_id: Option<super::AuctionId>,
+        pub note: Option<String>,
+        pub created_at: Timestamp,
+        /// Lines in the transaction relevant to the requesting user
+        /// (typically shows who they sent to or received from)
+        pub lines: Vec<TransactionLine>,
     }
 }
 
