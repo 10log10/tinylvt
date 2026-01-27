@@ -406,8 +406,11 @@ impl AccountOwner {
     sqlx(type_name = "entry_type", rename_all = "snake_case")
 )]
 pub enum EntryType {
-    IssuanceGrant,
+    IssuanceGrantSingle,
+    IssuanceGrantBulk,
     CreditPurchase,
+    DistributionCorrection,
+    DebtSettlement,
     AuctionSettlement,
     Transfer,
 }
@@ -435,6 +438,24 @@ pub struct JournalLineId(pub Uuid);
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct IdempotencyKey(pub Uuid);
+
+/// Treasury operation recipient specification
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TreasuryRecipient {
+    /// Single member receives credit
+    SingleMember(UserId),
+    /// All active members receive equal credit
+    AllActiveMembers,
+}
+
+/// Result of a treasury credit operation
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreasuryOperationResult {
+    /// Number of members who received credits
+    pub recipient_count: usize,
+    /// Total amount debited from treasury
+    pub total_amount: rust_decimal::Decimal,
+}
 
 /// Domain-level Account with type-safe ownership
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

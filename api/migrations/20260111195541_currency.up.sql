@@ -144,14 +144,24 @@ CREATE TABLE accounts (
 
 -- Journal entry types
 --
--- mode                 | treasury->member  | member->treasury
--- ---------------------|-------------------|-------------------
--- points_allocation    | issuance_grant    | auction_settlement
--- distributed_clearing | --                | --
--- deferred_payment     | --                | auction_settlement
--- prepaid_credits      | credit_purchase   | auction_settlement
+-- mode             | treasury->member  | treasury->all     | member->treas
+-- -----------------|-------------------|-------------------|---------------
+-- points_alloc     | issuance_grant_s* | issuance_grant_b* | auction_settl*
+-- distrib_clearing | --                | distrib_correct*  | --
+-- deferred_payment | debt_settlement   | --                | auction_settl*
+-- prepaid_credits  | credit_purchase   | --                | auction_settl*
 --
--- member->member: transfer, unless it's fram a distributed_clearing auction
+-- * issuance_grant_s = issuance_grant_single
+-- * issuance_grant_b = issuance_grant_bulk
+-- * distrib_correct = distribution_correction
+-- * auction_settl = auction_settlement
+--
+-- member->member: transfer (not mode-dependent)
+--
+-- Distribution correction: Rectify failed auction settlement
+--   distribution when no active members existed
+-- Debt settlement: Credit member's account after external payment
+--   in deferred_payment mode
 --
 -- Account handling on user deletion
 --
@@ -161,8 +171,11 @@ CREATE TABLE accounts (
 -- - Community can later transfer balance or absorb it as needed
 -- - If user rejoins, they can reconnect to existing account
 CREATE TYPE ENTRY_TYPE AS ENUM (
-    'issuance_grant',
+    'issuance_grant_single',
+    'issuance_grant_bulk',
     'credit_purchase',
+    'distribution_correction',
+    'debt_settlement',
     'auction_settlement',
     'transfer'
 );

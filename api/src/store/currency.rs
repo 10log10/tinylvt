@@ -904,3 +904,230 @@ pub fn currency_config_to_db(
         ),
     }
 }
+
+/// Update the credit limit for a member account
+pub async fn update_credit_limit(
+    community_id: &CommunityId,
+    member_user_id: &UserId,
+    credit_limit: Option<Decimal>,
+    pool: &PgPool,
+) -> Result<Account, StoreError> {
+    let mut tx = pool.begin().await?;
+
+    // Update the credit limit
+    sqlx::query(
+        r#"
+        UPDATE accounts
+        SET credit_limit = $1
+        WHERE community_id = $2
+          AND owner_type = 'member_main'
+          AND owner_id = $3
+        "#,
+    )
+    .bind(credit_limit)
+    .bind(community_id)
+    .bind(member_user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // Fetch and return the updated account
+    let account = get_account_tx(
+        community_id,
+        AccountOwner::Member(*member_user_id),
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(account)
+}
+
+/// Create a transfer from one member to another
+///
+/// Creates a journal entry with entry_type='transfer' that debits the
+/// sender's account and credits the recipient's account.
+pub async fn create_transfer(
+    community_id: &CommunityId,
+    from_user_id: &UserId,
+    to_user_id: &UserId,
+    amount: Decimal,
+    note: Option<String>,
+    idempotency_key: IdempotencyKey,
+    time_source: &TimeSource,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    if amount <= Decimal::ZERO {
+        return Err(StoreError::AmountMustBePositive);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Get both accounts
+    let from_account = get_account_tx(
+        community_id,
+        AccountOwner::Member(*from_user_id),
+        &mut tx,
+    )
+    .await?;
+    let to_account = get_account_tx(
+        community_id,
+        AccountOwner::Member(*to_user_id),
+        &mut tx,
+    )
+    .await?;
+
+    // Create journal lines: debit sender, credit recipient
+    let lines = vec![
+        (from_account.id, -amount), // Debit
+        (to_account.id, amount),    // Credit
+    ];
+
+    // Create the journal entry
+    create_entry(
+        community_id,
+        EntryType::Transfer,
+        idempotency_key,
+        lines,
+        None, // No auction_id
+        None, // No initiated_by_id for member-to-member transfers
+        note,
+        false, // Not an auction settlement
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(())
+}
+
+/// Unified treasury credit operation
+///
+/// Credits one or more member accounts from the treasury. The entry type is
+/// determined automatically based on the community's currency mode and the
+/// recipient pattern.
+///
+/// Entry type selection:
+/// - points_allocation + SingleMember → IssuanceGrantSingle
+/// - points_allocation + AllActiveMembers → IssuanceGrantBulk
+/// - distributed_clearing + AllActiveMembers → DistributionCorrection
+/// - deferred_payment + SingleMember → DebtSettlement
+/// - prepaid_credits + SingleMember → CreditPurchase
+///
+/// Returns the number of recipients and total amount debited from treasury.
+pub async fn treasury_credit_operation(
+    community_id: &CommunityId,
+    recipient: payloads::TreasuryRecipient,
+    amount_per_recipient: Decimal,
+    note: Option<String>,
+    idempotency_key: IdempotencyKey,
+    initiated_by_id: &UserId,
+    time_source: &TimeSource,
+    pool: &PgPool,
+) -> Result<payloads::TreasuryOperationResult, StoreError> {
+    if amount_per_recipient <= Decimal::ZERO {
+        return Err(StoreError::AmountMustBePositive);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Get community to determine currency mode
+    let currency_mode: CurrencyMode = sqlx::query_scalar(
+        "SELECT currency_mode FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Get recipient list based on TreasuryRecipient
+    let recipient_ids: Vec<UserId> = match &recipient {
+        payloads::TreasuryRecipient::SingleMember(user_id) => {
+            vec![*user_id]
+        }
+        payloads::TreasuryRecipient::AllActiveMembers => {
+            sqlx::query_scalar(
+                r#"
+                SELECT user_id
+                FROM community_members
+                WHERE community_id = $1 AND is_active = true
+                "#,
+            )
+            .bind(community_id)
+            .fetch_all(&mut *tx)
+            .await?
+        }
+    };
+
+    let recipient_count = recipient_ids.len();
+
+    if recipient_count == 0 {
+        // No recipients - return early with zero result
+        return Ok(payloads::TreasuryOperationResult {
+            recipient_count: 0,
+            total_amount: Decimal::ZERO,
+        });
+    }
+
+    // Determine entry type based on mode and recipient pattern
+    use CurrencyMode::*;
+    use payloads::TreasuryRecipient::*;
+    let entry_type = match (currency_mode, &recipient) {
+        (PointsAllocation, SingleMember(_)) => EntryType::IssuanceGrantSingle,
+        (PointsAllocation, AllActiveMembers) => EntryType::IssuanceGrantBulk,
+        (DistributedClearing, AllActiveMembers) => {
+            EntryType::DistributionCorrection
+        }
+        (DeferredPayment, SingleMember(_)) => EntryType::DebtSettlement,
+        (PrepaidCredits, SingleMember(_)) => EntryType::CreditPurchase,
+        _ => return Err(StoreError::InvalidTreasuryOperation),
+    };
+
+    // Get treasury account
+    let treasury_account =
+        get_account_tx(community_id, AccountOwner::Treasury, &mut tx).await?;
+
+    // Build journal lines: one debit for treasury, one credit per recipient
+    let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
+
+    // Calculate total amount to debit from treasury
+    let total_amount =
+        amount_per_recipient * Decimal::from(recipient_count as i64);
+
+    // Single debit line for treasury
+    lines.push((treasury_account.id, -total_amount));
+
+    // Credit line for each recipient
+    for recipient_user_id in &recipient_ids {
+        let member_account = get_account_tx(
+            community_id,
+            AccountOwner::Member(*recipient_user_id),
+            &mut tx,
+        )
+        .await?;
+        lines.push((member_account.id, amount_per_recipient));
+    }
+
+    // Create journal entry
+    create_entry(
+        community_id,
+        entry_type,
+        idempotency_key,
+        lines,
+        None, // No auction_id
+        Some(initiated_by_id),
+        note,
+        false, // Not an auction settlement
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(payloads::TreasuryOperationResult {
+        recipient_count,
+        total_amount,
+    })
+}

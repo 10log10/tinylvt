@@ -3278,8 +3278,10 @@ pub enum StoreError {
     AccountNotFound,
     #[error("Insufficient balance")]
     InsufficientBalance,
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
+    #[error("Amount must be positive")]
+    AmountMustBePositive,
+    #[error("Invalid treasury operation for this currency mode")]
+    InvalidTreasuryOperation,
     #[error("Database invariant violation: invalid account ownership")]
     InvalidAccountOwnership,
     #[error("Database invariant violation: invalid currency configuration")]
