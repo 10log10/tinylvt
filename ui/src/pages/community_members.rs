@@ -1,7 +1,10 @@
 use payloads::{CommunityId, Role, responses::CommunityWithRole};
 use yew::prelude::*;
 
-use crate::components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader};
+use crate::components::{
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader,
+    user_identity_display::{render_user_avatar, render_user_name},
+};
 use crate::hooks::use_members;
 
 #[derive(Properties, PartialEq)]
@@ -78,17 +81,17 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                         <div class="space-y-3">
                             {members.iter().map(|member| {
                                 html! {
-                                    <div key={member.username.clone()} class="bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-700">
+                                    <div key={member.user.user_id.to_string()} class="bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-700">
                                         <div class="flex justify-between items-center">
                                             <div class="flex items-center space-x-3">
-                                                <div class="w-8 h-8 bg-neutral-200 dark:bg-neutral-600 rounded-full flex items-center justify-center">
-                                                    <span class="text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                                                        {member.username.chars().next().unwrap_or('?').to_uppercase().to_string()}
-                                                    </span>
-                                                </div>
+                                                {render_user_avatar(
+                                                    &member.user,
+                                                    None,
+                                                    None
+                                                )}
                                                 <div>
                                                     <p class="font-medium text-neutral-900 dark:text-neutral-100">
-                                                        {&member.username}
+                                                        {render_user_name(&member.user)}
                                                     </p>
                                                 </div>
                                             </div>

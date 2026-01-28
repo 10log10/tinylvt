@@ -460,7 +460,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                     prices
                         .iter()
                         .find(|p| p.space_id == space.space_id)
-                        .map(|p| &p.winning_username == username)
+                        .map(|p| &p.winner.username == username)
                 })
                 .unwrap_or(false);
             let has_bid = user_bid_space_ids.contains(&space.space_id);

@@ -188,11 +188,10 @@ pub struct AuctionRound {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
 pub struct RoundSpaceResult {
     pub space_id: SpaceId,
     pub round_id: AuctionRoundId,
-    pub winning_username: String,
+    pub winner: responses::UserIdentity,
     pub value: rust_decimal::Decimal,
 }
 
@@ -628,6 +627,7 @@ pub mod responses {
     /// The frontend should display display_name (if present) or username,
     /// but use user_id for any API calls that reference the user.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct UserIdentity {
         pub user_id: UserId,
         pub username: String,
@@ -671,10 +671,8 @@ pub mod responses {
 
     /// Details about a community member for a community one is a part of.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
     pub struct CommunityMember {
-        pub username: String,
-        pub display_name: Option<String>,
+        pub user: UserIdentity,
         pub role: super::Role,
         pub is_active: bool,
     }

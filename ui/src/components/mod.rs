@@ -20,6 +20,7 @@ pub mod space_list_for_bidding;
 pub mod timestamp_display;
 pub mod toast;
 pub mod user_eligibility_display;
+pub mod user_identity_display;
 pub mod warning_modal;
 
 pub use auction_params_editor::AuctionParamsEditor;

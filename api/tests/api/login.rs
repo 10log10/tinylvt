@@ -234,7 +234,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
         .list_round_space_results_for_round(&round.round_id)
         .await?;
     assert!(!results.is_empty());
-    assert_eq!(results[0].winning_username, "bob");
+    assert_eq!(results[0].winner.username, "bob");
 
     // Get Bob's user ID before deletion
     let bob_id = sqlx::query_scalar::<_, payloads::UserId>(
@@ -296,7 +296,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
         .await?;
     assert!(!results.is_empty());
     assert!(
-        results[0].winning_username.starts_with("deleted-"),
+        results[0].winner.username.starts_with("deleted-"),
         "Auction history should show anonymized username"
     );
 

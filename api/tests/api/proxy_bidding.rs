@@ -129,7 +129,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
 
     // Verify Alice wins space A for a price of 0 (no competition)
     assert_eq!(
-        space_a_result.winning_username, "alice",
+        space_a_result.winner.username, "alice",
         "Alice should win space A"
     );
     assert_eq!(
@@ -142,7 +142,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
     // max value + bid increment (The exact price depends on random winner
     // selection in rounds with multiple bids)
     assert_eq!(
-        space_b_result.winning_username, "bob",
+        space_b_result.winner.username, "bob",
         "Bob should win space B"
     );
 
@@ -371,7 +371,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
                     "  {}: price={}, winner={:?}",
                     space.space_details.name,
                     result.value,
-                    result.winning_username
+                    result.winner.username
                 );
             }
         } else {
@@ -439,7 +439,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
 
     // First pass: count spaces won by each bidder
     for result in &round_results {
-        *spaces_won.entry(&result.winning_username).or_insert(0) += 1;
+        *spaces_won.entry(&result.winner.username).or_insert(0) += 1;
     }
 
     // Second pass: print results and check max_items constraints
@@ -451,7 +451,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
             _ => "Unknown",
         };
 
-        let winner = &result.winning_username;
+        let winner = &result.winner.username;
         println!(
             "Space {}: Winner = {}, Price = {}",
             space_name, winner, result.value

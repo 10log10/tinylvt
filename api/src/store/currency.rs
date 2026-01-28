@@ -642,20 +642,34 @@ pub async fn create_auction_settlement_entry(
             } else {
                 // Calculate per-member distribution
                 let num_active = Decimal::from(active_member_ids.len());
-                let per_member = total_paid / num_active;
+                let base_amount = total_paid / num_active;
+                let remainder = total_paid - (base_amount * num_active);
 
                 // Add credit lines for each active member
                 // Winners who are also active members will have both debit
                 // (above) and credit (here) lines, making the journal
                 // transparent
-                for member_user_id in active_member_ids {
+                //
+                // To handle rounding: first member gets base_amount +
+                // remainder, ensuring total distributed equals total_paid
+                // exactly
+                for (idx, member_user_id) in
+                    active_member_ids.iter().enumerate()
+                {
                     let member_account = get_account_tx(
                         community_id,
-                        AccountOwner::Member(member_user_id),
+                        AccountOwner::Member(*member_user_id),
                         tx,
                     )
                     .await?;
-                    lines.push((member_account.id, per_member));
+
+                    let amount = if idx == 0 {
+                        base_amount + remainder
+                    } else {
+                        base_amount
+                    };
+
+                    lines.push((member_account.id, amount));
                 }
             }
         }
@@ -784,37 +798,60 @@ pub async fn get_member_transactions(
     .fetch_all(pool)
     .await?;
 
-    // For each entry, fetch all lines and convert to user-friendly format
+    // Collect all user IDs from all entries to batch fetch user identities
+    let mut all_user_ids = std::collections::HashSet::new();
+    for entry in &entries {
+        #[derive(sqlx::FromRow)]
+        struct LineAccountInfo {
+            owner_type: AccountOwnerType,
+            owner_id: Option<UserId>,
+        }
+
+        let lines: Vec<LineAccountInfo> = sqlx::query_as(
+            r#"
+            SELECT a.owner_type, a.owner_id
+            FROM journal_lines jl
+            JOIN accounts a ON jl.account_id = a.id
+            WHERE jl.entry_id = $1
+            "#,
+        )
+        .bind(entry.id)
+        .fetch_all(pool)
+        .await?;
+
+        for line in lines {
+            if line.owner_type == AccountOwnerType::MemberMain {
+                if let Some(user_id) = line.owner_id {
+                    all_user_ids.insert(user_id);
+                }
+            }
+        }
+    }
+
+    // Batch fetch all user identities at once
+    let user_ids: Vec<UserId> = all_user_ids.into_iter().collect();
+    let user_identities =
+        super::get_user_identities(&user_ids, &actor.0.community_id, pool)
+            .await?;
+
+    // For each entry, fetch lines and convert to user-friendly format
     let mut transactions = Vec::new();
     for entry in entries {
-        // Fetch all lines for this entry with user info in a single query
         #[derive(sqlx::FromRow)]
-        struct LineWithUserInfo {
+        struct LineWithAccount {
             amount: Decimal,
             owner_type: AccountOwnerType,
             owner_id: Option<UserId>,
-            username: Option<String>,
-            display_name: Option<String>,
         }
 
-        let lines: Vec<LineWithUserInfo> = sqlx::query_as(
+        let lines: Vec<LineWithAccount> = sqlx::query_as(
             r#"
-            SELECT
-                jl.amount,
-                a.owner_type,
-                a.owner_id,
-                u.username,
-                cm.display_name
+            SELECT jl.amount, a.owner_type, a.owner_id
             FROM journal_lines jl
             JOIN accounts a ON jl.account_id = a.id
-            LEFT JOIN users u ON a.owner_id = u.id
-            LEFT JOIN community_members cm
-                ON cm.user_id = a.owner_id
-                AND cm.community_id = $1
-            WHERE jl.entry_id = $2
+            WHERE jl.entry_id = $1
             "#,
         )
-        .bind(&actor.0.community_id)
         .bind(entry.id)
         .fetch_all(pool)
         .await?;
@@ -830,17 +867,13 @@ pub async fn get_member_transactions(
                     let user_id = line
                         .owner_id
                         .ok_or(StoreError::InvalidAccountOwnership)?;
-                    let username = line
-                        .username
-                        .ok_or(StoreError::InvalidAccountOwnership)?;
 
-                    payloads::responses::TransactionParty::Member(
-                        payloads::responses::UserIdentity {
-                            user_id,
-                            username,
-                            display_name: line.display_name,
-                        },
-                    )
+                    let user_identity = user_identities
+                        .get(&user_id)
+                        .cloned()
+                        .ok_or(StoreError::UserNotFound)?;
+
+                    payloads::responses::TransactionParty::Member(user_identity)
                 }
             };
 

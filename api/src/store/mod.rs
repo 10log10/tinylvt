@@ -1190,6 +1190,82 @@ pub async fn get_validated_member(
     Ok(ValidatedMember(member))
 }
 
+/// Batch fetch user identities for a list of user IDs
+///
+/// Returns a HashMap of user_id -> UserIdentity. This is useful for
+/// efficiently fetching display information for multiple users at once.
+pub(crate) async fn get_user_identities(
+    user_ids: &[UserId],
+    // TODO: migrate display_name to community_member table and use this param
+    _community_id: &CommunityId,
+    pool: &PgPool,
+) -> Result<
+    std::collections::HashMap<UserId, payloads::responses::UserIdentity>,
+    StoreError,
+> {
+    if user_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let identities: Vec<payloads::responses::UserIdentity> = sqlx::query_as(
+        r#"
+        SELECT
+            u.id as user_id,
+            u.username,
+            u.display_name
+        FROM users u
+        WHERE u.id = ANY($1)
+        "#,
+    )
+    .bind(user_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(identities
+        .into_iter()
+        .map(|identity| (identity.user_id, identity))
+        .collect())
+}
+
+/// Helper to enrich a collection of items with user identities
+///
+/// Given a collection of items, extracts user IDs, batch loads their identities,
+/// and maps each item to a result using the provided mapper function.
+pub(crate) async fn with_user_identities<T, R, F>(
+    items: Vec<T>,
+    get_user_id: impl Fn(&T) -> UserId,
+    mapper: F,
+    community_id: &CommunityId,
+    pool: &PgPool,
+) -> Result<Vec<R>, StoreError>
+where
+    F: Fn(T, payloads::responses::UserIdentity) -> Result<R, StoreError>,
+{
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Extract user IDs
+    let user_ids: Vec<UserId> = items.iter().map(&get_user_id).collect();
+
+    // Batch fetch identities
+    let user_identities =
+        get_user_identities(&user_ids, community_id, pool).await?;
+
+    // Map items with their identities
+    items
+        .into_iter()
+        .map(|item| {
+            let user_id = get_user_id(&item);
+            let identity = user_identities
+                .get(&user_id)
+                .cloned()
+                .ok_or(StoreError::UserNotFound)?;
+            mapper(item, identity)
+        })
+        .collect()
+}
+
 pub async fn invite_community_member(
     actor: &ValidatedMember,
     new_member_email: &Option<String>,
@@ -1427,19 +1503,36 @@ pub async fn get_members(
     actor: &ValidatedMember,
     pool: &PgPool,
 ) -> Result<Vec<responses::CommunityMember>, StoreError> {
-    Ok(sqlx::query_as::<_, responses::CommunityMember>(
-        "SELECT
-            a.role,
-            a.is_active,
-            b.username,
-            b.display_name
-        FROM community_members a
-        JOIN users b ON a.user_id = b.id
-        WHERE a.community_id = $1",
+    #[derive(sqlx::FromRow)]
+    struct DbMember {
+        user_id: UserId,
+        role: Role,
+        is_active: bool,
+    }
+
+    let db_members: Vec<DbMember> = sqlx::query_as(
+        "SELECT user_id, role, is_active
+        FROM community_members
+        WHERE community_id = $1",
     )
     .bind(actor.0.community_id)
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    with_user_identities(
+        db_members,
+        |m| m.user_id,
+        |m, user| {
+            Ok(responses::CommunityMember {
+                user,
+                role: m.role,
+                is_active: m.is_active,
+            })
+        },
+        &actor.0.community_id,
+        pool,
+    )
+    .await
 }
 
 pub async fn set_membership_schedule(
@@ -2633,17 +2726,9 @@ pub async fn get_round_space_result(
     get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
         .await?;
 
-    let round_space_result = sqlx::query_as::<_, payloads::RoundSpaceResult>(
-        r#"
-        SELECT
-            space_id,
-            round_id,
-            (SELECT username FROM users WHERE id = winning_user_id)
-                AS winning_username,
-            value
-        FROM round_space_results
-        WHERE space_id = $1 AND round_id = $2
-        "#,
+    // Fetch the round_space_result
+    let db_result = sqlx::query_as::<_, RoundSpaceResult>(
+        "SELECT * FROM round_space_results WHERE space_id = $1 AND round_id = $2",
     )
     .bind(space_id)
     .bind(round_id)
@@ -2654,7 +2739,36 @@ pub async fn get_round_space_result(
         e => e.into(),
     })?;
 
-    Ok(round_space_result)
+    // Get the space to find its community
+    let space =
+        sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = $1")
+            .bind(space_id)
+            .fetch_one(pool)
+            .await?;
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(space.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    // Fetch user identity
+    let user_identities = get_user_identities(
+        &[db_result.winning_user_id],
+        &site.community_id,
+        pool,
+    )
+    .await?;
+
+    let winner = user_identities
+        .get(&db_result.winning_user_id)
+        .cloned()
+        .ok_or(StoreError::UserNotFound)?;
+
+    Ok(payloads::RoundSpaceResult {
+        space_id: db_result.space_id,
+        round_id: db_result.round_id,
+        winner,
+        value: db_result.value,
+    })
 }
 
 pub async fn list_round_space_results_for_round(
@@ -2683,23 +2797,29 @@ pub async fn list_round_space_results_for_round(
     let community_id = get_site_community_id(&auction.site_id, pool).await?;
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
-    let round_space_results = sqlx::query_as::<_, payloads::RoundSpaceResult>(
-        r#"
-        SELECT
-            space_id,
-            round_id,
-            (SELECT username FROM users WHERE id = winning_user_id)
-                AS winning_username,
-            value
-        FROM round_space_results
-        WHERE round_id = $1
-        "#,
+    // Fetch round space results
+    let db_results = sqlx::query_as::<_, RoundSpaceResult>(
+        "SELECT * FROM round_space_results WHERE round_id = $1",
     )
     .bind(round_id)
     .fetch_all(pool)
     .await?;
 
-    Ok(round_space_results)
+    with_user_identities(
+        db_results,
+        |r| r.winning_user_id,
+        |r, winner| {
+            Ok(payloads::RoundSpaceResult {
+                space_id: r.space_id,
+                round_id: r.round_id,
+                winner,
+                value: r.value,
+            })
+        },
+        &community_id,
+        pool,
+    )
+    .await
 }
 
 pub async fn create_bid(

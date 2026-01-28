@@ -52,7 +52,7 @@ async fn membership_schedule_set_read_update() -> anyhow::Result<()> {
     let members = app.client.get_members(&community_id).await?;
 
     for member in &members {
-        match member.username.as_str() {
+        match member.user.username.as_str() {
             "alice" => assert!(member.is_active),
             "bob" => assert!(!member.is_active),
             _ => (),

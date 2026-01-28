@@ -3,7 +3,9 @@ use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
 use yew::prelude::*;
 
+use crate::components::user_identity_display::render_user_name;
 use crate::hooks::FetchState;
+use payloads::responses::UserIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SortField {
@@ -87,7 +89,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                 .and_then(|username| {
                     price_map
                         .get(&space.space_id)
-                        .map(|r| &r.winning_username == username)
+                        .map(|r| &r.winner.username == username)
                 })
                 .unwrap_or(false);
             let has_bid = props.user_bid_space_ids.contains(&space.space_id);
@@ -103,19 +105,13 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             let space_id = space.space_id;
             let result = price_map.get(&space_id);
             let price_opt = result.map(|r| r.value);
-            let winning_username = result.map(|r| r.winning_username.clone());
+            let winner = result.map(|r| r.winner.clone());
             let user_value = props.user_values.get(&space_id).copied();
             // Calculate surplus using price of 0 if no previous price exists
             let surplus =
                 user_value.map(|v| v - price_opt.unwrap_or(Decimal::ZERO));
 
-            (
-                (*space).clone(),
-                price_opt,
-                user_value,
-                surplus,
-                winning_username,
-            )
+            ((*space).clone(), price_opt, user_value, surplus, winner)
         })
         .collect();
 
@@ -260,11 +256,11 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                         </div>
                     }
                 } else {
-                    space_data.iter().map(|(space, price, user_value, surplus, winning_username)| {
+                    space_data.iter().map(|(space, price, user_value, surplus, winner)| {
                         let user_has_bid = props.user_bid_space_ids.contains(&space.space_id);
                         let is_high_bidder = props.current_username.as_ref()
                             .and_then(|username| {
-                                winning_username.as_ref().map(|winner| winner == username)
+                                winner.as_ref().map(|w| &w.username == username)
                             })
                             .unwrap_or(false);
 
@@ -300,7 +296,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 on_delete_value={props.on_delete_value.clone()}
                                 auction_ended={props.auction_ended}
                                 auction_started={props.auction_started}
-                                winning_username={winning_username.clone()}
+                                winner={winner.clone()}
                                 would_exceed_eligibility={would_exceed_eligibility}
                                 is_deleted={space.deleted_at.is_some()}
                             />
@@ -380,7 +376,7 @@ struct SpaceRowProps {
     on_delete_value: Callback<SpaceId>,
     auction_ended: bool,
     auction_started: bool,
-    winning_username: Option<String>,
+    winner: Option<UserIdentity>,
     would_exceed_eligibility: bool,
     is_deleted: bool,
 }
@@ -594,7 +590,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                 <div class="flex justify-end">
                     {if props.auction_ended {
                         // Show winner when auction has concluded
-                        if let Some(username) = &props.winning_username {
+                        if let Some(winner) = &props.winner {
                             html! {
                                 <div class="text-right">
                                     <div class="text-xs text-neutral-500 \
@@ -603,7 +599,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                     </div>
                                     <div class="text-sm font-medium \
                                                 text-neutral-900 dark:text-white">
-                                        {username}
+                                        {render_user_name(winner)}
                                     </div>
                                 </div>
                             }

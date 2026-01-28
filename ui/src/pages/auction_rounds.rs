@@ -242,7 +242,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
     {
         results
             .iter()
-            .filter(|result| &result.winning_username == username)
+            .filter(|result| &result.winner.username == username)
             .collect::<Vec<_>>()
     } else {
         vec![]
