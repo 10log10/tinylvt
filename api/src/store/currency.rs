@@ -5,6 +5,46 @@
 //! - Journal entry creation with balance updates
 //! - Credit limit enforcement
 //! - Idempotency support
+//!
+//! # Decimal calculation notes
+//!
+//! Care must be taken to avoid imprecision in decimal calculations. Ordering
+//! can determine whether values sum to zero or not:
+//!
+//! ```
+//! let total = Decimal::from(8);
+//! let n = Decimal::from(3);
+//! let base = total / n;
+//!
+//! let via_mult = base * n;
+//! let via_add = base + base + base;
+//!
+//! println!(
+//!     "mult: {}, add: {}, equal: {}",
+//!     via_mult, via_add, via_mult == via_add
+//! );
+//!
+//! let add_sums_to_zero1 =
+//!     Decimal::ZERO == [-total, base, base, base].iter().sum();
+//! let add_sums_to_zero2 =
+//!     Decimal::ZERO == [base, base, base, -total].iter().sum();
+//! println!(
+//!     "add sums to zero 1: {}, add sums to zero 2: {}",
+//!     add_sums_to_zero1,
+//!     add_sums_to_zero2
+//! );
+//! ```
+//!
+//! ```text
+//! running 1 test
+//!
+//! mult: 8.000000000000000000000000000,
+//! add: 8.000000000000000000000000000,
+//! equal: true
+//!
+//! add sums to zero 1: false, add sums to zero 2: true
+//! test tmp::test_tmp ... ok
+//! ```
 
 use jiff::Timestamp;
 use jiff_sqlx::{Timestamp as SqlxTs, ToSqlx};
@@ -643,16 +683,18 @@ pub async fn create_auction_settlement_entry(
                 // Calculate per-member distribution
                 let num_active = Decimal::from(active_member_ids.len());
                 let base_amount = total_paid / num_active;
-                let remainder = total_paid - (base_amount * num_active);
 
                 // Add credit lines for each active member
                 // Winners who are also active members will have both debit
                 // (above) and credit (here) lines, making the journal
                 // transparent
                 //
-                // To handle rounding: first member gets base_amount +
-                // remainder, ensuring total distributed equals total_paid
-                // exactly
+                // To handle rounding: Give all members except the last one
+                // base_amount, then give the last member exactly what's
+                // left. This guarantees the sum equals total_paid with no
+                // floating-point precision errors.
+                let mut distributed_so_far = Decimal::ZERO;
+
                 for (idx, member_user_id) in
                     active_member_ids.iter().enumerate()
                 {
@@ -663,9 +705,11 @@ pub async fn create_auction_settlement_entry(
                     )
                     .await?;
 
-                    let amount = if idx == 0 {
-                        base_amount + remainder
+                    let amount = if idx == active_member_ids.len() - 1 {
+                        // Last member gets exactly what's left
+                        total_paid - distributed_so_far
                     } else {
+                        distributed_so_far += base_amount;
                         base_amount
                     };
 
