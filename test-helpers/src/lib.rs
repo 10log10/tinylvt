@@ -343,6 +343,30 @@ impl TestApp {
         Ok(community_id)
     }
 
+    /// Set community to points_allocation mode for testing treasury
+    /// operations
+    pub async fn set_points_allocation_mode(
+        &self,
+        community_id: CommunityId,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE communities
+            SET currency_mode = 'points_allocation',
+                default_credit_limit = 0,
+                debts_callable = false,
+                allowance_amount = 1000,
+                allowance_period = INTERVAL '1 week',
+                allowance_start = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(community_id)
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn create_schedule(
         &self,
         community_id: &CommunityId,

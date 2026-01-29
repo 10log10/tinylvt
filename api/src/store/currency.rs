@@ -1295,9 +1295,13 @@ pub async fn treasury_credit_operation(
         _ => return Err(StoreError::InvalidTreasuryOperation),
     };
 
-    // Get treasury account
-    let treasury_account =
-        get_account_tx(community_id, AccountOwner::Treasury, &mut tx).await?;
+    // Get treasury account and lock it to prevent race conditions
+    let treasury_account = get_account_for_update_tx(
+        community_id,
+        AccountOwner::Treasury,
+        &mut tx,
+    )
+    .await?;
 
     // Build journal lines: one debit for treasury, one credit per recipient
     let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
@@ -1305,6 +1309,19 @@ pub async fn treasury_credit_operation(
     // Calculate total amount to debit from treasury
     let total_amount =
         amount_per_recipient * Decimal::from(recipient_count as i64);
+
+    // Check if this currency mode restricts treasury from going negative
+    let prevent_negative_treasury = matches!(
+        currency_mode,
+        CurrencyMode::DistributedClearing | CurrencyMode::DeferredPayment
+    );
+
+    if prevent_negative_treasury {
+        // Treasury balance going negative would mean treasury owes money
+        if treasury_account.balance_cached - total_amount < Decimal::ZERO {
+            return Err(StoreError::InsufficientBalance);
+        }
+    }
 
     // Single debit line for treasury
     lines.push((treasury_account.id, -total_amount));

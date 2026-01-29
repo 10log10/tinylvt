@@ -147,6 +147,7 @@ async fn test_update_credit_limit_member_fails() -> anyhow::Result<()> {
 async fn test_create_transfer_success() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Get user IDs
     let members = app.client.get_members(&community_id).await?;
@@ -237,6 +238,7 @@ async fn test_create_transfer_insufficient_balance() -> anyhow::Result<()> {
 async fn test_create_transfer_idempotency() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Get user IDs
     let members = app.client.get_members(&community_id).await?;
@@ -332,6 +334,7 @@ async fn test_treasury_credit_operation_all_active_members()
 -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Credit all active members
     let result = app
@@ -404,6 +407,7 @@ async fn test_treasury_credit_operation_member_fails() -> anyhow::Result<()> {
 async fn test_get_member_transactions() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Get user IDs
     let members = app.client.get_members(&community_id).await?;
@@ -459,6 +463,7 @@ async fn test_get_member_transactions() -> anyhow::Result<()> {
 async fn test_get_treasury_transactions() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Perform treasury operations
     app.client
@@ -492,6 +497,7 @@ async fn test_get_treasury_transactions() -> anyhow::Result<()> {
 async fn test_transaction_pagination() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
 
     // Create 5 transactions
     for i in 1..=5 {
@@ -541,6 +547,82 @@ async fn test_transaction_pagination() -> anyhow::Result<()> {
         })
         .await?;
     assert_eq!(page3.len(), 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_treasury_operation_prevents_negative_balance_distributed_clearing()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    // Default mode is distributed_clearing - don't change it
+
+    // Attempt treasury credit operation without sufficient balance
+    let result = app
+        .client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(100, 0),
+            note: Some("Should fail".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await;
+
+    // Should fail with insufficient balance
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("InsufficientBalance")
+            || err_msg.contains("Insufficient balance")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_treasury_operation_prevents_negative_balance_deferred_payment()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Set to deferred_payment mode
+    sqlx::query(
+        r#"
+        UPDATE communities
+        SET currency_mode = 'deferred_payment'
+        WHERE id = $1
+        "#,
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
+
+    // Get member for SingleMember operation (required for
+    // deferred_payment)
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // Attempt treasury credit operation without sufficient balance
+    let result = app
+        .client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
+            amount_per_recipient: Decimal::new(100, 0),
+            note: Some("Should fail".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await;
+
+    // Should fail with insufficient balance
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("InsufficientBalance")
+            || err_msg.contains("Insufficient balance")
+    );
 
     Ok(())
 }
