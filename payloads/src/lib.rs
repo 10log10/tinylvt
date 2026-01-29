@@ -611,6 +611,63 @@ pub mod requests {
         pub name: Option<String>,
         pub image_data: Option<Vec<u8>>,
     }
+
+    // Currency operations
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateCreditLimit {
+        pub community_id: super::CommunityId,
+        pub member_user_id: super::UserId,
+        pub credit_limit: Option<Decimal>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GetMemberCurrencyInfo {
+        pub community_id: super::CommunityId,
+        /// If None, returns info for the authenticated user.
+        /// If Some, returns info for specified user (coleader+ only).
+        pub member_user_id: Option<super::UserId>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GetMemberTransactions {
+        pub community_id: super::CommunityId,
+        /// If None, returns transactions for the authenticated user.
+        /// If Some, returns transactions for specified user (coleader+ only).
+        pub member_user_id: Option<super::UserId>,
+        pub limit: i64,
+        pub offset: i64,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct CreateTransfer {
+        pub community_id: super::CommunityId,
+        pub to_user_id: super::UserId,
+        pub amount: Decimal,
+        pub note: Option<String>,
+        pub idempotency_key: super::IdempotencyKey,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GetTreasuryAccount {
+        pub community_id: super::CommunityId,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GetTreasuryTransactions {
+        pub community_id: super::CommunityId,
+        pub limit: i64,
+        pub offset: i64,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct TreasuryCreditOperation {
+        pub community_id: super::CommunityId,
+        pub recipient: super::TreasuryRecipient,
+        pub amount_per_recipient: Decimal,
+        pub note: Option<String>,
+        pub idempotency_key: super::IdempotencyKey,
+    }
 }
 
 pub mod responses {
@@ -1473,6 +1530,64 @@ impl APIClient {
     ) -> Result<(), ClientError> {
         let response = self.post("delete_proxy_bidding", auction_id).await?;
         ok_empty(response).await
+    }
+
+    // Currency operations
+
+    pub async fn update_credit_limit(
+        &self,
+        details: &requests::UpdateCreditLimit,
+    ) -> Result<Account, ClientError> {
+        let response = self.post("update_credit_limit", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_member_currency_info(
+        &self,
+        details: &requests::GetMemberCurrencyInfo,
+    ) -> Result<responses::MemberCurrencyInfo, ClientError> {
+        let response = self.post("get_member_currency_info", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_member_transactions(
+        &self,
+        details: &requests::GetMemberTransactions,
+    ) -> Result<Vec<responses::MemberTransaction>, ClientError> {
+        let response = self.post("get_member_transactions", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_transfer(
+        &self,
+        details: &requests::CreateTransfer,
+    ) -> Result<(), ClientError> {
+        let response = self.post("create_transfer", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn get_treasury_account(
+        &self,
+        details: &requests::GetTreasuryAccount,
+    ) -> Result<Account, ClientError> {
+        let response = self.post("get_treasury_account", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_treasury_transactions(
+        &self,
+        details: &requests::GetTreasuryTransactions,
+    ) -> Result<Vec<responses::MemberTransaction>, ClientError> {
+        let response = self.post("get_treasury_transactions", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn treasury_credit_operation(
+        &self,
+        details: &requests::TreasuryCreditOperation,
+    ) -> Result<TreasuryOperationResult, ClientError> {
+        let response = self.post("treasury_credit_operation", details).await?;
+        ok_body(response).await
     }
 
     pub async fn update_profile(

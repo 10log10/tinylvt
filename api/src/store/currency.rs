@@ -12,6 +12,8 @@
 //! can determine whether values sum to zero or not:
 //!
 //! ```
+//! use rust_decimal::Decimal;
+//!
 //! let total = Decimal::from(8);
 //! let n = Decimal::from(3);
 //! let base = total / n;
@@ -767,16 +769,19 @@ async fn get_account_tx(
 /// Returns account balance, effective credit limit (uses community default if
 /// not set), locked balance (from auction bids), and available credit for the
 /// member in their community.
-pub async fn get_member_currency_info(
-    actor: &super::ValidatedMember,
+///
+/// Note: `target_member` represents the member whose info is being fetched,
+/// not necessarily the user making the request.
+async fn get_member_currency_info(
+    target_member: &super::ValidatedMember,
     pool: &PgPool,
 ) -> Result<payloads::responses::MemberCurrencyInfo, StoreError> {
     let mut tx = pool.begin().await?;
 
     // Get the member's account
     let account = get_account_tx(
-        &actor.0.community_id,
-        AccountOwner::Member(actor.0.user_id),
+        &target_member.0.community_id,
+        AccountOwner::Member(target_member.0.user_id),
         &mut tx,
     )
     .await?;
@@ -803,28 +808,14 @@ pub async fn get_member_currency_info(
     })
 }
 
-/// Get journal entries for a member's account
-///
-/// Returns transaction history for the requesting member's account in their
-/// community. Members can only view their own transactions.
-///
-/// The response includes user-friendly information (usernames instead of
-/// account IDs) and filters lines to show only those relevant to the
-/// requesting member.
-pub async fn get_member_transactions(
-    actor: &super::ValidatedMember,
+/// Helper function to fetch and format transactions for an account
+async fn fetch_account_transactions(
+    account_id: &AccountId,
+    community_id: &CommunityId,
     limit: i64,
     offset: i64,
     pool: &PgPool,
 ) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
-    // Get the member's account
-    let account = get_account(
-        &actor.0.community_id,
-        AccountOwner::Member(actor.0.user_id),
-        pool,
-    )
-    .await?;
-
     // Fetch entries that involve this account
     let entries = sqlx::query_as::<_, JournalEntry>(
         r#"
@@ -836,7 +827,7 @@ pub async fn get_member_transactions(
         LIMIT $2 OFFSET $3
         "#,
     )
-    .bind(account.id)
+    .bind(account_id)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -875,8 +866,7 @@ pub async fn get_member_transactions(
     // Batch fetch all user identities at once
     let user_ids: Vec<UserId> = all_user_ids.into_iter().collect();
     let user_identities =
-        super::get_user_identities(&user_ids, &actor.0.community_id, pool)
-            .await?;
+        super::get_user_identities(&user_ids, community_id, pool).await?;
 
     // For each entry, fetch lines and convert to user-friendly format
     let mut transactions = Vec::new();
@@ -937,6 +927,39 @@ pub async fn get_member_transactions(
     }
 
     Ok(transactions)
+}
+
+/// Get journal entries for a member's account
+///
+/// Returns transaction history for the member's account in their community.
+///
+/// The response includes user-friendly information (usernames instead of
+/// account IDs) and filters lines to show only those relevant to the member.
+///
+/// Note: `target_member` represents the member whose transactions are being
+/// fetched, not necessarily the user making the request.
+async fn get_member_transactions(
+    target_member: &super::ValidatedMember,
+    limit: i64,
+    offset: i64,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
+    // Get the member's account
+    let account = get_account(
+        &target_member.0.community_id,
+        AccountOwner::Member(target_member.0.user_id),
+        pool,
+    )
+    .await?;
+
+    fetch_account_transactions(
+        &account.id,
+        &target_member.0.community_id,
+        limit,
+        offset,
+        pool,
+    )
+    .await
 }
 
 /// Convert database columns to CurrencyConfig
@@ -1318,4 +1341,112 @@ pub async fn treasury_credit_operation(
         recipient_count,
         total_amount,
     })
+}
+
+/// Get treasury account for a community
+///
+/// Requires coleader+ permissions.
+pub async fn get_treasury_account(
+    actor: &super::ValidatedMember,
+    pool: &PgPool,
+) -> Result<Account, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    get_account(&actor.0.community_id, AccountOwner::Treasury, pool).await
+}
+
+/// Get transaction history for treasury account
+///
+/// Requires coleader+ permissions.
+pub async fn get_treasury_transactions(
+    actor: &super::ValidatedMember,
+    limit: i64,
+    offset: i64,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Get treasury account
+    let account =
+        get_account(&actor.0.community_id, AccountOwner::Treasury, pool)
+            .await?;
+
+    fetch_account_transactions(
+        &account.id,
+        &actor.0.community_id,
+        limit,
+        offset,
+        pool,
+    )
+    .await
+}
+
+/// Get member currency info with permission checking
+///
+/// If target_user_id is None, returns info for the actor.
+/// If target_user_id is Some, requires coleader+ permissions.
+pub async fn get_member_currency_info_with_permissions(
+    actor: &super::ValidatedMember,
+    target_user_id: Option<&UserId>,
+    pool: &PgPool,
+) -> Result<payloads::responses::MemberCurrencyInfo, StoreError> {
+    let query_user_id = match target_user_id {
+        None => actor.0.user_id,
+        Some(uid) => {
+            // Checking another user's info requires coleader+
+            if !actor.0.role.is_ge_coleader() {
+                return Err(StoreError::RequiresColeaderPermissions);
+            }
+            *uid
+        }
+    };
+
+    // Verify the target user is a member of the community
+    let target_member = super::get_validated_member(
+        &query_user_id,
+        &actor.0.community_id,
+        pool,
+    )
+    .await?;
+
+    // Call the existing function with the validated member
+    get_member_currency_info(&target_member, pool).await
+}
+
+/// Get member transactions with permission checking
+///
+/// If target_user_id is None, returns transactions for the actor.
+/// If target_user_id is Some, requires coleader+ permissions.
+pub async fn get_member_transactions_with_permissions(
+    actor: &super::ValidatedMember,
+    target_user_id: Option<&UserId>,
+    limit: i64,
+    offset: i64,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
+    let query_user_id = match target_user_id {
+        None => actor.0.user_id,
+        Some(uid) => {
+            // Checking another user's transactions requires coleader+
+            if !actor.0.role.is_ge_coleader() {
+                return Err(StoreError::RequiresColeaderPermissions);
+            }
+            *uid
+        }
+    };
+
+    // Verify the target user is a member of the community
+    let target_member = super::get_validated_member(
+        &query_user_id,
+        &actor.0.community_id,
+        pool,
+    )
+    .await?;
+
+    // Call the existing function with the validated member
+    get_member_transactions(&target_member, limit, offset, pool).await
 }

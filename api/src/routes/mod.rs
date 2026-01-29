@@ -1,5 +1,6 @@
 pub mod auction;
 pub mod community;
+pub mod currency;
 pub mod login;
 pub mod proxy_bidding;
 pub mod site;
@@ -81,6 +82,13 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(proxy_bidding::create_or_update_proxy_bidding)
         .service(proxy_bidding::get_proxy_bidding)
         .service(proxy_bidding::delete_proxy_bidding)
+        .service(currency::update_credit_limit)
+        .service(currency::get_member_currency_info)
+        .service(currency::get_member_transactions)
+        .service(currency::create_transfer)
+        .service(currency::get_treasury_account)
+        .service(currency::get_treasury_transactions)
+        .service(currency::treasury_credit_operation)
 }
 
 #[get("/health_check")]

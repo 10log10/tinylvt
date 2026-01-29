@@ -1,5 +1,6 @@
 mod auction;
 mod community;
+mod currency;
 mod database;
 mod email;
 mod login;
