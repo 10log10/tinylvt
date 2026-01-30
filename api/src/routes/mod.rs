@@ -89,6 +89,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(currency::get_treasury_account)
         .service(currency::get_treasury_transactions)
         .service(currency::treasury_credit_operation)
+        .service(currency::update_currency_config)
 }
 
 #[get("/health_check")]

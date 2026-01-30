@@ -926,3 +926,207 @@ async fn test_auction_settlement_points_allocation() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+// Currency Configuration Management Tests
+
+#[tokio::test]
+async fn update_currency_config_coleader_permissions() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Get initial currency config
+    let communities = app.client.get_communities().await?;
+    let community = communities.first().unwrap();
+    let initial_config = community.currency_config.clone();
+
+    // Bob (member) tries to update - should fail
+    app.login_bob().await?;
+    let new_config =
+        payloads::CurrencyConfig::DistributedClearing(payloads::IOUConfig {
+            default_credit_limit: Some(Decimal::from(200)),
+            debts_callable: true,
+        });
+    let body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: new_config.clone(),
+        currency_name: "credits".to_string(),
+        currency_symbol: "C".to_string(),
+        balances_visible_to_members: false,
+    };
+    let result = app.client.update_currency_config(&body).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // Alice (leader) updates - should succeed
+    app.login_alice().await?;
+    app.client.update_currency_config(&body).await?;
+
+    // Verify changes persisted
+    let communities = app.client.get_communities().await?;
+    let updated_community = communities.first().unwrap();
+    assert_eq!(updated_community.currency_config, new_config);
+    assert_eq!(updated_community.currency_name, "credits");
+    assert_eq!(updated_community.currency_symbol, "C");
+    assert!(!updated_community.balances_visible_to_members);
+
+    // Verify mode stayed the same
+    assert_eq!(
+        updated_community.currency_config.mode(),
+        initial_config.mode()
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn currency_mode_immutable() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    // Create community with DistributedClearing mode
+    let body = requests::CreateCommunity {
+        name: "Test community".to_string(),
+        new_members_default_active: true,
+        currency_config: payloads::CurrencyConfig::DistributedClearing(
+            payloads::IOUConfig {
+                default_credit_limit: Some(Decimal::from(100)),
+                debts_callable: true,
+            },
+        ),
+        currency_name: "dollars".to_string(),
+        currency_symbol: "$".to_string(),
+        balances_visible_to_members: true,
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Try to change mode to DeferredPayment - should fail
+    let new_config =
+        payloads::CurrencyConfig::DeferredPayment(payloads::IOUConfig {
+            default_credit_limit: Some(Decimal::from(100)),
+            debts_callable: true,
+        });
+    let update_body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: new_config,
+        currency_name: "dollars".to_string(),
+        currency_symbol: "$".to_string(),
+        balances_visible_to_members: true,
+    };
+    let result = app.client.update_currency_config(&update_body).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // Verify mode unchanged
+    let communities = app.client.get_communities().await?;
+    let community = communities.first().unwrap();
+    assert!(matches!(
+        community.currency_config,
+        payloads::CurrencyConfig::DistributedClearing(_)
+    ));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn currency_config_validation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    // Test currency name too long (> 50 chars)
+    let long_name = (0..51).map(|_| "X").collect::<String>();
+    let body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: test_helpers::default_currency_config(),
+        currency_name: long_name,
+        currency_symbol: "$".to_string(),
+        balances_visible_to_members: true,
+    };
+    let result = app.client.update_currency_config(&body).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // Test currency symbol too long (> 5 chars)
+    let body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: test_helpers::default_currency_config(),
+        currency_name: "dollars".to_string(),
+        currency_symbol: "TOOLONG".to_string(),
+        balances_visible_to_members: true,
+    };
+    let result = app.client.update_currency_config(&body).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // Test valid update succeeds
+    let body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: test_helpers::default_currency_config(),
+        currency_name: "points".to_string(),
+        currency_symbol: "P".to_string(),
+        balances_visible_to_members: false,
+    };
+    app.client.update_currency_config(&body).await?;
+
+    // Verify changes
+    let communities = app.client.get_communities().await?;
+    let community = communities.first().unwrap();
+    assert_eq!(community.currency_name, "points");
+    assert_eq!(community.currency_symbol, "P");
+    assert!(!community.balances_visible_to_members);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_currency_config_fields() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    // Create community with specific IOU config
+    let body = requests::CreateCommunity {
+        name: "Test community".to_string(),
+        new_members_default_active: true,
+        currency_config: payloads::CurrencyConfig::DistributedClearing(
+            payloads::IOUConfig {
+                default_credit_limit: Some(Decimal::from(100)),
+                debts_callable: true,
+            },
+        ),
+        currency_name: "dollars".to_string(),
+        currency_symbol: "$".to_string(),
+        balances_visible_to_members: true,
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Update all configurable fields
+    let new_config =
+        payloads::CurrencyConfig::DistributedClearing(payloads::IOUConfig {
+            default_credit_limit: Some(Decimal::from(250)),
+            debts_callable: false,
+        });
+    let update_body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency_config: new_config.clone(),
+        currency_name: "credits".to_string(),
+        currency_symbol: "¢".to_string(),
+        balances_visible_to_members: false,
+    };
+    app.client.update_currency_config(&update_body).await?;
+
+    // Verify all fields updated correctly
+    let communities = app.client.get_communities().await?;
+    let community = communities.first().unwrap();
+    assert_eq!(community.currency_config, new_config);
+    assert_eq!(community.currency_name, "credits");
+    assert_eq!(community.currency_symbol, "¢");
+    assert!(!community.balances_visible_to_members);
+
+    // Verify specific config fields
+    if let payloads::CurrencyConfig::DistributedClearing(cfg) =
+        &community.currency_config
+    {
+        assert_eq!(cfg.default_credit_limit, Some(Decimal::from(250)));
+        assert!(!cfg.debts_callable);
+    } else {
+        panic!("Expected DistributedClearing config");
+    }
+
+    Ok(())
+}

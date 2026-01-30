@@ -563,6 +563,15 @@ pub mod requests {
     }
 
     #[derive(Debug, Serialize, Deserialize)]
+    pub struct UpdateCurrencyConfig {
+        pub community_id: CommunityId,
+        pub currency_config: CurrencyConfig,
+        pub currency_name: String,
+        pub currency_symbol: String,
+        pub balances_visible_to_members: bool,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
     pub struct InviteCommunityMember {
         pub community_id: CommunityId,
         pub new_member_email: Option<String>,
@@ -1187,6 +1196,15 @@ impl APIClient {
     ) -> Result<CommunityId, ClientError> {
         let response = self.post("create_community", &details).await?;
         ok_body(response).await
+    }
+
+    /// Update currency configuration for a community (coleader+ only).
+    pub async fn update_currency_config(
+        &self,
+        details: &requests::UpdateCurrencyConfig,
+    ) -> Result<(), ClientError> {
+        let response = self.post("update_currency_config", &details).await?;
+        ok_empty(response).await
     }
 
     /// Get the communities for the currently logged in user.

@@ -73,6 +73,7 @@ pub async fn invite_community_member(
             .send_community_invite_email(
                 email,
                 &community.name,
+                &invite_id.to_string(),
                 &config.base_url,
             )
             .await

@@ -3445,6 +3445,12 @@ pub enum StoreError {
     InvalidAccountOwnership,
     #[error("Database invariant violation: invalid currency configuration")]
     InvalidCurrencyConfiguration,
+    #[error("Currency mode cannot be changed after community creation")]
+    CurrencyModeImmutable,
+    #[error("Invalid currency name (max 50 characters)")]
+    InvalidCurrencyName,
+    #[error("Invalid currency symbol (max 5 characters)")]
+    InvalidCurrencySymbol,
     #[error("Journal entry lines must sum to zero, got {0}")]
     JournalLinesDoNotSumToZero(rust_decimal::Decimal),
     #[error("Duplicate account in journal entry")]

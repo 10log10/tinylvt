@@ -1464,3 +1464,100 @@ pub async fn get_member_transactions_with_permissions(
     // Call the existing function with the validated member
     get_member_transactions(&target_member, limit, offset, pool).await
 }
+
+/// Update currency configuration for an existing community.
+/// Requires coleader or leader permissions.
+/// The currency mode cannot be changed after community creation.
+pub async fn update_currency_config(
+    actor: &super::ValidatedMember,
+    currency_config: &payloads::CurrencyConfig,
+    currency_name: &str,
+    currency_symbol: &str,
+    balances_visible_to_members: bool,
+    pool: &PgPool,
+    time_source: &super::TimeSource,
+) -> Result<(), StoreError> {
+    // Permission check: coleader or above
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Get current community to verify mode hasn't changed
+    let current_community =
+        super::get_community_by_id(&actor.0.community_id, pool).await?;
+
+    // Validate mode is unchanged
+    if currency_config.mode() != current_community.currency_config.mode() {
+        return Err(StoreError::CurrencyModeImmutable);
+    }
+
+    // Validate currency name/symbol lengths
+    if currency_name.len() > 50 {
+        return Err(StoreError::InvalidCurrencyName);
+    }
+    if currency_symbol.chars().count() > 5 {
+        return Err(StoreError::InvalidCurrencySymbol);
+    }
+
+    // Validate IOU mode configuration: if debts aren't callable,
+    // must have finite credit limit
+    match currency_config {
+        payloads::CurrencyConfig::DistributedClearing(cfg)
+        | payloads::CurrencyConfig::DeferredPayment(cfg) => {
+            if !cfg.debts_callable && cfg.default_credit_limit.is_none() {
+                return Err(StoreError::InvalidCurrencyConfiguration);
+            }
+        }
+        _ => {}
+    }
+
+    // Convert config to DB format
+    let (
+        mode,
+        default_credit_limit,
+        debts_callable,
+        allowance_amount,
+        allowance_period,
+        allowance_start,
+    ) = currency_config_to_db(currency_config);
+
+    // Update database
+    let result = sqlx::query(
+        "UPDATE communities
+         SET currency_mode = $1,
+             default_credit_limit = $2,
+             currency_name = $3,
+             currency_symbol = $4,
+             debts_callable = $5,
+             balances_visible_to_members = $6,
+             allowance_amount = $7,
+             allowance_period = $8,
+             allowance_start = $9,
+             updated_at = $10
+         WHERE id = $11",
+    )
+    .bind(mode)
+    .bind(default_credit_limit)
+    .bind(currency_name)
+    .bind(currency_symbol)
+    .bind(debts_callable)
+    .bind(balances_visible_to_members)
+    .bind(allowance_amount)
+    .bind(
+        allowance_period
+            .as_ref()
+            .map(super::span_to_interval)
+            .transpose()?,
+    )
+    .bind(allowance_start.as_ref().map(|t| t.to_sqlx()))
+    .bind(time_source.now().to_sqlx())
+    .bind(actor.0.community_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(StoreError::CommunityNotFound);
+    }
+
+    Ok(())
+}

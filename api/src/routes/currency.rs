@@ -172,3 +172,32 @@ pub async fn treasury_credit_operation(
 
     Ok(HttpResponse::Ok().json(result))
 }
+
+// Currency Configuration Management
+
+/// Update currency configuration for a community (coleader+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/update_currency_config")]
+pub async fn update_currency_config(
+    user: Identity,
+    details: web::Json<requests::UpdateCurrencyConfig>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::currency::update_currency_config(
+        &validated_member,
+        &details.currency_config,
+        &details.currency_name,
+        &details.currency_symbol,
+        details.balances_visible_to_members,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().finish())
+}

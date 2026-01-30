@@ -174,9 +174,10 @@ If you didn't request this password reset, you can safely ignore this email. You
         &self,
         to_email: &str,
         community_name: &str,
+        invite_id: &str,
         base_url: &str,
     ) -> Result<()> {
-        let invite_link = format!("{}/communities/invites", base_url);
+        let invite_link = format!("{}/accept-invite/{}", base_url, invite_id);
 
         let template = EmailTemplate {
             subject: format!("You've been invited to join {}", community_name),
