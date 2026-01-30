@@ -1,9 +1,67 @@
+use api::scheduler;
+use jiff::Span;
 use payloads::requests;
-use payloads::{IdempotencyKey, TreasuryRecipient};
+use payloads::{
+    AuctionId, EntryType, IdempotencyKey, SiteId, SpaceId, TreasuryRecipient,
+};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{TestApp, assert_status_code, spawn_app};
 use uuid::Uuid;
+
+/// Helper to run an auction to settlement
+async fn run_simple_auction(
+    app: &TestApp,
+    site_id: SiteId,
+    // Vec of (round_num, space_id, username)
+    bids: Vec<(usize, SpaceId, &str)>,
+) -> anyhow::Result<AuctionId> {
+    // Create auction starting now
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    let mut round_index = 0;
+    loop {
+        let rounds = app.client.list_auction_rounds(&auction_id).await?;
+        let current_round = &rounds[rounds.len() - 1];
+
+        // Place bids for this round
+        for (bid_round, space_id, username) in &bids {
+            if *bid_round == round_index {
+                match *username {
+                    "alice" => app.login_alice().await?,
+                    "bob" => app.login_bob().await?,
+                    "charlie" => app.login_charlie().await?,
+                    _ => panic!("Unknown user"),
+                }
+                app.client
+                    .create_bid(space_id, &current_round.round_id)
+                    .await?;
+            }
+        }
+
+        // Advance time past round end
+        app.time_source
+            .set(current_round.round_details.end_at + Span::new().seconds(1));
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+        // Check if auction concluded
+        let auction = app.client.get_auction(&auction_id).await?;
+        if auction.end_at.is_some() {
+            break;
+        }
+
+        round_index += 1;
+    }
+
+    Ok(auction_id)
+}
 
 #[tokio::test]
 async fn test_get_member_currency_info_own_account() -> anyhow::Result<()> {
@@ -623,6 +681,248 @@ async fn test_treasury_operation_prevents_negative_balance_deferred_payment()
         err_msg.contains("InsufficientBalance")
             || err_msg.contains("Insufficient balance")
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auction_settlement_distributed_clearing() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    // Default mode is distributed_clearing - don't change it
+
+    // Create site and two spaces
+    let site = app.create_test_site(&community_id).await?;
+    let space_a = app.create_test_space(&site.site_id).await?;
+    let space_b_details = test_helpers::space_details_b(site.site_id);
+    let space_b = app.client.create_space(&space_b_details).await?;
+
+    // Run auction: Rounds 0-1 have bids, Round 2 has no bids → settlement
+    // Space values will be 0 after round 0, 1 after round 1
+    // Alternate bidders so they compete for each space
+    let auction_id = run_simple_auction(
+        &app,
+        site.site_id,
+        vec![
+            (0, space_a.space_id, "alice"),
+            (0, space_b, "bob"),
+            (1, space_a.space_id, "bob"),
+            (1, space_b, "alice"),
+        ],
+    )
+    .await?;
+
+    // Verify auction concluded
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert!(auction.end_at.is_some());
+
+    // Get final round for results
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let final_round = &rounds[rounds.len() - 1];
+    let round_results = app
+        .client
+        .list_round_space_results_for_round(&final_round.round_id)
+        .await?;
+
+    let result_a = round_results
+        .iter()
+        .find(|r| r.space_id == space_a.space_id)
+        .unwrap();
+    let result_b = round_results
+        .iter()
+        .find(|r| r.space_id == space_b)
+        .unwrap();
+
+    // With bid_increment = 1.0, after two rounds with bids:
+    // Space A value = 1.0 (won by Bob)
+    // Space B value = 1.0 (won by Alice)
+    assert_eq!(result_a.value, Decimal::new(1, 0));
+    assert_eq!(result_b.value, Decimal::new(1, 0));
+
+    // Get members for balance checks
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // In distributed_clearing mode with 2 active members:
+    // Total payments = 2.0 distributed equally (1.0 to each)
+    // Alice: -1.0 (payment for space_b) + 1.0 (distribution) = 0
+    // Bob: -1.0 (payment for space_a) + 1.0 (distribution) = 0
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(bob.user.user_id),
+        })
+        .await?;
+
+    assert_eq!(alice_info.balance, Decimal::ZERO);
+    assert_eq!(bob_info.balance, Decimal::ZERO);
+
+    // Verify transaction history shows settlement
+    app.login_alice().await?;
+    let alice_txns = app
+        .client
+        .get_member_transactions(&requests::GetMemberTransactions {
+            community_id,
+            member_user_id: None,
+            limit: 10,
+            offset: 0,
+        })
+        .await?;
+
+    let settlement_txns: Vec<_> = alice_txns
+        .iter()
+        .filter(|t| t.entry_type == EntryType::AuctionSettlement)
+        .collect();
+    assert!(settlement_txns.len() > 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auction_settlement_single_winner() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Create site and two spaces
+    // Second space is a dummy to maintain eligibility
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+    let space_b_details = test_helpers::space_details_b(site.site_id);
+    let space_b = app.client.create_space(&space_b_details).await?;
+
+    // Run auction: Alice and Bob compete for space
+    // Bob bids on space_b in round 0 just to maintain eligibility
+    // Round 0: Alice bids on space, Bob bids on space_b (for eligibility)
+    // Round 1: Bob bids on space, Alice bids on space_b (for eligibility)
+    // Round 2: Alice bids on space, Bob has no bid (loses but already eligible)
+    // Round 3: No bids, settlement triggers
+    // space value = 2, space_b value = 1
+    let _auction_id = run_simple_auction(
+        &app,
+        site.site_id,
+        vec![
+            (0, space.space_id, "alice"),
+            (0, space_b, "bob"),
+            (1, space.space_id, "bob"),
+            (1, space_b, "alice"),
+            (2, space.space_id, "alice"),
+        ],
+    )
+    .await?;
+
+    // Get members
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // Alice won both spaces: space at value 2.0, space_b at value 1.0
+    // Total Alice payment: 3.0
+    // Distribution in distributed_clearing with 2 active: 1.5 each
+    // Alice net: -3.0 (payment) + 1.5 (distribution) = -1.5
+    // Bob net: +1.5 (distribution only)
+
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(bob.user.user_id),
+        })
+        .await?;
+
+    assert_eq!(alice_info.balance, Decimal::new(-15, 1)); // -1.5
+    assert_eq!(bob_info.balance, Decimal::new(15, 1)); // 1.5
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auction_settlement_points_allocation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    // Give Alice some initial balance via treasury operation
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(100, 0),
+            note: Some("Initial allocation".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Create auction and two spaces
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+    let space_b_details = test_helpers::space_details_b(site.site_id);
+    let space_b = app.client.create_space(&space_b_details).await?;
+
+    // Run auction: Alice and Bob compete, Alice wins both spaces
+    // Round 0: Alice bids on space, Bob bids on space_b (for eligibility)
+    // Round 1: Bob bids on space, Alice bids on space_b (for eligibility)
+    // Round 2: Alice bids on space
+    // Round 3: No bids, settlement triggers
+    // space value = 2, space_b value = 1
+    let _auction_id = run_simple_auction(
+        &app,
+        site.site_id,
+        vec![
+            (0, space.space_id, "alice"),
+            (0, space_b, "bob"),
+            (1, space.space_id, "bob"),
+            (1, space_b, "alice"),
+            (2, space.space_id, "alice"),
+        ],
+    )
+    .await?;
+
+    // In points_allocation mode, winners pay treasury (not members)
+    // Alice won both spaces: total payment = 2 + 1 = 3
+    // Alice: 100 (initial) - 3 (payment) = 97
+    // Treasury: -200 (issued initial credits) + 3 (Alice payment) = -197
+
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+
+    assert_eq!(alice_info.balance, Decimal::new(97, 0));
+
+    // Check treasury balance
+    let treasury = app
+        .client
+        .get_treasury_account(&requests::GetTreasuryAccount { community_id })
+        .await?;
+
+    // Treasury issued 200 credits (100 to Alice, 100 to Bob)
+    // Treasury received 3 credits from Alice's auction payments
+    // Net: -200 + 3 = -197
+    assert_eq!(treasury.balance_cached, Decimal::new(-197, 0));
 
     Ok(())
 }
