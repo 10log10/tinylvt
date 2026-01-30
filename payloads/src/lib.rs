@@ -260,20 +260,10 @@ impl PointsAllocationConfig {
     }
 }
 
-/// Distributed clearing configuration
-/// Members issue IOUs to each other, settled among themselves
+/// IOU-based currency configuration
+/// Used by both DistributedClearing and DeferredPayment modes
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DistributedClearingConfig {
-    /// Optional default credit limit for members
-    pub default_credit_limit: Option<rust_decimal::Decimal>,
-    /// Whether debts carry promise of settlement
-    pub debts_callable: bool,
-}
-
-/// Deferred payment configuration
-/// Members issue IOUs to the treasury, settled later
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeferredPaymentConfig {
+pub struct IOUConfig {
     /// Optional default credit limit for members
     pub default_credit_limit: Option<rust_decimal::Decimal>,
     /// Whether debts carry promise of settlement
@@ -300,8 +290,8 @@ impl PrepaidCreditsConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CurrencyConfig {
     PointsAllocation(Box<PointsAllocationConfig>),
-    DistributedClearing(DistributedClearingConfig),
-    DeferredPayment(DeferredPaymentConfig),
+    DistributedClearing(IOUConfig),
+    DeferredPayment(IOUConfig),
     PrepaidCredits(PrepaidCreditsConfig),
 }
 
@@ -339,6 +329,54 @@ impl CurrencyConfig {
             CurrencyConfig::DistributedClearing(cfg) => cfg.debts_callable,
             CurrencyConfig::DeferredPayment(cfg) => cfg.debts_callable,
             CurrencyConfig::PrepaidCredits(cfg) => cfg.debts_callable,
+        }
+    }
+
+    /// Set the default credit limit (only for IOU-based modes)
+    /// Returns None if this is not an IOU-based mode
+    pub fn set_default_credit_limit(
+        &self,
+        limit: Option<rust_decimal::Decimal>,
+    ) -> Option<Self> {
+        match self {
+            CurrencyConfig::DistributedClearing(config) => {
+                Some(CurrencyConfig::DistributedClearing(IOUConfig {
+                    default_credit_limit: limit,
+                    debts_callable: config.debts_callable,
+                }))
+            }
+            CurrencyConfig::DeferredPayment(config) => {
+                Some(CurrencyConfig::DeferredPayment(IOUConfig {
+                    default_credit_limit: limit,
+                    debts_callable: config.debts_callable,
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    /// Set debts callable flag
+    /// Returns None if the mode doesn't support this setting
+    pub fn set_debts_callable(&self, callable: bool) -> Option<Self> {
+        match self {
+            CurrencyConfig::DistributedClearing(config) => {
+                Some(CurrencyConfig::DistributedClearing(IOUConfig {
+                    default_credit_limit: config.default_credit_limit,
+                    debts_callable: callable,
+                }))
+            }
+            CurrencyConfig::DeferredPayment(config) => {
+                Some(CurrencyConfig::DeferredPayment(IOUConfig {
+                    default_credit_limit: config.default_credit_limit,
+                    debts_callable: callable,
+                }))
+            }
+            CurrencyConfig::PrepaidCredits(_) => {
+                Some(CurrencyConfig::PrepaidCredits(PrepaidCreditsConfig {
+                    debts_callable: callable,
+                }))
+            }
+            _ => None,
         }
     }
 }
@@ -491,7 +529,7 @@ pub struct JournalLine {
 }
 
 pub mod requests {
-    use crate::CommunityId;
+    use crate::{CommunityId, CurrencyConfig};
     use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
 
@@ -518,6 +556,10 @@ pub mod requests {
     pub struct CreateCommunity {
         pub name: String,
         pub new_members_default_active: bool,
+        pub currency_config: CurrencyConfig,
+        pub currency_name: String,
+        pub currency_symbol: String,
+        pub balances_visible_to_members: bool,
     }
 
     #[derive(Debug, Serialize, Deserialize)]

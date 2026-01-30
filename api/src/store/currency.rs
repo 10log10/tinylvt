@@ -855,10 +855,10 @@ async fn fetch_account_transactions(
         .await?;
 
         for line in lines {
-            if line.owner_type == AccountOwnerType::MemberMain {
-                if let Some(user_id) = line.owner_id {
-                    all_user_ids.insert(user_id);
-                }
+            if line.owner_type == AccountOwnerType::MemberMain
+                && let Some(user_id) = line.owner_id
+            {
+                all_user_ids.insert(user_id);
             }
         }
     }
@@ -973,8 +973,7 @@ pub fn currency_config_from_db(
     allowance_start: Option<jiff::Timestamp>,
 ) -> Option<payloads::CurrencyConfig> {
     use payloads::{
-        CurrencyConfig, DeferredPaymentConfig, DistributedClearingConfig,
-        PointsAllocationConfig, PrepaidCreditsConfig,
+        CurrencyConfig, IOUConfig, PointsAllocationConfig, PrepaidCreditsConfig,
     };
 
     match mode {
@@ -1006,12 +1005,10 @@ pub fn currency_config_from_db(
             if !debts_callable && default_credit_limit.is_none() {
                 return None;
             }
-            Some(CurrencyConfig::DistributedClearing(
-                DistributedClearingConfig {
-                    default_credit_limit,
-                    debts_callable,
-                },
-            ))
+            Some(CurrencyConfig::DistributedClearing(IOUConfig {
+                default_credit_limit,
+                debts_callable,
+            }))
         }
         CurrencyMode::DeferredPayment => {
             // Must not have allowance fields
@@ -1025,7 +1022,7 @@ pub fn currency_config_from_db(
             if !debts_callable && default_credit_limit.is_none() {
                 return None;
             }
-            Some(CurrencyConfig::DeferredPayment(DeferredPaymentConfig {
+            Some(CurrencyConfig::DeferredPayment(IOUConfig {
                 default_credit_limit,
                 debts_callable,
             }))

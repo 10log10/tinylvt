@@ -765,16 +765,55 @@ pub async fn create_community(
     }
     let mut tx = pool.begin().await?;
 
+    // Validate and convert currency config enum to database columns
+    // For IOU modes: if debts aren't callable, must have finite credit limit
+    match &details.currency_config {
+        payloads::CurrencyConfig::DistributedClearing(cfg)
+        | payloads::CurrencyConfig::DeferredPayment(cfg) => {
+            if !cfg.debts_callable && cfg.default_credit_limit.is_none() {
+                return Err(StoreError::InvalidCurrencyConfiguration);
+            }
+        }
+        _ => {}
+    }
+
+    let (
+        currency_mode,
+        default_credit_limit,
+        debts_callable,
+        allowance_amount,
+        allowance_period,
+        allowance_start,
+    ) = currency::currency_config_to_db(&details.currency_config);
+
     let db_community = sqlx::query_as::<_, DbCommunity>(
         "INSERT INTO communities (
             name,
             new_members_default_active,
+            currency_mode,
+            default_credit_limit,
+            debts_callable,
+            currency_name,
+            currency_symbol,
+            balances_visible_to_members,
+            allowance_amount,
+            allowance_period,
+            allowance_start,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $3) RETURNING *;",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING *;",
     )
     .bind(&details.name)
     .bind(details.new_members_default_active)
+    .bind(currency_mode)
+    .bind(default_credit_limit)
+    .bind(debts_callable)
+    .bind(&details.currency_name)
+    .bind(&details.currency_symbol)
+    .bind(details.balances_visible_to_members)
+    .bind(allowance_amount)
+    .bind(allowance_period.as_ref().map(span_to_interval).transpose()?)
+    .bind(allowance_start.as_ref().map(|t| t.to_sqlx()))
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;

@@ -70,7 +70,7 @@ ALTER TABLE communities
     ADD COLUMN default_credit_limit AMOUNT,
     -- User-assigned name and symbol to currency
     ADD COLUMN currency_name VARCHAR(50) NOT NULL DEFAULT 'dollars',
-    ADD COLUMN currency_symbol VARCHAR(4) NOT NULL DEFAULT '$',
+    ADD COLUMN currency_symbol VARCHAR(5) NOT NULL DEFAULT '$',
     -- Whether debts can be called for settlement in denominated unit
     ADD COLUMN debts_callable BOOLEAN NOT NULL DEFAULT true,
     -- Whether ordinary members can see all member balances/limits

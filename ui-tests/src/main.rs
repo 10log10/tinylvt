@@ -66,6 +66,10 @@ async fn main() -> Result<()> {
     let bob_community_body = requests::CreateCommunity {
         name: "Bob's Community".into(),
         new_members_default_active: true,
+        currency_config: test_helpers::default_currency_config(),
+        currency_name: "dollars".to_string(),
+        currency_symbol: "$".to_string(),
+        balances_visible_to_members: true,
     };
     let bob_community_id =
         env.api.client.create_community(&bob_community_body).await?;

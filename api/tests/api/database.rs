@@ -53,6 +53,10 @@ async fn test_populate() -> Result<(), StoreError> {
         &payloads::requests::CreateCommunity {
             name: "Test Community".to_string(),
             new_members_default_active: false,
+            currency_config: test_helpers::default_currency_config(),
+            currency_name: "dollars".to_string(),
+            currency_symbol: "$".to_string(),
+            balances_visible_to_members: true,
         },
         user.id,
         conn,
