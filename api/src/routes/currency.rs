@@ -190,10 +190,7 @@ pub async fn update_currency_config(
 
     store::currency::update_currency_config(
         &validated_member,
-        &details.currency_config,
-        &details.currency_name,
-        &details.currency_symbol,
-        details.balances_visible_to_members,
+        &details.currency,
         &pool,
         &time_source,
     )

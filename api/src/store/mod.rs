@@ -700,6 +700,7 @@ struct DbCommunity {
     default_credit_limit: Option<Decimal>,
     currency_name: String,
     currency_symbol: String,
+    currency_minor_units: i16,
     debts_callable: bool,
     balances_visible_to_members: bool,
     allowance_amount: Option<Decimal>,
@@ -713,15 +714,20 @@ impl TryFrom<DbCommunity> for Community {
     type Error = StoreError;
 
     fn try_from(db: DbCommunity) -> Result<Self, Self::Error> {
-        let currency_config = currency::currency_config_from_db(
-            db.currency_mode,
-            db.default_credit_limit,
-            db.debts_callable,
-            db.allowance_amount,
-            db.allowance_period,
-            db.allowance_start,
-        )
-        .ok_or(StoreError::InvalidCurrencyConfiguration)?;
+        let currency =
+            currency::currency_settings_from_db(currency::CurrencySettingsDb {
+                mode: db.currency_mode,
+                default_credit_limit: db.default_credit_limit,
+                debts_callable: db.debts_callable,
+                allowance_amount: db.allowance_amount,
+                allowance_period: db.allowance_period,
+                allowance_start: db.allowance_start,
+                currency_name: db.currency_name,
+                currency_symbol: db.currency_symbol,
+                currency_minor_units: db.currency_minor_units,
+                balances_visible_to_members: db.balances_visible_to_members,
+            })
+            .ok_or(StoreError::InvalidCurrencyConfiguration)?;
 
         Ok(Community {
             id: db.id,
@@ -729,10 +735,7 @@ impl TryFrom<DbCommunity> for Community {
             new_members_default_active: db.new_members_default_active,
             created_at: db.created_at,
             updated_at: db.updated_at,
-            currency_config,
-            currency_name: db.currency_name,
-            currency_symbol: db.currency_symbol,
-            balances_visible_to_members: db.balances_visible_to_members,
+            currency,
         })
     }
 }
@@ -767,9 +770,9 @@ pub async fn create_community(
 
     // Validate and convert currency config enum to database columns
     // For IOU modes: if debts aren't callable, must have finite credit limit
-    match &details.currency_config {
-        payloads::CurrencyConfig::DistributedClearing(cfg)
-        | payloads::CurrencyConfig::DeferredPayment(cfg) => {
+    match &details.currency.mode_config {
+        payloads::CurrencyModeConfig::DistributedClearing(cfg)
+        | payloads::CurrencyModeConfig::DeferredPayment(cfg) => {
             if !cfg.debts_callable && cfg.default_credit_limit.is_none() {
                 return Err(StoreError::InvalidCurrencyConfiguration);
             }
@@ -777,14 +780,7 @@ pub async fn create_community(
         _ => {}
     }
 
-    let (
-        currency_mode,
-        default_credit_limit,
-        debts_callable,
-        allowance_amount,
-        allowance_period,
-        allowance_start,
-    ) = currency::currency_config_to_db(&details.currency_config);
+    let currency_db = currency::currency_settings_to_db(&details.currency);
 
     let db_community = sqlx::query_as::<_, DbCommunity>(
         "INSERT INTO communities (
@@ -795,25 +791,27 @@ pub async fn create_community(
             debts_callable,
             currency_name,
             currency_symbol,
+            currency_minor_units,
             balances_visible_to_members,
             allowance_amount,
             allowance_period,
             allowance_start,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING *;",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING *;",
     )
     .bind(&details.name)
     .bind(details.new_members_default_active)
-    .bind(currency_mode)
-    .bind(default_credit_limit)
-    .bind(debts_callable)
-    .bind(&details.currency_name)
-    .bind(&details.currency_symbol)
-    .bind(details.balances_visible_to_members)
-    .bind(allowance_amount)
-    .bind(allowance_period.as_ref().map(span_to_interval).transpose()?)
-    .bind(allowance_start.as_ref().map(|t| t.to_sqlx()))
+    .bind(currency_db.mode)
+    .bind(currency_db.default_credit_limit)
+    .bind(currency_db.debts_callable)
+    .bind(&currency_db.currency_name)
+    .bind(&currency_db.currency_symbol)
+    .bind(currency_db.currency_minor_units)
+    .bind(currency_db.balances_visible_to_members)
+    .bind(currency_db.allowance_amount)
+    .bind(currency_db.allowance_period.as_ref().map(span_to_interval).transpose()?)
+    .bind(currency_db.allowance_start.as_ref().map(|t| t.to_sqlx()))
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;

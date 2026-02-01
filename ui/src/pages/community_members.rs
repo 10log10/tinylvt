@@ -2,10 +2,10 @@ use payloads::{CommunityId, Role, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveTab, CommunityPageWrapper, CommunityTabHeader,
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, EditCreditLimitModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
-use crate::hooks::use_members;
+use crate::hooks::{use_member_currency_info, use_members};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -81,25 +81,11 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                         <div class="space-y-3">
                             {members.iter().map(|member| {
                                 html! {
-                                    <div key={member.user.user_id.to_string()} class="bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-700">
-                                        <div class="flex justify-between items-center">
-                                            <div class="flex items-center space-x-3">
-                                                {render_user_avatar(
-                                                    &member.user,
-                                                    None,
-                                                    None
-                                                )}
-                                                <div>
-                                                    <p class="font-medium text-neutral-900 dark:text-neutral-100">
-                                                        {render_user_name(&member.user)}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <RoleBadge role={member.role} />
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <MemberRow
+                                        key={member.user.user_id.to_string()}
+                                        member={member.clone()}
+                                        community={props.community.clone()}
+                                    />
                                 }
                             }).collect::<Html>()}
                         </div>
@@ -147,5 +133,153 @@ fn RoleBadge(props: &RoleBadgeProps) -> Html {
         <span class={format!("px-2 py-1 text-xs font-medium rounded-full {}", classes)}>
             {text}
         </span>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct MemberRowProps {
+    pub member: payloads::responses::CommunityMember,
+    pub community: CommunityWithRole,
+}
+
+#[function_component]
+fn MemberRow(props: &MemberRowProps) -> Html {
+    let member = &props.member;
+    let community = &props.community;
+
+    // Modal state
+    let show_edit_modal = use_state(|| false);
+
+    // Check if we should show balance
+    // Show if balances_visible_to_members OR user is coleader+
+    let show_balance = community.community.currency.balances_visible_to_members
+        || community.user_role.is_ge_coleader();
+
+    // Fetch member currency info if we should show balance
+    let currency_info = use_member_currency_info(
+        community.id,
+        if show_balance {
+            Some(member.user.user_id)
+        } else {
+            None
+        },
+    );
+
+    // Check if credit limits are supported and user can edit them
+    let can_edit_credit_limit = community.user_role.is_ge_moderator()
+        && matches!(
+            community.community.currency.mode_config,
+            payloads::CurrencyModeConfig::DistributedClearing(_)
+                | payloads::CurrencyModeConfig::DeferredPayment(_)
+        );
+
+    let on_edit_click = {
+        let show_edit_modal = show_edit_modal.clone();
+        Callback::from(move |_: web_sys::MouseEvent| {
+            show_edit_modal.set(true);
+        })
+    };
+
+    let on_modal_close = {
+        let show_edit_modal = show_edit_modal.clone();
+        Callback::from(move |_: ()| {
+            show_edit_modal.set(false);
+        })
+    };
+
+    let on_modal_success = {
+        let show_edit_modal = show_edit_modal.clone();
+        let refetch = currency_info.refetch.clone();
+        Callback::from(move |_: ()| {
+            show_edit_modal.set(false);
+            refetch.emit(());
+        })
+    };
+
+    html! {
+        <div class="bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-700">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    {render_user_avatar(&member.user, None, None)}
+                    <div>
+                        <p class="font-medium text-neutral-900 dark:text-neutral-100">
+                            {render_user_name(&member.user)}
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    // Balance display
+                    {
+                        if show_balance {
+                            html! {
+                                <div class="text-right">
+                                    <div class="text-xs text-neutral-600 dark:text-neutral-400">
+                                        {"Balance"}
+                                    </div>
+                                    <div class="font-medium text-neutral-900 dark:text-neutral-100">
+                                        {
+                                            if currency_info.is_loading {
+                                                html! { <span class="text-neutral-400">{"..."}</span> }
+                                            } else if let Some(info) = &currency_info.info {
+                                                html! {
+                                                    <span>
+                                                        {&community.community.currency.symbol}
+                                                        {info.balance}
+                                                    </span>
+                                                }
+                                            } else {
+                                                html! { <span class="text-neutral-400">{"-"}</span> }
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
+
+                    // Edit credit limit button
+                    {
+                        if can_edit_credit_limit {
+                            html! {
+                                <button
+                                    onclick={on_edit_click}
+                                    class="px-3 py-1 text-sm border border-neutral-300 dark:border-neutral-600 rounded hover:bg-neutral-50 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
+                                >
+                                    {"Edit Credit Limit"}
+                                </button>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
+
+                    <RoleBadge role={member.role} />
+                </div>
+            </div>
+
+            // Edit credit limit modal
+            {
+                if *show_edit_modal {
+                    if let Some(info) = &currency_info.info {
+                        html! {
+                            <EditCreditLimitModal
+                                member={member.user.clone()}
+                                community_id={community.id}
+                                current_credit_limit={info.credit_limit}
+                                currency_symbol={community.community.currency.symbol.clone()}
+                                on_close={on_modal_close}
+                                on_success={on_modal_success}
+                            />
+                        }
+                    } else {
+                        html! {}
+                    }
+                } else {
+                    html! {}
+                }
+            }
+        </div>
     }
 }

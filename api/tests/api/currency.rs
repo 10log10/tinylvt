@@ -937,21 +937,25 @@ async fn update_currency_config_coleader_permissions() -> anyhow::Result<()> {
     // Get initial currency config
     let communities = app.client.get_communities().await?;
     let community = communities.first().unwrap();
-    let initial_config = community.currency_config.clone();
+    let initial_config = community.currency.clone();
 
     // Bob (member) tries to update - should fail
     app.login_bob().await?;
-    let new_config =
-        payloads::CurrencyConfig::DistributedClearing(payloads::IOUConfig {
+    let new_config = payloads::CurrencyModeConfig::DistributedClearing(
+        payloads::IOUConfig {
             default_credit_limit: Some(Decimal::from(200)),
             debts_callable: true,
-        });
+        },
+    );
     let body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: new_config.clone(),
-        currency_name: "credits".to_string(),
-        currency_symbol: "C".to_string(),
-        balances_visible_to_members: false,
+        currency: payloads::CurrencySettings {
+            mode_config: new_config.clone(),
+            name: "credits".to_string(),
+            symbol: "C".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: false,
+        },
     };
     let result = app.client.update_currency_config(&body).await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
@@ -963,15 +967,15 @@ async fn update_currency_config_coleader_permissions() -> anyhow::Result<()> {
     // Verify changes persisted
     let communities = app.client.get_communities().await?;
     let updated_community = communities.first().unwrap();
-    assert_eq!(updated_community.currency_config, new_config);
-    assert_eq!(updated_community.currency_name, "credits");
-    assert_eq!(updated_community.currency_symbol, "C");
-    assert!(!updated_community.balances_visible_to_members);
+    assert_eq!(updated_community.currency.mode_config, new_config);
+    assert_eq!(updated_community.currency.name, "credits");
+    assert_eq!(updated_community.currency.symbol, "C");
+    assert!(!updated_community.currency.balances_visible_to_members);
 
     // Verify mode stayed the same
     assert_eq!(
-        updated_community.currency_config.mode(),
-        initial_config.mode()
+        updated_community.currency.mode_config.mode(),
+        initial_config.mode_config.mode()
     );
 
     Ok(())
@@ -986,30 +990,36 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
         new_members_default_active: true,
-        currency_config: payloads::CurrencyConfig::DistributedClearing(
-            payloads::IOUConfig {
-                default_credit_limit: Some(Decimal::from(100)),
-                debts_callable: true,
-            },
-        ),
-        currency_name: "dollars".to_string(),
-        currency_symbol: "$".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::DistributedClearing(
+                payloads::IOUConfig {
+                    default_credit_limit: Some(Decimal::from(100)),
+                    debts_callable: true,
+                },
+            ),
+            name: "dollars".to_string(),
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let community_id = app.client.create_community(&body).await?;
 
     // Try to change mode to DeferredPayment - should fail
     let new_config =
-        payloads::CurrencyConfig::DeferredPayment(payloads::IOUConfig {
+        payloads::CurrencyModeConfig::DeferredPayment(payloads::IOUConfig {
             default_credit_limit: Some(Decimal::from(100)),
             debts_callable: true,
         });
     let update_body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: new_config,
-        currency_name: "dollars".to_string(),
-        currency_symbol: "$".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: new_config,
+            name: "dollars".to_string(),
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let result = app.client.update_currency_config(&update_body).await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
@@ -1018,8 +1028,8 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
     let communities = app.client.get_communities().await?;
     let community = communities.first().unwrap();
     assert!(matches!(
-        community.currency_config,
-        payloads::CurrencyConfig::DistributedClearing(_)
+        community.currency.mode_config,
+        payloads::CurrencyModeConfig::DistributedClearing(_)
     ));
 
     Ok(())
@@ -1035,10 +1045,13 @@ async fn currency_config_validation() -> anyhow::Result<()> {
     let long_name = (0..51).map(|_| "X").collect::<String>();
     let body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: test_helpers::default_currency_config(),
-        currency_name: long_name,
-        currency_symbol: "$".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: test_helpers::default_currency_config(),
+            name: long_name,
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let result = app.client.update_currency_config(&body).await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
@@ -1046,10 +1059,13 @@ async fn currency_config_validation() -> anyhow::Result<()> {
     // Test currency symbol too long (> 5 chars)
     let body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: test_helpers::default_currency_config(),
-        currency_name: "dollars".to_string(),
-        currency_symbol: "TOOLONG".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: test_helpers::default_currency_config(),
+            name: "dollars".to_string(),
+            symbol: "TOOLONG".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let result = app.client.update_currency_config(&body).await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
@@ -1057,19 +1073,22 @@ async fn currency_config_validation() -> anyhow::Result<()> {
     // Test valid update succeeds
     let body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: test_helpers::default_currency_config(),
-        currency_name: "points".to_string(),
-        currency_symbol: "P".to_string(),
-        balances_visible_to_members: false,
+        currency: payloads::CurrencySettings {
+            mode_config: test_helpers::default_currency_config(),
+            name: "points".to_string(),
+            symbol: "P".to_string(),
+            minor_units: 0,
+            balances_visible_to_members: false,
+        },
     };
     app.client.update_currency_config(&body).await?;
 
     // Verify changes
     let communities = app.client.get_communities().await?;
     let community = communities.first().unwrap();
-    assert_eq!(community.currency_name, "points");
-    assert_eq!(community.currency_symbol, "P");
-    assert!(!community.balances_visible_to_members);
+    assert_eq!(community.currency.name, "points");
+    assert_eq!(community.currency.symbol, "P");
+    assert!(!community.currency.balances_visible_to_members);
 
     Ok(())
 }
@@ -1083,44 +1102,51 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
         new_members_default_active: true,
-        currency_config: payloads::CurrencyConfig::DistributedClearing(
-            payloads::IOUConfig {
-                default_credit_limit: Some(Decimal::from(100)),
-                debts_callable: true,
-            },
-        ),
-        currency_name: "dollars".to_string(),
-        currency_symbol: "$".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::DistributedClearing(
+                payloads::IOUConfig {
+                    default_credit_limit: Some(Decimal::from(100)),
+                    debts_callable: true,
+                },
+            ),
+            name: "dollars".to_string(),
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let community_id = app.client.create_community(&body).await?;
 
     // Update all configurable fields
-    let new_config =
-        payloads::CurrencyConfig::DistributedClearing(payloads::IOUConfig {
+    let new_config = payloads::CurrencyModeConfig::DistributedClearing(
+        payloads::IOUConfig {
             default_credit_limit: Some(Decimal::from(250)),
             debts_callable: false,
-        });
+        },
+    );
     let update_body = requests::UpdateCurrencyConfig {
         community_id,
-        currency_config: new_config.clone(),
-        currency_name: "credits".to_string(),
-        currency_symbol: "¢".to_string(),
-        balances_visible_to_members: false,
+        currency: payloads::CurrencySettings {
+            mode_config: new_config.clone(),
+            name: "credits".to_string(),
+            symbol: "¢".to_string(),
+            minor_units: 3,
+            balances_visible_to_members: false,
+        },
     };
     app.client.update_currency_config(&update_body).await?;
 
     // Verify all fields updated correctly
     let communities = app.client.get_communities().await?;
     let community = communities.first().unwrap();
-    assert_eq!(community.currency_config, new_config);
-    assert_eq!(community.currency_name, "credits");
-    assert_eq!(community.currency_symbol, "¢");
-    assert!(!community.balances_visible_to_members);
+    assert_eq!(community.currency.mode_config, new_config);
+    assert_eq!(community.currency.name, "credits");
+    assert_eq!(community.currency.symbol, "¢");
+    assert!(!community.currency.balances_visible_to_members);
 
     // Verify specific config fields
-    if let payloads::CurrencyConfig::DistributedClearing(cfg) =
-        &community.currency_config
+    if let payloads::CurrencyModeConfig::DistributedClearing(cfg) =
+        &community.currency.mode_config
     {
         assert_eq!(cfg.default_credit_limit, Some(Decimal::from(250)));
         assert!(!cfg.debts_callable);

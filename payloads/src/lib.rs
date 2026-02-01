@@ -285,50 +285,58 @@ impl PrepaidCreditsConfig {
     }
 }
 
-/// Currency configuration enum with mode-specific data
+/// Mode-specific currency configuration enum
 /// Makes invalid currency configurations unrepresentable
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CurrencyConfig {
+pub enum CurrencyModeConfig {
     PointsAllocation(Box<PointsAllocationConfig>),
     DistributedClearing(IOUConfig),
     DeferredPayment(IOUConfig),
     PrepaidCredits(PrepaidCreditsConfig),
 }
 
-impl CurrencyConfig {
+impl CurrencyModeConfig {
     /// Get the currency mode for this configuration
     pub fn mode(&self) -> CurrencyMode {
         match self {
-            CurrencyConfig::PointsAllocation(_) => {
+            CurrencyModeConfig::PointsAllocation(_) => {
                 CurrencyMode::PointsAllocation
             }
-            CurrencyConfig::DistributedClearing(_) => {
+            CurrencyModeConfig::DistributedClearing(_) => {
                 CurrencyMode::DistributedClearing
             }
-            CurrencyConfig::DeferredPayment(_) => CurrencyMode::DeferredPayment,
-            CurrencyConfig::PrepaidCredits(_) => CurrencyMode::PrepaidCredits,
+            CurrencyModeConfig::DeferredPayment(_) => {
+                CurrencyMode::DeferredPayment
+            }
+            CurrencyModeConfig::PrepaidCredits(_) => {
+                CurrencyMode::PrepaidCredits
+            }
         }
     }
 
     /// Get the default credit limit for this configuration
     pub fn default_credit_limit(&self) -> Option<rust_decimal::Decimal> {
         match self {
-            CurrencyConfig::PointsAllocation(cfg) => Some(cfg.credit_limit()),
-            CurrencyConfig::DistributedClearing(cfg) => {
+            CurrencyModeConfig::PointsAllocation(cfg) => {
+                Some(cfg.credit_limit())
+            }
+            CurrencyModeConfig::DistributedClearing(cfg) => {
                 cfg.default_credit_limit
             }
-            CurrencyConfig::DeferredPayment(cfg) => cfg.default_credit_limit,
-            CurrencyConfig::PrepaidCredits(cfg) => Some(cfg.credit_limit()),
+            CurrencyModeConfig::DeferredPayment(cfg) => {
+                cfg.default_credit_limit
+            }
+            CurrencyModeConfig::PrepaidCredits(cfg) => Some(cfg.credit_limit()),
         }
     }
 
     /// Get whether debts are callable for this configuration
     pub fn debts_callable(&self) -> bool {
         match self {
-            CurrencyConfig::PointsAllocation(cfg) => cfg.debts_callable(),
-            CurrencyConfig::DistributedClearing(cfg) => cfg.debts_callable,
-            CurrencyConfig::DeferredPayment(cfg) => cfg.debts_callable,
-            CurrencyConfig::PrepaidCredits(cfg) => cfg.debts_callable,
+            CurrencyModeConfig::PointsAllocation(cfg) => cfg.debts_callable(),
+            CurrencyModeConfig::DistributedClearing(cfg) => cfg.debts_callable,
+            CurrencyModeConfig::DeferredPayment(cfg) => cfg.debts_callable,
+            CurrencyModeConfig::PrepaidCredits(cfg) => cfg.debts_callable,
         }
     }
 
@@ -339,14 +347,14 @@ impl CurrencyConfig {
         limit: Option<rust_decimal::Decimal>,
     ) -> Option<Self> {
         match self {
-            CurrencyConfig::DistributedClearing(config) => {
-                Some(CurrencyConfig::DistributedClearing(IOUConfig {
+            CurrencyModeConfig::DistributedClearing(config) => {
+                Some(CurrencyModeConfig::DistributedClearing(IOUConfig {
                     default_credit_limit: limit,
                     debts_callable: config.debts_callable,
                 }))
             }
-            CurrencyConfig::DeferredPayment(config) => {
-                Some(CurrencyConfig::DeferredPayment(IOUConfig {
+            CurrencyModeConfig::DeferredPayment(config) => {
+                Some(CurrencyModeConfig::DeferredPayment(IOUConfig {
                     default_credit_limit: limit,
                     debts_callable: config.debts_callable,
                 }))
@@ -359,25 +367,52 @@ impl CurrencyConfig {
     /// Returns None if the mode doesn't support this setting
     pub fn set_debts_callable(&self, callable: bool) -> Option<Self> {
         match self {
-            CurrencyConfig::DistributedClearing(config) => {
-                Some(CurrencyConfig::DistributedClearing(IOUConfig {
+            CurrencyModeConfig::DistributedClearing(config) => {
+                Some(CurrencyModeConfig::DistributedClearing(IOUConfig {
                     default_credit_limit: config.default_credit_limit,
                     debts_callable: callable,
                 }))
             }
-            CurrencyConfig::DeferredPayment(config) => {
-                Some(CurrencyConfig::DeferredPayment(IOUConfig {
+            CurrencyModeConfig::DeferredPayment(config) => {
+                Some(CurrencyModeConfig::DeferredPayment(IOUConfig {
                     default_credit_limit: config.default_credit_limit,
                     debts_callable: callable,
                 }))
             }
-            CurrencyConfig::PrepaidCredits(_) => {
-                Some(CurrencyConfig::PrepaidCredits(PrepaidCreditsConfig {
+            CurrencyModeConfig::PrepaidCredits(_) => {
+                Some(CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
                     debts_callable: callable,
                 }))
             }
             _ => None,
         }
+    }
+}
+
+/// Complete currency settings for a community
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurrencySettings {
+    pub mode_config: CurrencyModeConfig,
+    pub name: String,
+    pub symbol: String,
+    pub minor_units: i16,
+    pub balances_visible_to_members: bool,
+}
+
+impl CurrencySettings {
+    /// Get the currency mode
+    pub fn mode(&self) -> CurrencyMode {
+        self.mode_config.mode()
+    }
+
+    /// Get the default credit limit
+    pub fn default_credit_limit(&self) -> Option<rust_decimal::Decimal> {
+        self.mode_config.default_credit_limit()
+    }
+
+    /// Get whether debts are callable
+    pub fn debts_callable(&self) -> bool {
+        self.mode_config.debts_callable()
     }
 }
 
@@ -529,7 +564,7 @@ pub struct JournalLine {
 }
 
 pub mod requests {
-    use crate::{CommunityId, CurrencyConfig};
+    use crate::{CommunityId, CurrencySettings};
     use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
 
@@ -556,19 +591,13 @@ pub mod requests {
     pub struct CreateCommunity {
         pub name: String,
         pub new_members_default_active: bool,
-        pub currency_config: CurrencyConfig,
-        pub currency_name: String,
-        pub currency_symbol: String,
-        pub balances_visible_to_members: bool,
+        pub currency: CurrencySettings,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct UpdateCurrencyConfig {
         pub community_id: CommunityId,
-        pub currency_config: CurrencyConfig,
-        pub currency_name: String,
-        pub currency_symbol: String,
-        pub balances_visible_to_members: bool,
+        pub currency: CurrencySettings,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -750,10 +779,7 @@ pub mod responses {
         pub new_members_default_active: bool,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
-        pub currency_config: super::CurrencyConfig,
-        pub currency_name: String,
-        pub currency_symbol: String,
-        pub balances_visible_to_members: bool,
+        pub currency: super::CurrencySettings,
     }
 
     /// A community invite that has been issued from a given community.
@@ -867,6 +893,7 @@ pub mod responses {
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct UserProfile {
+        pub user_id: UserId,
         pub username: String,
         pub email: String,
         pub display_name: Option<String>,

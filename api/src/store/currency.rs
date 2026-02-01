@@ -962,18 +962,19 @@ async fn get_member_transactions(
     .await
 }
 
-/// Convert database columns to CurrencyConfig
+/// Convert database columns to CurrencyModeConfig
 /// Returns None if the configuration is invalid
-pub fn currency_config_from_db(
+pub fn currency_mode_config_from_db(
     mode: CurrencyMode,
     default_credit_limit: Option<Decimal>,
     debts_callable: bool,
     allowance_amount: Option<Decimal>,
     allowance_period: Option<jiff::Span>,
     allowance_start: Option<jiff::Timestamp>,
-) -> Option<payloads::CurrencyConfig> {
+) -> Option<payloads::CurrencyModeConfig> {
     use payloads::{
-        CurrencyConfig, IOUConfig, PointsAllocationConfig, PrepaidCreditsConfig,
+        CurrencyModeConfig, IOUConfig, PointsAllocationConfig,
+        PrepaidCreditsConfig,
     };
 
     match mode {
@@ -985,7 +986,7 @@ pub fn currency_config_from_db(
             if default_credit_limit != Some(Decimal::ZERO) || debts_callable {
                 return None;
             }
-            Some(CurrencyConfig::PointsAllocation(Box::new(
+            Some(CurrencyModeConfig::PointsAllocation(Box::new(
                 PointsAllocationConfig {
                     allowance_amount: amount,
                     allowance_period: period,
@@ -1005,7 +1006,7 @@ pub fn currency_config_from_db(
             if !debts_callable && default_credit_limit.is_none() {
                 return None;
             }
-            Some(CurrencyConfig::DistributedClearing(IOUConfig {
+            Some(CurrencyModeConfig::DistributedClearing(IOUConfig {
                 default_credit_limit,
                 debts_callable,
             }))
@@ -1022,7 +1023,7 @@ pub fn currency_config_from_db(
             if !debts_callable && default_credit_limit.is_none() {
                 return None;
             }
-            Some(CurrencyConfig::DeferredPayment(IOUConfig {
+            Some(CurrencyModeConfig::DeferredPayment(IOUConfig {
                 default_credit_limit,
                 debts_callable,
             }))
@@ -1039,16 +1040,53 @@ pub fn currency_config_from_db(
             if default_credit_limit != Some(Decimal::ZERO) {
                 return None;
             }
-            Some(CurrencyConfig::PrepaidCredits(PrepaidCreditsConfig {
+            Some(CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
                 debts_callable,
             }))
         }
     }
 }
 
-/// Convert CurrencyConfig to database columns for storage
-pub fn currency_config_to_db(
-    config: &payloads::CurrencyConfig,
+/// Database representation of currency settings
+pub struct CurrencySettingsDb {
+    pub mode: CurrencyMode,
+    pub default_credit_limit: Option<Decimal>,
+    pub debts_callable: bool,
+    pub allowance_amount: Option<Decimal>,
+    pub allowance_period: Option<jiff::Span>,
+    pub allowance_start: Option<jiff::Timestamp>,
+    pub currency_name: String,
+    pub currency_symbol: String,
+    pub currency_minor_units: i16,
+    pub balances_visible_to_members: bool,
+}
+
+/// Convert database columns to complete CurrencySettings
+/// Returns None if the configuration is invalid
+pub fn currency_settings_from_db(
+    db: CurrencySettingsDb,
+) -> Option<payloads::CurrencySettings> {
+    let mode_config = currency_mode_config_from_db(
+        db.mode,
+        db.default_credit_limit,
+        db.debts_callable,
+        db.allowance_amount,
+        db.allowance_period,
+        db.allowance_start,
+    )?;
+
+    Some(payloads::CurrencySettings {
+        mode_config,
+        name: db.currency_name,
+        symbol: db.currency_symbol,
+        minor_units: db.currency_minor_units,
+        balances_visible_to_members: db.balances_visible_to_members,
+    })
+}
+
+/// Convert CurrencyModeConfig to database columns for storage
+pub fn currency_mode_config_to_db(
+    config: &payloads::CurrencyModeConfig,
 ) -> (
     CurrencyMode,
     Option<Decimal>,
@@ -1057,10 +1095,10 @@ pub fn currency_config_to_db(
     Option<jiff::Span>,
     Option<jiff::Timestamp>,
 ) {
-    use payloads::CurrencyConfig;
+    use payloads::CurrencyModeConfig;
 
     match config {
-        CurrencyConfig::PointsAllocation(cfg) => (
+        CurrencyModeConfig::PointsAllocation(cfg) => (
             CurrencyMode::PointsAllocation,
             Some(cfg.credit_limit()),
             cfg.debts_callable(),
@@ -1068,7 +1106,7 @@ pub fn currency_config_to_db(
             Some(cfg.allowance_period),
             Some(cfg.allowance_start),
         ),
-        CurrencyConfig::DistributedClearing(cfg) => (
+        CurrencyModeConfig::DistributedClearing(cfg) => (
             CurrencyMode::DistributedClearing,
             cfg.default_credit_limit,
             cfg.debts_callable,
@@ -1076,7 +1114,7 @@ pub fn currency_config_to_db(
             None,
             None,
         ),
-        CurrencyConfig::DeferredPayment(cfg) => (
+        CurrencyModeConfig::DeferredPayment(cfg) => (
             CurrencyMode::DeferredPayment,
             cfg.default_credit_limit,
             cfg.debts_callable,
@@ -1084,7 +1122,7 @@ pub fn currency_config_to_db(
             None,
             None,
         ),
-        CurrencyConfig::PrepaidCredits(cfg) => (
+        CurrencyModeConfig::PrepaidCredits(cfg) => (
             CurrencyMode::PrepaidCredits,
             Some(cfg.credit_limit()),
             cfg.debts_callable,
@@ -1092,6 +1130,33 @@ pub fn currency_config_to_db(
             None,
             None,
         ),
+    }
+}
+
+/// Convert CurrencySettings to database columns for storage
+pub fn currency_settings_to_db(
+    settings: &payloads::CurrencySettings,
+) -> CurrencySettingsDb {
+    let (
+        mode,
+        default_credit_limit,
+        debts_callable,
+        allowance_amount,
+        allowance_period,
+        allowance_start,
+    ) = currency_mode_config_to_db(&settings.mode_config);
+
+    CurrencySettingsDb {
+        mode,
+        default_credit_limit,
+        debts_callable,
+        allowance_amount,
+        allowance_period,
+        allowance_start,
+        currency_name: settings.name.clone(),
+        currency_symbol: settings.symbol.clone(),
+        currency_minor_units: settings.minor_units,
+        balances_visible_to_members: settings.balances_visible_to_members,
     }
 }
 
@@ -1470,10 +1535,7 @@ pub async fn get_member_transactions_with_permissions(
 /// The currency mode cannot be changed after community creation.
 pub async fn update_currency_config(
     actor: &super::ValidatedMember,
-    currency_config: &payloads::CurrencyConfig,
-    currency_name: &str,
-    currency_symbol: &str,
-    balances_visible_to_members: bool,
+    currency: &payloads::CurrencySettings,
     pool: &PgPool,
     time_source: &super::TimeSource,
 ) -> Result<(), StoreError> {
@@ -1487,23 +1549,26 @@ pub async fn update_currency_config(
         super::get_community_by_id(&actor.0.community_id, pool).await?;
 
     // Validate mode is unchanged
-    if currency_config.mode() != current_community.currency_config.mode() {
+    if currency.mode() != current_community.currency.mode() {
         return Err(StoreError::CurrencyModeImmutable);
     }
 
     // Validate currency name/symbol lengths
-    if currency_name.len() > 50 {
+    if currency.name.len() > 50 {
         return Err(StoreError::InvalidCurrencyName);
     }
-    if currency_symbol.chars().count() > 5 {
+    if currency.symbol.chars().count() > 5 {
         return Err(StoreError::InvalidCurrencySymbol);
+    }
+    if !(0..=6).contains(&currency.minor_units) {
+        return Err(StoreError::InvalidCurrencyConfiguration);
     }
 
     // Validate IOU mode configuration: if debts aren't callable,
     // must have finite credit limit
-    match currency_config {
-        payloads::CurrencyConfig::DistributedClearing(cfg)
-        | payloads::CurrencyConfig::DeferredPayment(cfg) => {
+    match &currency.mode_config {
+        payloads::CurrencyModeConfig::DistributedClearing(cfg)
+        | payloads::CurrencyModeConfig::DeferredPayment(cfg) => {
             if !cfg.debts_callable && cfg.default_credit_limit.is_none() {
                 return Err(StoreError::InvalidCurrencyConfiguration);
             }
@@ -1512,14 +1577,7 @@ pub async fn update_currency_config(
     }
 
     // Convert config to DB format
-    let (
-        mode,
-        default_credit_limit,
-        debts_callable,
-        allowance_amount,
-        allowance_period,
-        allowance_start,
-    ) = currency_config_to_db(currency_config);
+    let currency_db = currency_settings_to_db(currency);
 
     // Update database
     let result = sqlx::query(
@@ -1528,28 +1586,31 @@ pub async fn update_currency_config(
              default_credit_limit = $2,
              currency_name = $3,
              currency_symbol = $4,
-             debts_callable = $5,
-             balances_visible_to_members = $6,
-             allowance_amount = $7,
-             allowance_period = $8,
-             allowance_start = $9,
-             updated_at = $10
-         WHERE id = $11",
+             currency_minor_units = $5,
+             debts_callable = $6,
+             balances_visible_to_members = $7,
+             allowance_amount = $8,
+             allowance_period = $9,
+             allowance_start = $10,
+             updated_at = $11
+         WHERE id = $12",
     )
-    .bind(mode)
-    .bind(default_credit_limit)
-    .bind(currency_name)
-    .bind(currency_symbol)
-    .bind(debts_callable)
-    .bind(balances_visible_to_members)
-    .bind(allowance_amount)
+    .bind(currency_db.mode)
+    .bind(currency_db.default_credit_limit)
+    .bind(currency_db.currency_name)
+    .bind(currency_db.currency_symbol)
+    .bind(currency_db.currency_minor_units)
+    .bind(currency_db.debts_callable)
+    .bind(currency_db.balances_visible_to_members)
+    .bind(currency_db.allowance_amount)
     .bind(
-        allowance_period
+        currency_db
+            .allowance_period
             .as_ref()
             .map(super::span_to_interval)
             .transpose()?,
     )
-    .bind(allowance_start.as_ref().map(|t| t.to_sqlx()))
+    .bind(currency_db.allowance_start.as_ref().map(|t| t.to_sqlx()))
     .bind(time_source.now().to_sqlx())
     .bind(actor.0.community_id)
     .execute(pool)

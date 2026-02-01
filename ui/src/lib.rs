@@ -16,11 +16,12 @@ use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
-    CommunityDetailPage, CommunityInvitesPage, CommunityMembersPage,
-    CommunitySettingsPage, CreateAuctionPage, CreateCommunityPage,
-    CreateSitePage, ForgotPasswordPage, HelpPage, LoggedInHomePage,
-    LoggedOutHomePage, LoginPage, NotFoundPage, ProfilePage, ResetPasswordPage,
-    SiteAuctionsPage, SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
+    CommunityCurrencyPage, CommunityDetailPage, CommunityInvitesPage,
+    CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
+    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
+    HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
+    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteDetailPage,
+    SiteSettingsPage, VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -89,6 +90,10 @@ pub enum Route {
     CommunityMembers { id: CommunityId },
     #[at("/communities/:id/invites")]
     CommunityInvites { id: CommunityId },
+    #[at("/communities/:id/currency")]
+    CommunityCurrency { id: CommunityId },
+    #[at("/communities/:id/treasury")]
+    CommunityTreasury { id: CommunityId },
     #[at("/communities/:id/settings")]
     CommunitySettings { id: CommunityId },
     #[at("/communities/:id/sites/new")]
@@ -133,6 +138,12 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityInvites { id } => {
             html! { <CommunityInvitesPage community_id={id} /> }
+        }
+        Route::CommunityCurrency { id } => {
+            html! { <CommunityCurrencyPage community_id={id} /> }
+        }
+        Route::CommunityTreasury { id } => {
+            html! { <CommunityTreasuryPage community_id={id} /> }
         }
         Route::CommunitySettings { id } => {
             html! { <CommunitySettingsPage community_id={id} /> }

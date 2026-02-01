@@ -14,6 +14,7 @@ ALTER TABLE communities
     DROP COLUMN default_credit_limit,
     DROP COLUMN currency_name,
     DROP COLUMN currency_symbol,
+    DROP COLUMN currency_minor_units,
     DROP COLUMN debts_callable,
     DROP COLUMN balances_visible_to_members,
     DROP COLUMN allowance_amount,

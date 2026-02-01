@@ -293,10 +293,13 @@ impl TestApp {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
             new_members_default_active: true,
-            currency_config: default_currency_config(),
-            currency_name: "dollars".into(),
-            currency_symbol: "$".into(),
-            balances_visible_to_members: true,
+            currency: payloads::CurrencySettings {
+                mode_config: default_currency_config(),
+                name: "dollars".into(),
+                symbol: "$".into(),
+                minor_units: 2,
+                balances_visible_to_members: true,
+            },
         };
         Ok(self.client.create_community(&body).await?)
     }
@@ -875,8 +878,8 @@ pub fn assert_auction_equal(
 
 /// Default currency configuration for testing: distributed clearing with
 /// unlimited credit and callable debts
-pub fn default_currency_config() -> payloads::CurrencyConfig {
-    payloads::CurrencyConfig::DistributedClearing(payloads::IOUConfig {
+pub fn default_currency_config() -> payloads::CurrencyModeConfig {
+    payloads::CurrencyModeConfig::DistributedClearing(payloads::IOUConfig {
         default_credit_limit: None,
         debts_callable: true,
     })

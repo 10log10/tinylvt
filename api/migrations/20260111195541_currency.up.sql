@@ -71,6 +71,10 @@ ALTER TABLE communities
     -- User-assigned name and symbol to currency
     ADD COLUMN currency_name VARCHAR(50) NOT NULL DEFAULT 'dollars',
     ADD COLUMN currency_symbol VARCHAR(5) NOT NULL DEFAULT '$',
+    -- Number of decimal places for display (e.g., 2 for cents, 0 for
+    -- whole units)
+    ADD COLUMN currency_minor_units SMALLINT NOT NULL DEFAULT 2
+        CHECK (currency_minor_units >= 0 AND currency_minor_units <= 6),
     -- Whether debts can be called for settlement in denominated unit
     ADD COLUMN debts_callable BOOLEAN NOT NULL DEFAULT true,
     -- Whether ordinary members can see all member balances/limits

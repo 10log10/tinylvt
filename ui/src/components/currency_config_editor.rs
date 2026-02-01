@@ -1,6 +1,6 @@
 use payloads::{
-    CurrencyConfig, CurrencyMode, IOUConfig, PointsAllocationConfig,
-    PrepaidCreditsConfig,
+    CurrencyMode, CurrencyModeConfig, CurrencySettings, IOUConfig,
+    PointsAllocationConfig, PrepaidCreditsConfig,
 };
 use rust_decimal::Decimal;
 use wasm_bindgen::JsCast;
@@ -9,11 +9,8 @@ use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub currency_config: CurrencyConfig,
-    pub currency_name: String,
-    pub currency_symbol: String,
-    pub balances_visible_to_members: bool,
-    pub on_change: Callback<(CurrencyConfig, String, String, bool)>,
+    pub currency: CurrencySettings,
+    pub on_change: Callback<CurrencySettings>,
     #[prop_or_default]
     pub disabled: bool,
     #[prop_or_default]
@@ -22,7 +19,7 @@ pub struct Props {
 
 #[function_component]
 pub fn CurrencyConfigEditor(props: &Props) -> Html {
-    let current_mode = props.currency_config.mode();
+    let current_mode = props.currency.mode_config.mode();
 
     html! {
         <div class="space-y-6">
@@ -57,6 +54,7 @@ pub fn CurrencyConfigEditor(props: &Props) -> Html {
 
                 {render_currency_name_input(props)}
                 {render_currency_symbol_input(props)}
+                {render_currency_minor_units_input(props)}
                 {render_balances_visible_checkbox(props)}
             </div>
 
@@ -70,7 +68,7 @@ pub fn CurrencyConfigEditor(props: &Props) -> Html {
 }
 
 fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
-    let modes = vec![
+    let modes = [
         (
             CurrencyMode::DistributedClearing,
             "Distributed Clearing",
@@ -99,10 +97,11 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                 let is_selected = mode == current_mode;
                 let on_select = {
                     let on_change_callback = props.on_change.clone();
-                    let balances_visible = props.balances_visible_to_members;
+                    let balances_visible = props.currency.balances_visible_to_members;
+                    let currency_minor_units = props.currency.minor_units;
                     let mode = *mode;
                     Callback::from(move |_| {
-                        let new_config = create_default_config_for_mode(&mode);
+                        let new_mode_config = create_default_config_for_mode(&mode);
 
                         // Auto-update currency name/symbol based on mode
                         let (currency_name, currency_symbol) = match mode {
@@ -116,12 +115,13 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                             }
                         };
 
-                        on_change_callback.emit((
-                            new_config,
-                            currency_name,
-                            currency_symbol,
-                            balances_visible,
-                        ));
+                        on_change_callback.emit(CurrencySettings {
+                            mode_config: new_mode_config,
+                            name: currency_name,
+                            symbol: currency_symbol,
+                            minor_units: currency_minor_units,
+                            balances_visible_to_members: balances_visible,
+                        });
                     })
                 };
 
@@ -153,20 +153,16 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
 fn render_currency_name_input(props: &Props) -> Html {
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_config = props.currency_config.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
                 e.target().unwrap().dyn_into().unwrap();
             let value = input.value();
-            on_change_callback.emit((
-                currency_config.clone(),
-                value,
-                currency_symbol.clone(),
-                balances_visible,
-            ));
+            on_change_callback.emit(CurrencySettings {
+                name: value,
+                ..currency.clone()
+            });
         })
     };
 
@@ -177,7 +173,7 @@ fn render_currency_name_input(props: &Props) -> Html {
             </label>
             <input
                 type="text"
-                value={props.currency_name.clone()}
+                value={props.currency.name.clone()}
                 onchange={on_change}
                 disabled={props.disabled}
                 placeholder="dollars"
@@ -193,9 +189,7 @@ fn render_currency_name_input(props: &Props) -> Html {
 fn render_currency_symbol_input(props: &Props) -> Html {
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_config = props.currency_config.clone();
-        let currency_name = props.currency_name.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
@@ -203,12 +197,10 @@ fn render_currency_symbol_input(props: &Props) -> Html {
             let value = input.value();
             // Validate max 5 characters (matches DB VARCHAR(5))
             if value.chars().count() <= 5 {
-                on_change_callback.emit((
-                    currency_config.clone(),
-                    currency_name.clone(),
-                    value,
-                    balances_visible,
-                ));
+                on_change_callback.emit(CurrencySettings {
+                    symbol: value,
+                    ..currency.clone()
+                });
             }
         })
     };
@@ -220,7 +212,7 @@ fn render_currency_symbol_input(props: &Props) -> Html {
             </label>
             <input
                 type="text"
-                value={props.currency_symbol.clone()}
+                value={props.currency.symbol.clone()}
                 onchange={on_change}
                 disabled={props.disabled}
                 placeholder="$"
@@ -234,23 +226,62 @@ fn render_currency_symbol_input(props: &Props) -> Html {
     }
 }
 
+fn render_currency_minor_units_input(props: &Props) -> Html {
+    let on_change = {
+        let on_change_callback = props.on_change.clone();
+        let currency = props.currency.clone();
+
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement =
+                e.target().unwrap().dyn_into().unwrap();
+            let value = input.value();
+
+            if let Ok(minor_units) = value.parse::<i16>() {
+                // Validate range 0-6 (matches DB constraint)
+                if (0..=6).contains(&minor_units) {
+                    on_change_callback.emit(CurrencySettings {
+                        minor_units,
+                        ..currency.clone()
+                    });
+                }
+            }
+        })
+    };
+
+    html! {
+        <div>
+            <label class="block text-sm font-medium mb-1 text-neutral-900 dark:text-neutral-100">
+                {"Decimal Places"}
+            </label>
+            <input
+                type="number"
+                min="0"
+                max="6"
+                value={props.currency.minor_units.to_string()}
+                onchange={on_change}
+                disabled={props.disabled}
+                class="w-20 border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
+            />
+            <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                {"Number of decimal places to display (0-6). E.g., 2 for cents, 0 for whole units"}
+            </p>
+        </div>
+    }
+}
+
 fn render_balances_visible_checkbox(props: &Props) -> Html {
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_config = props.currency_config.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
                 e.target().unwrap().dyn_into().unwrap();
             let checked = input.checked();
-            on_change_callback.emit((
-                currency_config.clone(),
-                currency_name.clone(),
-                currency_symbol.clone(),
-                checked,
-            ));
+            on_change_callback.emit(CurrencySettings {
+                balances_visible_to_members: checked,
+                ..currency.clone()
+            });
         })
     };
 
@@ -258,7 +289,7 @@ fn render_balances_visible_checkbox(props: &Props) -> Html {
         <div class="flex items-start">
             <input
                 type="checkbox"
-                checked={props.balances_visible_to_members}
+                checked={props.currency.balances_visible_to_members}
                 onchange={on_change}
                 disabled={props.disabled}
                 class="mt-1 mr-2"
@@ -276,21 +307,23 @@ fn render_balances_visible_checkbox(props: &Props) -> Html {
 }
 
 fn render_mode_specific_fields(props: &Props, _mode: &CurrencyMode) -> Html {
-    match props.currency_config {
-        CurrencyConfig::PointsAllocation(ref config) => {
+    match props.currency.mode_config {
+        CurrencyModeConfig::PointsAllocation(ref config) => {
             render_points_allocation_fields(props, config)
         }
-        CurrencyConfig::DistributedClearing(ref config) => render_iou_fields(
-            props,
-            config,
-            "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
-        ),
-        CurrencyConfig::DeferredPayment(ref config) => render_iou_fields(
+        CurrencyModeConfig::DistributedClearing(ref config) => {
+            render_iou_fields(
+                props,
+                config,
+                "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
+            )
+        }
+        CurrencyModeConfig::DeferredPayment(ref config) => render_iou_fields(
             props,
             config,
             "In Deferred Payment mode, members issue IOUs to the treasury which are settled later.",
         ),
-        CurrencyConfig::PrepaidCredits(ref config) => {
+        CurrencyModeConfig::PrepaidCredits(ref config) => {
             render_prepaid_credits_fields(props, config)
         }
     }
@@ -300,7 +333,8 @@ fn render_points_allocation_fields(
     props: &Props,
     _config: &PointsAllocationConfig,
 ) -> Html {
-    let CurrencyConfig::PointsAllocation(boxed_config) = &props.currency_config
+    let CurrencyModeConfig::PointsAllocation(boxed_config) =
+        &props.currency.mode_config
     else {
         return html! {};
     };
@@ -372,18 +406,15 @@ fn render_credit_limit_input(
 
     let on_unlimited_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
-        let current_config = props.currency_config.clone();
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
                 e.target().unwrap().dyn_into().unwrap();
             let checked = input.checked();
 
-            let Some(new_config) =
-                current_config.set_default_credit_limit(if checked {
+            let Some(new_mode_config) =
+                currency.mode_config.set_default_credit_limit(if checked {
                     None
                 } else {
                     Some(Decimal::new(100, 0))
@@ -392,21 +423,16 @@ fn render_credit_limit_input(
                 return;
             };
 
-            on_change_callback.emit((
-                new_config,
-                currency_name.clone(),
-                currency_symbol.clone(),
-                balances_visible,
-            ));
+            on_change_callback.emit(CurrencySettings {
+                mode_config: new_mode_config,
+                ..currency.clone()
+            });
         })
     };
 
     let on_amount_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
-        let current_config = props.currency_config.clone();
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
@@ -416,18 +442,20 @@ fn render_credit_limit_input(
             if let Ok(amount) = value.parse::<Decimal>()
                 && amount >= Decimal::ZERO
             {
-                let Some(new_config) =
-                    current_config.set_default_credit_limit(Some(amount))
+                let Some(new_mode_config) =
+                    currency.mode_config.set_default_credit_limit(Some(amount))
                 else {
                     return;
                 };
 
-                on_change_callback.emit((
-                    new_config,
-                    currency_name.clone(),
-                    currency_symbol.clone(),
-                    balances_visible,
-                ));
+                on_change_callback.emit(CurrencySettings {
+                    mode_config: new_mode_config,
+                    name: currency.name.clone(),
+                    symbol: currency.symbol.clone(),
+                    minor_units: currency.minor_units,
+                    balances_visible_to_members: currency
+                        .balances_visible_to_members,
+                });
             }
         })
     };
@@ -471,27 +499,23 @@ fn render_credit_limit_input(
 fn render_debts_callable_checkbox(props: &Props, current_value: bool) -> Html {
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
-        let current_config = props.currency_config.clone();
+        let currency = props.currency.clone();
 
         Callback::from(move |e: Event| {
             let input: HtmlInputElement =
                 e.target().unwrap().dyn_into().unwrap();
             let checked = input.checked();
 
-            let Some(new_config) = current_config.set_debts_callable(checked)
+            let Some(new_mode_config) =
+                currency.mode_config.set_debts_callable(checked)
             else {
                 return;
             };
 
-            on_change_callback.emit((
-                new_config,
-                currency_name.clone(),
-                currency_symbol.clone(),
-                balances_visible,
-            ));
+            on_change_callback.emit(CurrencySettings {
+                mode_config: new_mode_config,
+                ..currency.clone()
+            });
         })
     };
 
@@ -522,9 +546,7 @@ fn render_allowance_amount_input(
 ) -> Html {
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
         let allowance_period = config.allowance_period;
         let allowance_start = config.allowance_start;
 
@@ -533,23 +555,25 @@ fn render_allowance_amount_input(
                 e.target().unwrap().dyn_into().unwrap();
             let value = input.value();
 
-            if let Ok(amount) = value.parse::<Decimal>() {
-                if amount > Decimal::ZERO {
-                    let new_config = CurrencyConfig::PointsAllocation(
-                        Box::new(PointsAllocationConfig {
-                            allowance_amount: amount,
-                            allowance_period,
-                            allowance_start,
-                        }),
-                    );
+            if let Ok(amount) = value.parse::<Decimal>()
+                && amount > Decimal::ZERO
+            {
+                let new_mode_config = CurrencyModeConfig::PointsAllocation(
+                    Box::new(PointsAllocationConfig {
+                        allowance_amount: amount,
+                        allowance_period,
+                        allowance_start,
+                    }),
+                );
 
-                    on_change_callback.emit((
-                        new_config,
-                        currency_name.clone(),
-                        currency_symbol.clone(),
-                        balances_visible,
-                    ));
-                }
+                on_change_callback.emit(CurrencySettings {
+                    mode_config: new_mode_config,
+                    name: currency.name.clone(),
+                    symbol: currency.symbol.clone(),
+                    minor_units: currency.minor_units,
+                    balances_visible_to_members: currency
+                        .balances_visible_to_members,
+                });
             }
         })
     };
@@ -592,9 +616,7 @@ fn render_allowance_period_input(
 
     let on_value_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
         let allowance_amount = config.allowance_amount;
         let allowance_start = config.allowance_start;
         let current_unit = period_unit;
@@ -613,29 +635,29 @@ fn render_allowance_period_input(
                     jiff::Span::new().days(amount)
                 };
 
-                let new_config = CurrencyConfig::PointsAllocation(Box::new(
-                    PointsAllocationConfig {
+                let new_mode_config = CurrencyModeConfig::PointsAllocation(
+                    Box::new(PointsAllocationConfig {
                         allowance_amount,
                         allowance_period: period,
                         allowance_start,
-                    },
-                ));
+                    }),
+                );
 
-                on_change_callback.emit((
-                    new_config,
-                    currency_name.clone(),
-                    currency_symbol.clone(),
-                    balances_visible,
-                ));
+                on_change_callback.emit(CurrencySettings {
+                    mode_config: new_mode_config,
+                    name: currency.name.clone(),
+                    symbol: currency.symbol.clone(),
+                    minor_units: currency.minor_units,
+                    balances_visible_to_members: currency
+                        .balances_visible_to_members,
+                });
             }
         })
     };
 
     let on_unit_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
         let allowance_amount = config.allowance_amount;
         let allowance_start = config.allowance_start;
 
@@ -651,20 +673,18 @@ fn render_allowance_period_input(
                 jiff::Span::new().days(7)
             };
 
-            let new_config = CurrencyConfig::PointsAllocation(Box::new(
-                PointsAllocationConfig {
+            let new_mode_config = CurrencyModeConfig::PointsAllocation(
+                Box::new(PointsAllocationConfig {
                     allowance_amount,
                     allowance_period: period,
                     allowance_start,
-                },
-            ));
+                }),
+            );
 
-            on_change_callback.emit((
-                new_config,
-                currency_name.clone(),
-                currency_symbol.clone(),
-                balances_visible,
-            ));
+            on_change_callback.emit(CurrencySettings {
+                mode_config: new_mode_config,
+                ..currency.clone()
+            });
         })
     };
 
@@ -712,9 +732,7 @@ fn render_allowance_start_input(
 
     let on_change = {
         let on_change_callback = props.on_change.clone();
-        let currency_name = props.currency_name.clone();
-        let currency_symbol = props.currency_symbol.clone();
-        let balances_visible = props.balances_visible_to_members;
+        let currency = props.currency.clone();
         let allowance_amount = config.allowance_amount;
         let allowance_period = config.allowance_period;
 
@@ -725,24 +743,25 @@ fn render_allowance_start_input(
 
             // Parse datetime-local format (YYYY-MM-DDTHH:MM)
             // datetime-local is a civil datetime, we convert to system timezone
-            if let Ok(civil) = value.parse::<jiff::civil::DateTime>() {
-                if let Ok(zoned) = civil.to_zoned(jiff::tz::TimeZone::system())
-                {
-                    let new_config = CurrencyConfig::PointsAllocation(
-                        Box::new(PointsAllocationConfig {
-                            allowance_amount,
-                            allowance_period,
-                            allowance_start: zoned.timestamp(),
-                        }),
-                    );
+            if let Ok(civil) = value.parse::<jiff::civil::DateTime>()
+                && let Ok(zoned) = civil.to_zoned(jiff::tz::TimeZone::system())
+            {
+                let new_mode_config = CurrencyModeConfig::PointsAllocation(
+                    Box::new(PointsAllocationConfig {
+                        allowance_amount,
+                        allowance_period,
+                        allowance_start: zoned.timestamp(),
+                    }),
+                );
 
-                    on_change_callback.emit((
-                        new_config,
-                        currency_name.clone(),
-                        currency_symbol.clone(),
-                        balances_visible,
-                    ));
-                }
+                on_change_callback.emit(CurrencySettings {
+                    mode_config: new_mode_config,
+                    name: currency.name.clone(),
+                    symbol: currency.symbol.clone(),
+                    minor_units: currency.minor_units,
+                    balances_visible_to_members: currency
+                        .balances_visible_to_members,
+                });
             }
         })
     };
@@ -766,30 +785,32 @@ fn render_allowance_start_input(
     }
 }
 
-fn create_default_config_for_mode(mode: &CurrencyMode) -> CurrencyConfig {
+fn create_default_config_for_mode(mode: &CurrencyMode) -> CurrencyModeConfig {
     match mode {
         CurrencyMode::DistributedClearing => {
-            CurrencyConfig::DistributedClearing(IOUConfig {
+            CurrencyModeConfig::DistributedClearing(IOUConfig {
                 default_credit_limit: None,
                 debts_callable: true,
             })
         }
         CurrencyMode::PointsAllocation => {
             // Default to monthly allowance starting now
-            CurrencyConfig::PointsAllocation(Box::new(PointsAllocationConfig {
-                allowance_amount: Decimal::new(100, 0),
-                allowance_period: jiff::Span::new().months(1),
-                allowance_start: jiff::Zoned::now().timestamp(),
-            }))
+            CurrencyModeConfig::PointsAllocation(Box::new(
+                PointsAllocationConfig {
+                    allowance_amount: Decimal::new(100, 0),
+                    allowance_period: jiff::Span::new().months(1),
+                    allowance_start: jiff::Zoned::now().timestamp(),
+                },
+            ))
         }
         CurrencyMode::DeferredPayment => {
-            CurrencyConfig::DeferredPayment(IOUConfig {
+            CurrencyModeConfig::DeferredPayment(IOUConfig {
                 default_credit_limit: None,
                 debts_callable: true,
             })
         }
         CurrencyMode::PrepaidCredits => {
-            CurrencyConfig::PrepaidCredits(PrepaidCreditsConfig {
+            CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
                 debts_callable: false,
             })
         }

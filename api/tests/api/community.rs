@@ -20,10 +20,13 @@ async fn long_community_name_rejected() -> anyhow::Result<()> {
     let body = requests::CreateCommunity {
         name: (0..300).map(|_| "X").collect::<String>(),
         new_members_default_active: true,
-        currency_config: test_helpers::default_currency_config(),
-        currency_name: "dollars".to_string(),
-        currency_symbol: "$".to_string(),
-        balances_visible_to_members: true,
+        currency: payloads::CurrencySettings {
+            mode_config: test_helpers::default_currency_config(),
+            name: "dollars".to_string(),
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+        },
     };
     let result = app.client.create_community(&body).await;
 

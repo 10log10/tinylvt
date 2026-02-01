@@ -75,18 +75,13 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
         let save_success = save_success.clone();
         let save_error = save_error.clone();
 
-        Callback::from(
-            move |(new_config, new_name, new_symbol, new_balances_visible)| {
-                let mut updated = (*edited_community).clone();
-                updated.currency_config = new_config;
-                updated.currency_name = new_name;
-                updated.currency_symbol = new_symbol;
-                updated.balances_visible_to_members = new_balances_visible;
-                edited_community.set(updated);
-                save_success.set(false);
-                save_error.set(None);
-            },
-        )
+        Callback::from(move |new_currency: payloads::CurrencySettings| {
+            let mut updated = (*edited_community).clone();
+            updated.currency = new_currency;
+            edited_community.set(updated);
+            save_success.set(false);
+            save_error.set(None);
+        })
     };
 
     // Save currency config handler
@@ -113,11 +108,7 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
                 let client = get_api_client();
                 let details = requests::UpdateCurrencyConfig {
                     community_id,
-                    currency_config: edited.currency_config,
-                    currency_name: edited.currency_name,
-                    currency_symbol: edited.currency_symbol,
-                    balances_visible_to_members: edited
-                        .balances_visible_to_members,
+                    currency: edited.currency,
                 };
 
                 match client.update_currency_config(&details).await {
@@ -213,12 +204,7 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
                     </h2>
 
                     <CurrencyConfigEditor
-                        currency_config={edited_community.currency_config.clone()}
-                        currency_name={edited_community.currency_name.clone()}
-                        currency_symbol={edited_community.currency_symbol.clone()}
-                        balances_visible_to_members={
-                            edited_community.balances_visible_to_members
-                        }
+                        currency={edited_community.currency.clone()}
                         on_change={on_currency_config_change}
                         disabled={!is_coleader_plus || *is_saving}
                         can_change_mode={false}
