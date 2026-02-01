@@ -103,7 +103,7 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                         {format!("Error loading treasury account: {}", error)}
                                     </div>
                                 }
-                            } else if let Some(account) = &treasury_account.account {
+                            } else if let Some(account) = treasury_account.data.as_ref() {
                                 html! {
                                     <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
                                         <div class="text-sm text-neutral-600 dark:text-neutral-400">
@@ -156,7 +156,7 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                         {format!("Error loading transactions: {}", error)}
                                     </div>
                                 }
-                            } else if let Some(txns) = &treasury_transactions.transactions {
+                            } else if let Some(txns) = treasury_transactions.data.as_ref() {
                                 html! {
                                     <TransactionList
                                         transactions={txns.clone()}

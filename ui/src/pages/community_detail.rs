@@ -60,7 +60,7 @@ fn SitesTab(props: &SitesTabProps) -> Html {
         };
     }
 
-    match &sites_hook.sites {
+    match sites_hook.data.as_ref() {
         Some(sites) => {
             // Filter sites based on show_deleted toggle
             let displayed_sites: Vec<_> = sites

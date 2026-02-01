@@ -58,7 +58,7 @@ fn MembersContent(props: &MembersContentProps) -> Html {
         };
     }
 
-    match &members_hook.members {
+    match members_hook.data.as_ref() {
         Some(members) => {
             if members.is_empty() {
                 html! {
@@ -220,7 +220,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                         {
                                             if currency_info.is_loading {
                                                 html! { <span class="text-neutral-400">{"..."}</span> }
-                                            } else if let Some(info) = &currency_info.info {
+                                            } else if let Some(info) = currency_info.data.as_ref() {
                                                 html! {
                                                     <span>
                                                         {&community.community.currency.symbol}
@@ -262,7 +262,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
             // Edit credit limit modal
             {
                 if *show_edit_modal {
-                    if let Some(info) = &currency_info.info {
+                    if let Some(info) = currency_info.data.as_ref() {
                         html! {
                             <EditCreditLimitModal
                                 member={member.user.clone()}

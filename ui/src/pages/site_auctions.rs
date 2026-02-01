@@ -174,7 +174,7 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
             </div>
         }
     } else {
-        match &auctions_hook.auctions {
+        match auctions_hook.data.as_ref() {
             Some(auctions) if !auctions.is_empty() => {
                 // Filter auctions by status
                 let mut filtered_auctions: Vec<_> = auctions

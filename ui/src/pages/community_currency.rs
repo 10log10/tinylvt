@@ -94,7 +94,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                         {format!("Error loading balance: {}", error)}
                                     </div>
                                 }
-                            } else if let Some(info) = &currency_info.info {
+                            } else if let Some(info) = currency_info.data.as_ref() {
                                 html! {
                                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                         // Balance
@@ -179,7 +179,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             {&props.community.community.currency.name}
                         </h2>
                         {
-                            if let Some(info) = &currency_info.info {
+                            if let Some(info) = currency_info.data.as_ref() {
                                 let refetch_currency = currency_info.refetch.clone();
                                 let refetch_txns = transactions.refetch.clone();
 
@@ -226,7 +226,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                         {format!("Error loading transactions: {}", error)}
                                     </div>
                                 }
-                            } else if let Some(txns) = &transactions.transactions {
+                            } else if let Some(txns) = transactions.data.as_ref() {
                                 html! {
                                     <TransactionList
                                         transactions={txns.clone()}

@@ -50,7 +50,7 @@ fn SitePageWrapperInner(props: &Props) -> Html {
         };
     }
 
-    let site = match &site_hook.site {
+    let site = match site_hook.data.as_ref() {
         Some(s) => s,
         None => {
             return html! {
@@ -62,16 +62,12 @@ fn SitePageWrapperInner(props: &Props) -> Html {
     };
 
     // Find the user's role in this site's community
-    let user_role =
-        communities_hook
-            .communities
-            .as_ref()
-            .and_then(|communities| {
-                communities
-                    .iter()
-                    .find(|c| c.id == site.site_details.community_id)
-                    .map(|c| c.user_role)
-            });
+    let user_role = communities_hook.data.as_ref().and_then(|communities| {
+        communities
+            .iter()
+            .find(|c| c.id == site.site_details.community_id)
+            .map(|c| c.user_role)
+    });
 
     let user_role = match user_role {
         Some(role) => role,

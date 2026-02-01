@@ -273,7 +273,7 @@ pub fn TransferForm(props: &Props) -> Html {
                         html! {
                             <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
                         }
-                    } else if let Some(member_list) = &members.members {
+                    } else if let Some(member_list) = members.data.as_ref() {
                         html! {
                             <select
                                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
