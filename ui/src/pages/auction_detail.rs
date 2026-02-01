@@ -431,11 +431,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     // On true initial load (no data at all), the parent component handles it.
 
     // Get the data we need
-    let prices = round_prices_hook
-        .prices
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let prices = round_prices_hook.data.as_ref().cloned().unwrap_or_default();
 
     let user_values = props.user_values.clone().unwrap_or_default();
     let spaces = props.spaces.clone().unwrap_or_default();

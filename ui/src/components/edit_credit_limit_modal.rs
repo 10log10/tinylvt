@@ -1,4 +1,6 @@
-use payloads::{CommunityId, requests, responses::UserIdentity};
+use payloads::{
+    CommunityId, CurrencySettings, requests, responses::UserIdentity,
+};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use yew::prelude::*;
@@ -10,7 +12,7 @@ pub struct Props {
     pub member: UserIdentity,
     pub community_id: CommunityId,
     pub current_credit_limit: Option<Decimal>,
-    pub currency_symbol: String,
+    pub currency: CurrencySettings,
     pub on_close: Callback<()>,
     pub on_success: Callback<()>,
 }
@@ -241,7 +243,7 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
                         <span class="font-medium text-neutral-900 dark:text-neutral-100">
                             {
                                 if let Some(limit) = props.current_credit_limit {
-                                    format!("{}{}", props.currency_symbol, limit)
+                                    props.currency.format_amount(limit)
                                 } else {
                                     "Unlimited".to_string()
                                 }
@@ -278,7 +280,7 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
                                     <div class="relative">
                                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                             <span class="text-neutral-500 dark:text-neutral-400">
-                                                {&props.currency_symbol}
+                                                {&props.currency.symbol}
                                             </span>
                                         </div>
                                         <input

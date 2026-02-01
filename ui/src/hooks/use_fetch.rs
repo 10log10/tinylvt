@@ -171,14 +171,13 @@ where
         })
     };
 
-    // Auto-fetch on mount if not yet fetched
+    // Auto-fetch on mount and when deps change
     {
         let refetch = refetch.clone();
         let is_loading_clone = is_loading.clone();
-        let data_clone = data.clone();
 
         use_effect_with(deps, move |_| {
-            if !data_clone.is_fetched() && !*is_loading_clone {
+            if !*is_loading_clone {
                 refetch.emit(());
             }
         });

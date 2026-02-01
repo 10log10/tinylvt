@@ -1,5 +1,5 @@
 use payloads::{
-    CurrencyMode, UserId,
+    CurrencyMode, CurrencySettings, UserId,
     responses::{MemberTransaction, TransactionParty},
 };
 use yew::prelude::*;
@@ -7,15 +7,13 @@ use yew::prelude::*;
 #[derive(Properties)]
 pub struct Props {
     pub transactions: Vec<MemberTransaction>,
-    pub currency_symbol: String,
-    pub currency_mode: CurrencyMode,
+    pub currency: CurrencySettings,
     pub target_user_id: UserId,
 }
 
 impl PartialEq for Props {
     fn eq(&self, other: &Self) -> bool {
-        self.currency_symbol == other.currency_symbol
-            && self.currency_mode == other.currency_mode
+        self.currency == other.currency
             && self.target_user_id == other.target_user_id
             && self.transactions.len() == other.transactions.len()
     }
@@ -38,8 +36,7 @@ pub fn TransactionList(props: &Props) -> Html {
                     html! {
                         <TransactionRow
                             transaction={txn.clone()}
-                            currency_symbol={props.currency_symbol.clone()}
-                            currency_mode={props.currency_mode}
+                            currency={props.currency.clone()}
                             target_user_id={props.target_user_id}
                         />
                     }
@@ -52,15 +49,13 @@ pub fn TransactionList(props: &Props) -> Html {
 #[derive(Properties)]
 struct TransactionRowProps {
     pub transaction: MemberTransaction,
-    pub currency_symbol: String,
-    pub currency_mode: CurrencyMode,
+    pub currency: CurrencySettings,
     pub target_user_id: UserId,
 }
 
 impl PartialEq for TransactionRowProps {
     fn eq(&self, other: &Self) -> bool {
-        self.currency_symbol == other.currency_symbol
-            && self.currency_mode == other.currency_mode
+        self.currency == other.currency
             && self.target_user_id == other.target_user_id
     }
 }
@@ -89,7 +84,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         | payloads::EntryType::CreditPurchase
         | payloads::EntryType::DistributionCorrection
         | payloads::EntryType::DebtSettlement => "Treasury",
-        payloads::EntryType::AuctionSettlement => match props.currency_mode {
+        payloads::EntryType::AuctionSettlement => match props.currency.mode() {
             CurrencyMode::DistributedClearing => "The Community",
             CurrencyMode::PointsAllocation
             | CurrencyMode::DeferredPayment
@@ -185,8 +180,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
                     }
                 )}>
                     {if is_credit { "+" } else { "" }}
-                    {&props.currency_symbol}
-                    {net_amount.abs()}
+                    {props.currency.format_amount(net_amount.abs())}
                 </div>
             </div>
 
@@ -214,8 +208,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
                                                 <span>{party_name}</span>
                                                 <span>
                                                     {if line.amount > rust_decimal::Decimal::ZERO { "+" } else { "" }}
-                                                    {&props.currency_symbol}
-                                                    {line.amount}
+                                                    {props.currency.format_amount(line.amount.abs())}
                                                 </span>
                                             </div>
                                         }

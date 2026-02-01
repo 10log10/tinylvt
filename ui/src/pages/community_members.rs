@@ -268,7 +268,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                 member={member.user.clone()}
                                 community_id={community.id}
                                 current_credit_limit={info.credit_limit}
-                                currency_symbol={community.community.currency.symbol.clone()}
+                                currency={community.community.currency.clone()}
                                 on_close={on_modal_close}
                                 on_success={on_modal_success}
                             />

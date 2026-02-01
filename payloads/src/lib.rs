@@ -414,6 +414,20 @@ impl CurrencySettings {
     pub fn debts_callable(&self) -> bool {
         self.mode_config.debts_callable()
     }
+
+    /// Format an amount using the currency symbol and minor units
+    pub fn format_amount(&self, amount: rust_decimal::Decimal) -> String {
+        // Round to the appropriate number of decimal places
+        let rounded = amount.round_dp_with_strategy(
+            self.minor_units as u32,
+            rust_decimal::RoundingStrategy::MidpointNearestEven,
+        );
+
+        // Format with fixed decimal places (e.g., "$10.00" not "$10")
+        let amount_str =
+            format!("{:.prec$}", rounded, prec = self.minor_units as usize);
+        format!("{}{}", self.symbol, amount_str)
+    }
 }
 
 /// Database-level account owner type enum (used only for DB serialization)

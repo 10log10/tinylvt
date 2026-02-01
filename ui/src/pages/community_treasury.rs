@@ -110,7 +110,7 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                             {"Balance"}
                                         </div>
                                         <div class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
-                                            {format!("{}{}", props.community.community.currency.symbol, account.balance_cached)}
+                                            {props.community.community.currency.format_amount(account.balance_cached)}
                                         </div>
                                     </div>
                                 }
@@ -160,8 +160,7 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                 html! {
                                     <TransactionList
                                         transactions={txns.clone()}
-                                        currency_symbol={props.community.community.currency.symbol.clone()}
-                                        currency_mode={props.community.community.currency.mode_config.mode()}
+                                        currency={props.community.community.currency.clone()}
                                         target_user_id={target_user_id}
                                     />
                                 }

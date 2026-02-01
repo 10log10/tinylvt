@@ -103,7 +103,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                                 {"Balance"}
                                             </div>
                                             <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                {format!("{}{}", props.community.community.currency.symbol, info.balance)}
+                                                {props.community.community.currency.format_amount(info.balance)}
                                             </div>
                                         </div>
 
@@ -118,7 +118,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                                         <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
                                                             {
                                                                 if let Some(limit) = info.credit_limit {
-                                                                    format!("{}{}", props.community.community.currency.symbol, limit)
+                                                                    props.community.community.currency.format_amount(limit)
                                                                 } else {
                                                                     "Unlimited".to_string()
                                                                 }
@@ -137,7 +137,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                                 {"Locked Balance"}
                                             </div>
                                             <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                {format!("{}{}", props.community.community.currency.symbol, info.locked_balance)}
+                                                {props.community.community.currency.format_amount(info.locked_balance)}
                                             </div>
                                         </div>
 
@@ -152,7 +152,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                                         <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
                                                             {
                                                                 if let Some(available) = info.available_credit {
-                                                                    format!("{}{}", props.community.community.currency.symbol, available)
+                                                                    props.community.community.currency.format_amount(available)
                                                                 } else {
                                                                     "Unlimited".to_string()
                                                                 }
@@ -230,8 +230,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                 html! {
                                     <TransactionList
                                         transactions={txns.clone()}
-                                        currency_symbol={props.community.community.currency.symbol.clone()}
-                                        currency_mode={props.community.community.currency.mode_config.mode()}
+                                        currency={props.community.community.currency.clone()}
                                         target_user_id={target_user_id}
                                     />
                                 }
