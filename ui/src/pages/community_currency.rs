@@ -186,8 +186,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                 html! {
                                     <TransferForm
                                         community_id={props.community_id}
-                                        currency_symbol={props.community.community.currency.symbol.clone()}
-                                        currency_name={props.community.community.currency.name.clone()}
+                                        currency={props.community.community.currency.clone()}
                                         available_credit={info.available_credit}
                                         on_success={Callback::from(move |_| {
                                             refetch_currency.emit(());

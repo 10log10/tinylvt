@@ -223,8 +223,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                             } else if let Some(info) = currency_info.data.as_ref() {
                                                 html! {
                                                     <span>
-                                                        {&community.community.currency.symbol}
-                                                        {info.balance}
+                                                        {community.community.currency.format_amount(info.balance)}
                                                     </span>
                                                 }
                                             } else {

@@ -1,4 +1,6 @@
-use payloads::{CommunityId, IdempotencyKey, UserId, requests};
+use payloads::{
+    CommunityId, CurrencySettings, IdempotencyKey, UserId, requests,
+};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -10,8 +12,7 @@ use crate::hooks::use_members;
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub community_id: CommunityId,
-    pub currency_symbol: String,
-    pub currency_name: String,
+    pub currency: CurrencySettings,
     pub available_credit: Option<Decimal>,
     pub on_success: Callback<()>,
 }
@@ -35,13 +36,13 @@ pub fn TransferForm(props: &Props) -> Html {
 
     // Clone props values for use in closures
     let available_credit = props.available_credit;
-    let currency_symbol = props.currency_symbol.clone();
+    let currency = props.currency.clone();
 
     // Validate amount on change
     let validate_amount = {
         let amount_input = amount_input.clone();
         let amount_error = amount_error.clone();
-        let currency_symbol = currency_symbol.clone();
+        let currency = currency.clone();
 
         move || {
             let input = (*amount_input).clone();
@@ -59,8 +60,8 @@ pub fn TransferForm(props: &Props) -> Html {
                     } else if let Some(available) = available_credit {
                         if amount > available {
                             amount_error.set(Some(format!(
-                                "Amount exceeds available credit ({}{})",
-                                currency_symbol, available
+                                "Amount exceeds available credit ({})",
+                                currency.format_amount(available)
                             )));
                         } else {
                             amount_error.set(None);
@@ -315,7 +316,7 @@ pub fn TransferForm(props: &Props) -> Html {
                 <div class="relative">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <span class="text-neutral-500 dark:text-neutral-400">
-                            {&props.currency_symbol}
+                            {&props.currency.symbol}
                         </span>
                     </div>
                     <input
