@@ -99,7 +99,7 @@ pub fn TransferForm(props: &Props) -> Html {
         Callback::from(move |e: Event| {
             let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let value = select.value();
-            if value.is_empty() {
+            if value.is_empty() || value == "none" {
                 selected_recipient.set(None);
             } else if let Ok(user_id) = Uuid::parse_str(&value) {
                 selected_recipient.set(Some(UserId(user_id)));
@@ -277,10 +277,11 @@ pub fn TransferForm(props: &Props) -> Html {
                         html! {
                             <select
                                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                                value={selected_recipient.as_ref().map(|id| id.0.to_string()).unwrap_or_else(|| "none".to_string())}
                                 onchange={on_recipient_change}
                                 disabled={*is_submitting}
                             >
-                                <option value="">{"Select a member..."}</option>
+                                <option value="none" selected={selected_recipient.is_none()}>{"Select a member..."}</option>
                                 {
                                     member_list.iter().map(|member| {
                                         let display_name = member.user.display_name.as_ref()
@@ -288,7 +289,6 @@ pub fn TransferForm(props: &Props) -> Html {
                                         html! {
                                             <option
                                                 value={member.user.user_id.0.to_string()}
-                                                selected={*selected_recipient == Some(member.user.user_id)}
                                             >
                                                 {display_name}
                                             </option>

@@ -12,8 +12,8 @@ use crate::hooks::use_members;
 
 #[derive(PartialEq, Clone, Copy)]
 enum RecipientType {
-    SingleMember,
     AllActiveMembers,
+    SingleMember,
 }
 
 #[derive(Properties, PartialEq)]
@@ -27,8 +27,20 @@ pub struct Props {
 pub fn TreasuryCreditForm(props: &Props) -> Html {
     let members = use_members(props.community_id);
 
+    // Determine default recipient type based on currency mode
+    // Default to AllActiveMembers unless it's prepaid or deferred payment
+    let currency_mode = props.community.community.currency.mode_config.mode();
+    let default_recipient_type = match currency_mode {
+        CurrencyMode::PrepaidCredits | CurrencyMode::DeferredPayment => {
+            RecipientType::SingleMember
+        }
+        CurrencyMode::PointsAllocation | CurrencyMode::DistributedClearing => {
+            RecipientType::AllActiveMembers
+        }
+    };
+
     // Form state
-    let recipient_type = use_state(|| RecipientType::SingleMember);
+    let recipient_type = use_state(|| default_recipient_type);
     let selected_member = use_state(|| None::<UserId>);
     let amount_input = use_state(String::new);
     let note_input = use_state(String::new);
@@ -42,7 +54,6 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
     let amount_error = use_state(|| None::<String>);
 
     // Determine entry type label based on currency mode
-    let currency_mode = props.community.community.currency.mode_config.mode();
     let entry_type_label = match currency_mode {
         CurrencyMode::PointsAllocation => "Allowance",
         CurrencyMode::DistributedClearing => "Distribution Correction",
@@ -105,7 +116,7 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
         Callback::from(move |e: Event| {
             let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let value = select.value();
-            if value.is_empty() {
+            if value.is_empty() || value == "none" {
                 selected_member.set(None);
             } else if let Ok(user_id) = Uuid::parse_str(&value) {
                 selected_member.set(Some(UserId(user_id)));
@@ -308,11 +319,11 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
                     onchange={on_recipient_type_change}
                     disabled={*is_submitting}
                 >
-                    <option value="single" selected={matches!(*recipient_type, RecipientType::SingleMember)}>
-                        {"Single Member"}
-                    </option>
                     <option value="all" selected={matches!(*recipient_type, RecipientType::AllActiveMembers)}>
                         {"All Active Members"}
+                    </option>
+                    <option value="single" selected={matches!(*recipient_type, RecipientType::SingleMember)}>
+                        {"Single Member"}
                     </option>
                 </select>
             </div>
@@ -334,10 +345,11 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
                                     html! {
                                         <select
                                             class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                                            value={selected_member.as_ref().map(|id| id.0.to_string()).unwrap_or_else(|| "none".to_string())}
                                             onchange={on_member_change}
                                             disabled={*is_submitting}
                                         >
-                                            <option value="">{" Select a member..."}</option>
+                                            <option value="none" selected={selected_member.is_none()}>{"Select a member..."}</option>
                                             {
                                                 member_list.iter().map(|member| {
                                                     let display_name = member.user.display_name.as_ref()
@@ -345,7 +357,6 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
                                                     html! {
                                                         <option
                                                             value={member.user.user_id.0.to_string()}
-                                                            selected={*selected_member == Some(member.user.user_id)}
                                                         >
                                                             {display_name}
                                                         </option>
