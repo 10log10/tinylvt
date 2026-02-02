@@ -431,23 +431,22 @@ pub(crate) async fn check_sufficient_credit_tx(
 ///
 /// This is the core ledger operation. It:
 /// 1. Validates that lines sum to zero
-/// 2. Validates one line per account (unless is_auction_settlement)
-/// 3. Locks debited accounts and checks credit limits (unless
-///    is_auction_settlement)
+/// 2. Validates one line per account (except AuctionSettlement/BalanceReset)
+/// 3. Locks debited accounts and checks credit limits (except
+///    AuctionSettlement/BalanceReset)
 /// 4. Creates the journal entry and lines
 /// 5. Updates balance_cached for all accounts
 ///
-/// The `is_auction_settlement` parameter should be true only for auction
-/// settlements. It enables:
-/// - Multiple lines per account (for distributed_clearing transparency)
-/// - Skipping credit checks (locked balance includes the debits being settled)
+/// Special entry types:
+/// - AuctionSettlement: Multiple lines per account allowed, skips credit
+///   checks (locked balance already includes debits)
+/// - BalanceReset: Accounts are pre-locked, credit checks skipped
 ///
 /// Must be called within a transaction. The caller is responsible for
 /// committing or rolling back the transaction.
 ///
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
-#[allow(clippy::too_many_arguments)]
 async fn create_entry(
     community_id: &CommunityId,
     entry_type: EntryType,
@@ -456,7 +455,6 @@ async fn create_entry(
     auction_id: Option<&payloads::AuctionId>,
     initiated_by_id: Option<&UserId>,
     note: Option<String>,
-    is_auction_settlement: bool,
     time_source: &TimeSource,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
@@ -480,8 +478,15 @@ async fn create_entry(
 
     let now = time_source.now();
 
-    // For non-settlement entries, validate and check credit limits
-    if !is_auction_settlement {
+    // Skip validation and credit checks for auction settlement and balance reset
+    // - Auction settlement: locked balance already includes debits
+    // - Balance reset: accounts are pre-locked and credit checks will pass
+    let skip_checks = matches!(
+        entry_type,
+        EntryType::AuctionSettlement | EntryType::BalanceReset
+    );
+
+    if !skip_checks {
         // Validate one line per account
         let unique_accounts: std::collections::HashSet<AccountId> =
             lines.iter().map(|(account_id, _)| *account_id).collect();
@@ -722,7 +727,6 @@ pub async fn create_auction_settlement_entry(
     }
 
     // Create the journal entry as an auction settlement
-    // This allows multiple lines per account and skips credit checks
     create_entry(
         community_id,
         EntryType::AuctionSettlement,
@@ -731,7 +735,6 @@ pub async fn create_auction_settlement_entry(
         Some(auction_id),
         None, // No initiated_by_id for automated settlements
         None, // No note
-        true, // is_auction_settlement
         time_source,
         tx,
     )
@@ -1256,7 +1259,6 @@ pub async fn create_transfer(
         None, // No auction_id
         None, // No initiated_by_id for member-to-member transfers
         note,
-        false, // Not an auction settlement
         time_source,
         &mut tx,
     )
@@ -1408,7 +1410,6 @@ pub async fn treasury_credit_operation(
         None, // No auction_id
         Some(initiated_by_id),
         note,
-        false, // Not an auction settlement
         time_source,
         &mut tx,
     )
@@ -1462,6 +1463,107 @@ pub async fn get_treasury_transactions(
         pool,
     )
     .await
+}
+
+/// Reset all member balances to zero by transferring to treasury
+///
+/// Requires coleader+ permissions.
+/// Cannot be performed during active auctions.
+/// Locks ALL member accounts even if balance is zero.
+pub async fn reset_all_balances(
+    actor: &super::ValidatedMember,
+    note: Option<String>,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<payloads::responses::BalanceResetResult, StoreError> {
+    // Check permissions
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let mut tx = pool.begin().await?;
+    let community_id = &actor.0.community_id;
+
+    // Check for active auctions BEFORE locking
+    // An auction is active if it has started but not yet ended
+    let active_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM auctions auc
+        JOIN sites s ON auc.site_id = s.id
+        WHERE s.community_id = $1
+          AND auc.start_at <= NOW()
+          AND auc.end_at IS NULL
+        "#,
+    )
+    .bind(community_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if active_count > 0 {
+        return Err(StoreError::CannotResetDuringActiveAuction);
+    }
+
+    // Lock ALL member accounts (sorted by ID to prevent deadlocks)
+    #[derive(sqlx::FromRow)]
+    struct AccountBalance {
+        id: payloads::AccountId,
+        balance_cached: rust_decimal::Decimal,
+    }
+
+    let accounts: Vec<AccountBalance> = sqlx::query_as(
+        r#"
+        SELECT id, balance_cached
+        FROM accounts
+        WHERE community_id = $1 AND owner_type = 'member_main'
+        ORDER BY id
+        FOR UPDATE
+        "#,
+    )
+    .bind(community_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Build journal lines for every account (even zero balances)
+    let mut total = rust_decimal::Decimal::ZERO;
+    let mut lines: Vec<(payloads::AccountId, rust_decimal::Decimal)> =
+        Vec::new();
+
+    for account in &accounts {
+        // Debit account (negative of balance)
+        lines.push((account.id, -account.balance_cached));
+        total += account.balance_cached;
+    }
+
+    // Get treasury account
+    let treasury_account =
+        get_account_tx(community_id, payloads::AccountOwner::Treasury, &mut tx)
+            .await?;
+
+    // Add treasury credit line
+    lines.push((treasury_account.id, total));
+
+    // Create journal entry using shared create_entry function
+    let idempotency_key = payloads::IdempotencyKey(uuid::Uuid::new_v4());
+    create_entry(
+        community_id,
+        EntryType::BalanceReset,
+        idempotency_key,
+        lines,
+        None, // No auction_id
+        Some(&actor.0.user_id),
+        note,
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(payloads::responses::BalanceResetResult {
+        accounts_reset: accounts.len(),
+        total_transferred: total,
+    })
 }
 
 /// Get member currency info with permission checking

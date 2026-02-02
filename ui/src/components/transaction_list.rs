@@ -75,6 +75,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         payloads::EntryType::DebtSettlement => "Debt Settlement",
         payloads::EntryType::AuctionSettlement => "Auction Settlement",
         payloads::EntryType::Transfer => "Transfer",
+        payloads::EntryType::BalanceReset => "Balance Reset",
     };
 
     // Determine counterparty based on entry type and currency mode
@@ -83,7 +84,8 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         | payloads::EntryType::IssuanceGrantBulk
         | payloads::EntryType::CreditPurchase
         | payloads::EntryType::DistributionCorrection
-        | payloads::EntryType::DebtSettlement => "Treasury",
+        | payloads::EntryType::DebtSettlement
+        | payloads::EntryType::BalanceReset => "Treasury",
         payloads::EntryType::AuctionSettlement => match props.currency.mode() {
             CurrencyMode::DistributedClearing => "The Community",
             CurrencyMode::PointsAllocation

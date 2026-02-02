@@ -198,3 +198,26 @@ pub async fn update_currency_config(
 
     Ok(HttpResponse::Ok().finish())
 }
+
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/reset_all_balances")]
+pub async fn reset_all_balances(
+    user: Identity,
+    details: web::Json<requests::ResetAllBalances>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    let result = store::currency::reset_all_balances(
+        &validated_member,
+        details.note.clone(),
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(result))
+}

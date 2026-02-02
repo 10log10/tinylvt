@@ -3453,6 +3453,8 @@ pub enum StoreError {
     JournalLinesDoNotSumToZero(rust_decimal::Decimal),
     #[error("Duplicate account in journal entry")]
     DuplicateAccountInJournalEntry,
+    #[error("Cannot reset balances while auctions are active")]
+    CannotResetDuringActiveAuction,
 }
 
 /// Convert a space name unique constraint violation into a more specific error.

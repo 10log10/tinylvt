@@ -1156,3 +1156,156 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_reset_all_balances_basic() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    // Get user IDs
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // Give Alice and Bob some balances via treasury operations
+    let alice_amount = Decimal::new(100, 0);
+    let bob_amount = Decimal::new(200, 0);
+
+    // Credit Alice
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::SingleMember(alice.user.user_id),
+            amount_per_recipient: alice_amount,
+            note: Some("Test credit for Alice".to_string()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Credit Bob
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
+            amount_per_recipient: bob_amount,
+            note: Some("Test credit for Bob".to_string()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Verify initial balances
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    assert_eq!(alice_info.balance, alice_amount);
+
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(bob_info.balance, bob_amount);
+
+    // Reset all balances (alice is leader)
+    app.login_alice().await?;
+    let result = app
+        .client
+        .reset_all_balances(&requests::ResetAllBalances {
+            community_id,
+            note: Some("Test reset".to_string()),
+        })
+        .await?;
+
+    assert_eq!(result.accounts_reset, 2);
+    assert_eq!(result.total_transferred, alice_amount + bob_amount);
+
+    // Verify all balances are now zero
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    assert_eq!(alice_info.balance, Decimal::ZERO);
+
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(bob_info.balance, Decimal::ZERO);
+
+    // Verify treasury received the total (negative = debit, positive = credit)
+    // In points_allocation mode, treasury starts negative and receives
+    // positive debits from reset
+    app.login_alice().await?;
+    let treasury = app
+        .client
+        .get_treasury_account(&requests::GetTreasuryAccount { community_id })
+        .await?;
+    // Treasury started at -(alice_amount + bob_amount) and received
+    // +(alice_amount + bob_amount) from reset, so should be 0
+    assert_eq!(treasury.balance_cached, Decimal::ZERO);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reset_all_balances_blocked_during_auction() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Create an auction
+    let auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    let _auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Try to reset balances - should fail
+    let result = app
+        .client
+        .reset_all_balances(&requests::ResetAllBalances {
+            community_id,
+            note: Some("Should fail".to_string()),
+        })
+        .await;
+
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reset_all_balances_member_permission_denied() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Bob is just a member
+    app.login_bob().await?;
+
+    let result = app
+        .client
+        .reset_all_balances(&requests::ResetAllBalances {
+            community_id,
+            note: Some("Should fail".to_string()),
+        })
+        .await;
+
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}

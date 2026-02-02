@@ -5,7 +5,7 @@ use yew::prelude::*;
 
 use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, RequireAuth,
-    TransactionList, TreasuryCreditForm,
+    ResetBalancesButton, TransactionList, TreasuryCreditForm,
 };
 use crate::hooks::{use_treasury_account, use_treasury_transactions};
 
@@ -128,10 +128,35 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                         <TreasuryCreditForm
                             community_id={props.community_id}
                             community={props.community.clone()}
-                            on_success={Callback::from(move |_| {
-                                treasury_account.refetch.emit(());
-                                treasury_transactions.refetch.emit(());
-                            })}
+                            on_success={{
+                                let treasury_account = treasury_account.refetch.clone();
+                                let treasury_transactions = treasury_transactions.refetch.clone();
+                                Callback::from(move |_| {
+                                    treasury_account.emit(());
+                                    treasury_transactions.emit(());
+                                })
+                            }}
+                        />
+                    </div>
+
+                    // Reset All Balances Section
+                    <div class="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">
+                        <h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
+                            {"Reset All Balances"}
+                        </h2>
+                        <p class="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
+                            {"Transfer all member balances to the treasury. This operation cannot be performed during active auctions."}
+                        </p>
+                        <ResetBalancesButton
+                            community_id={props.community_id}
+                            on_success={{
+                                let treasury_account = treasury_account.refetch.clone();
+                                let treasury_transactions = treasury_transactions.refetch.clone();
+                                Callback::from(move |_| {
+                                    treasury_account.emit(());
+                                    treasury_transactions.emit(());
+                                })
+                            }}
                         />
                     </div>
 

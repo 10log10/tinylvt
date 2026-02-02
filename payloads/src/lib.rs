@@ -499,6 +499,7 @@ pub enum EntryType {
     DebtSettlement,
     AuctionSettlement,
     Transfer,
+    BalanceReset,
 }
 
 #[derive(
@@ -762,6 +763,12 @@ pub mod requests {
         pub note: Option<String>,
         pub idempotency_key: super::IdempotencyKey,
     }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct ResetAllBalances {
+        pub community_id: super::CommunityId,
+        pub note: Option<String>,
+    }
 }
 
 pub mod responses {
@@ -968,6 +975,15 @@ pub mod responses {
         /// Lines in the transaction relevant to the requesting user
         /// (typically shows who they sent to or received from)
         pub lines: Vec<TransactionLine>,
+    }
+
+    /// Result of resetting all member balances to zero
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct BalanceResetResult {
+        /// Number of member accounts affected
+        pub accounts_reset: usize,
+        /// Total amount transferred to treasury
+        pub total_transferred: Decimal,
     }
 }
 
@@ -1688,6 +1704,14 @@ impl APIClient {
         details: &requests::TreasuryCreditOperation,
     ) -> Result<TreasuryOperationResult, ClientError> {
         let response = self.post("treasury_credit_operation", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn reset_all_balances(
+        &self,
+        details: &requests::ResetAllBalances,
+    ) -> Result<responses::BalanceResetResult, ClientError> {
+        let response = self.post("reset_all_balances", details).await?;
         ok_body(response).await
     }
 
