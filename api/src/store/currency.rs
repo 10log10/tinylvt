@@ -206,13 +206,15 @@ async fn get_locked_balance_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Decimal, StoreError> {
-    // Step 1: Get the account to find its community
-    let community_id: payloads::CommunityId =
-        sqlx::query_scalar("SELECT community_id FROM accounts WHERE id = $1")
-            .bind(account_id)
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or(StoreError::AccountNotFound)?;
+    // Step 1: Get the account to find its community and user
+    let (community_id, user_id): (payloads::CommunityId, payloads::UserId) =
+        sqlx::query_as(
+            "SELECT community_id, owner_id FROM accounts WHERE id = $1",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(StoreError::AccountNotFound)?;
 
     // Step 2: Get all active auctions in this community
     #[derive(sqlx::FromRow)]
@@ -274,7 +276,7 @@ async fn get_locked_balance_tx(
             )
             .bind(auction.auction_id)
             .bind(processed_round_num)
-            .bind(account_id)
+            .bind(user_id)
             .fetch_all(&mut **tx)
             .await?;
 
@@ -302,7 +304,7 @@ async fn get_locked_balance_tx(
         )
         .bind(auction.auction_id)
         .bind(max_processed_round.unwrap_or(-1))
-        .bind(account_id)
+        .bind(user_id)
         .fetch_all(&mut **tx)
         .await?;
 

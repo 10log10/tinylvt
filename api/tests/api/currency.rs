@@ -1309,3 +1309,210 @@ async fn test_reset_all_balances_member_permission_denied() -> anyhow::Result<()
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    // Give Alice and Bob initial balances
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(100, 0),
+            note: Some("Initial credit".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Create site and two spaces
+    let site = app.create_test_site(&community_id).await?;
+    let space_a = app.create_test_space(&site.site_id).await?;
+    let space_b_details = test_helpers::space_details_b(site.site_id);
+    let space_b = app.client.create_space(&space_b_details).await?;
+
+    // Create auction starting now
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = start_time;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Create initial round (round 0)
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_0 = &rounds[0];
+
+    // Get member user IDs
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // Round 0: Alice bids on space_a, Bob bids on space_b
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_0.round_id)
+        .await?;
+
+    app.login_bob().await?;
+    app.client.create_bid(&space_b, &round_0.round_id).await?;
+
+    // Check locked balances during round 0 (first round, no previous prices)
+    // Bid amount for round 0 is 0 (no previous price)
+    app.login_alice().await?;
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    assert_eq!(alice_info.locked_balance, Decimal::ZERO);
+
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(bob_info.locked_balance, Decimal::ZERO);
+
+    // Advance time to end of round 0 and process
+    app.time_source
+        .set(round_0.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Get round 1
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_1 = &rounds[1];
+
+    // Round 1: Bob bids on space_a, Alice bids on space_b
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_1.round_id)
+        .await?;
+
+    app.login_alice().await?;
+    app.client.create_bid(&space_b, &round_1.round_id).await?;
+
+    // Check locked balances during round 1
+    // After round 0, space prices are 0
+    // So bid amount for round 1 = 0 + bid_increment (1.0) = 1.0
+    app.login_alice().await?;
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    // Alice has a bid on space_b at price 1.0
+    assert_eq!(alice_info.locked_balance, Decimal::new(1, 0));
+    // Available credit = balance - locked + limit = 100 - 1 + 0 = 99
+    assert_eq!(alice_info.available_credit, Some(Decimal::new(99, 0)));
+
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    // Bob has a bid on space_a at price 1.0
+    assert_eq!(bob_info.locked_balance, Decimal::new(1, 0));
+    assert_eq!(bob_info.available_credit, Some(Decimal::new(99, 0)));
+
+    // Advance time to end of round 1 and process
+    app.time_source
+        .set(round_1.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Get round 2
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_2 = &rounds[2];
+
+    // Round 2: Alice bids on space_a (outbidding Bob)
+    // Alice is already winning space_b from round 1
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_2.round_id)
+        .await?;
+
+    // Check Alice's locked balance
+    // After round 1, space_a price = 1.0, space_b price = 1.0
+    // Alice has:
+    // - Standing high bid on space_b from round 1: 1.0 (locked)
+    // - New bid on space_a in round 2: 1.0 + 1.0 = 2.0 (locked)
+    // Total locked: 1.0 + 2.0 = 3.0
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    assert_eq!(alice_info.locked_balance, Decimal::new(3, 0));
+    // Available = 100 - 3 + 0 = 97
+    assert_eq!(alice_info.available_credit, Some(Decimal::new(97, 0)));
+
+    // Bob has no bids in round 2, but was the high bidder on space_a
+    // after round 1
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    // Bob's winning bid from round 1 on space_a is still locked (price 1.0)
+    // even though Alice outbid him in round 2 (round 2 not yet processed)
+    assert_eq!(bob_info.locked_balance, Decimal::new(1, 0));
+
+    // Advance to end of round 2 and process
+    app.time_source
+        .set(round_2.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Get round 3
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_3 = &rounds[3];
+
+    // Round 3: No bids (will trigger settlement)
+    // Advance to end of round 3 and process
+    app.time_source
+        .set(round_3.round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+
+    // Verify auction concluded
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert!(auction.end_at.is_some());
+
+    // After settlement, locked balances should be zero
+    app.login_alice().await?;
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(alice.user.user_id),
+        })
+        .await?;
+    assert_eq!(alice_info.locked_balance, Decimal::ZERO);
+
+    app.login_bob().await?;
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(bob_info.locked_balance, Decimal::ZERO);
+
+    Ok(())
+}
