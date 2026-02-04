@@ -133,13 +133,13 @@ CREATE TABLE accounts (
     created_at      TIMESTAMPTZ NOT NULL,
     -- Materialized balance kept in sync by application
     -- Positive = credit balance, Negative = debt
-    balance_cached  NUMERIC(20, 6) NOT NULL DEFAULT 0,
-    -- Credit limit for this account
+    balance_cached         NUMERIC(20, 6) NOT NULL DEFAULT 0,
+    -- Credit limit override for this account
     -- NULL = use community default_credit_limit
     -- Only applies to member_main accounts; treasury has no limit
-    credit_limit    AMOUNT,
+    credit_limit_override  AMOUNT,
     -- Application enforces: balance_cached >=
-    --   -COALESCE(credit_limit, community.default_credit_limit, infinity)
+    --   -COALESCE(credit_limit_override, community.default_credit_limit, infinity)
     -- For member_main accounts, owner_id must be set
     -- For community_treasury accounts, owner_id must be null
     CHECK ((owner_type = 'member_main' AND owner_id IS NOT NULL) OR

@@ -5,7 +5,7 @@ use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, EditCreditLimitModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
-use crate::hooks::{use_member_currency_info, use_members};
+use crate::hooks::use_members;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -150,21 +150,6 @@ fn MemberRow(props: &MemberRowProps) -> Html {
     // Modal state
     let show_edit_modal = use_state(|| false);
 
-    // Check if we should show balance
-    // Show if balances_visible_to_members OR user is coleader+
-    let show_balance = community.community.currency.balances_visible_to_members
-        || community.user_role.is_ge_coleader();
-
-    // Fetch member currency info if we should show balance
-    let currency_info = use_member_currency_info(
-        community.id,
-        if show_balance {
-            Some(member.user.user_id)
-        } else {
-            None
-        },
-    );
-
     // Check if credit limits are supported and user can edit them
     let can_edit_credit_limit = community.user_role.is_ge_moderator()
         && matches!(
@@ -189,10 +174,10 @@ fn MemberRow(props: &MemberRowProps) -> Html {
 
     let on_modal_success = {
         let show_edit_modal = show_edit_modal.clone();
-        let refetch = currency_info.refetch.clone();
         Callback::from(move |_: ()| {
             show_edit_modal.set(false);
-            refetch.emit(());
+            // Could refetch members here if needed, but balance won't change
+            // when editing credit limit
         })
     };
 
@@ -210,26 +195,14 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                 <div class="flex items-center gap-4">
                     // Balance display
                     {
-                        if show_balance {
+                        if let Some(balance) = member.balance {
                             html! {
                                 <div class="text-right">
                                     <div class="text-xs text-neutral-600 dark:text-neutral-400">
                                         {"Balance"}
                                     </div>
                                     <div class="font-medium text-neutral-900 dark:text-neutral-100">
-                                        {
-                                            if currency_info.is_loading {
-                                                html! { <span class="text-neutral-400">{"..."}</span> }
-                                            } else if let Some(info) = currency_info.data.as_ref() {
-                                                html! {
-                                                    <span>
-                                                        {community.community.currency.format_amount(info.balance)}
-                                                    </span>
-                                                }
-                                            } else {
-                                                html! { <span class="text-neutral-400">{"-"}</span> }
-                                            }
-                                        }
+                                        {community.community.currency.format_amount(balance)}
                                     </div>
                                 </div>
                             }
@@ -261,19 +234,14 @@ fn MemberRow(props: &MemberRowProps) -> Html {
             // Edit credit limit modal
             {
                 if *show_edit_modal {
-                    if let Some(info) = currency_info.data.as_ref() {
-                        html! {
-                            <EditCreditLimitModal
-                                member={member.user.clone()}
-                                community_id={community.id}
-                                current_credit_limit={info.credit_limit}
-                                currency={community.community.currency.clone()}
-                                on_close={on_modal_close}
-                                on_success={on_modal_success}
-                            />
-                        }
-                    } else {
-                        html! {}
+                    html! {
+                        <EditCreditLimitModal
+                            member={member.user.clone()}
+                            community_id={community.id}
+                            currency={community.community.currency.clone()}
+                            on_close={on_modal_close}
+                            on_success={on_modal_success}
+                        />
                     }
                 } else {
                     html! {}

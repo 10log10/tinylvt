@@ -552,7 +552,7 @@ pub struct Account {
     pub owner: AccountOwner,
     pub created_at: Timestamp,
     pub balance_cached: Decimal,
-    pub credit_limit: Option<Decimal>,
+    pub credit_limit_override: Option<Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -710,10 +710,16 @@ pub mod requests {
     // Currency operations
 
     #[derive(Debug, Serialize, Deserialize)]
-    pub struct UpdateCreditLimit {
+    pub struct UpdateCreditLimitOverride {
         pub community_id: super::CommunityId,
         pub member_user_id: super::UserId,
-        pub credit_limit: Option<Decimal>,
+        pub credit_limit_override: Option<Decimal>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct GetMemberCreditLimitOverride {
+        pub community_id: super::CommunityId,
+        pub member_user_id: super::UserId,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -830,6 +836,9 @@ pub mod responses {
         pub user: UserIdentity,
         pub role: super::Role,
         pub is_active: bool,
+        /// Balance is included if user is coleader+ or
+        /// balances_visible_to_members is true
+        pub balance: Option<rust_decimal::Decimal>,
     }
 
     /// Community information with the current user's role in that community.
@@ -948,6 +957,11 @@ pub mod responses {
         pub credit_limit: Option<Decimal>,
         pub locked_balance: Decimal,
         pub available_credit: Option<Decimal>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct MemberCreditLimitOverride {
+        pub credit_limit_override: Option<Decimal>,
     }
 
     /// Represents a participant in a transaction (member or treasury)
@@ -1651,11 +1665,22 @@ impl APIClient {
 
     // Currency operations
 
-    pub async fn update_credit_limit(
+    pub async fn update_credit_limit_override(
         &self,
-        details: &requests::UpdateCreditLimit,
+        details: &requests::UpdateCreditLimitOverride,
     ) -> Result<Account, ClientError> {
-        let response = self.post("update_credit_limit", details).await?;
+        let response =
+            self.post("update_credit_limit_override", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_member_credit_limit_override(
+        &self,
+        details: &requests::GetMemberCreditLimitOverride,
+    ) -> Result<responses::MemberCreditLimitOverride, ClientError> {
+        let response = self
+            .post("get_member_credit_limit_override", details)
+            .await?;
         ok_body(response).await
     }
 

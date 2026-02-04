@@ -151,14 +151,14 @@ async fn test_update_credit_limit_leader() -> anyhow::Result<()> {
     let new_limit = Decimal::new(500, 0);
     let account = app
         .client
-        .update_credit_limit(&requests::UpdateCreditLimit {
+        .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
             community_id,
             member_user_id: bob.user.user_id,
-            credit_limit: Some(new_limit),
+            credit_limit_override: Some(new_limit),
         })
         .await?;
 
-    assert_eq!(account.credit_limit, Some(new_limit));
+    assert_eq!(account.credit_limit_override, Some(new_limit));
 
     // Verify via currency info
     let info = app
@@ -189,10 +189,10 @@ async fn test_update_credit_limit_member_fails() -> anyhow::Result<()> {
 
     let result = app
         .client
-        .update_credit_limit(&requests::UpdateCreditLimit {
+        .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
             community_id,
             member_user_id: alice.user.user_id,
-            credit_limit: Some(Decimal::new(500, 0)),
+            credit_limit_override: Some(Decimal::new(500, 0)),
         })
         .await;
 
@@ -268,10 +268,10 @@ async fn test_create_transfer_insufficient_balance() -> anyhow::Result<()> {
     // Set Alice's credit limit to 0 so she can't transfer
     let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
     app.client
-        .update_credit_limit(&requests::UpdateCreditLimit {
+        .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
             community_id,
             member_user_id: alice.user.user_id,
-            credit_limit: Some(Decimal::ZERO),
+            credit_limit_override: Some(Decimal::ZERO),
         })
         .await?;
 
@@ -364,7 +364,7 @@ async fn test_get_treasury_account_coleader() -> anyhow::Result<()> {
     // Treasury should have zero balance initially
     assert_eq!(account.balance_cached, Decimal::ZERO);
     // Treasury has unlimited credit
-    assert_eq!(account.credit_limit, None);
+    assert_eq!(account.credit_limit_override, None);
 
     Ok(())
 }
@@ -1348,7 +1348,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Get member user IDs
     let members = app.client.get_members(&community_id).await?;
     let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
-    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    let _bob = members.iter().find(|m| m.user.username == "bob").unwrap();
 
     // Round 0: Alice bids on space_a, Bob bids on space_b
     app.login_alice().await?;

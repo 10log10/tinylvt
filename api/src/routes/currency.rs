@@ -10,25 +10,46 @@ use super::{APIError, get_user_id, get_validated_member};
 // Phase 3: Credit Limit Management
 
 #[tracing::instrument(skip(user, pool), ret)]
-#[post("/update_credit_limit")]
-pub async fn update_credit_limit(
+#[post("/update_credit_limit_override")]
+pub async fn update_credit_limit_override(
     user: Identity,
-    details: web::Json<requests::UpdateCreditLimit>,
+    details: web::Json<requests::UpdateCreditLimitOverride>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
 
-    let account = store::currency::update_credit_limit(
+    let account = store::currency::update_credit_limit_override(
         &validated_member,
         &details.member_user_id,
-        details.credit_limit,
+        details.credit_limit_override,
         &pool,
     )
     .await?;
 
     Ok(HttpResponse::Ok().json(account))
+}
+
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/get_member_credit_limit_override")]
+pub async fn get_member_credit_limit_override(
+    user: Identity,
+    details: web::Json<requests::GetMemberCreditLimitOverride>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    let credit_limit = store::currency::get_member_credit_limit_override(
+        &validated_member,
+        &details.member_user_id,
+        &pool,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(credit_limit))
 }
 
 // Phase 4: Balance & Transaction Queries

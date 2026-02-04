@@ -1540,21 +1540,49 @@ pub async fn get_members(
     actor: &ValidatedMember,
     pool: &PgPool,
 ) -> Result<Vec<responses::CommunityMember>, StoreError> {
+    let should_include_balances = actor.0.role.is_ge_coleader()
+        || sqlx::query_scalar::<_, bool>(
+            "SELECT balances_visible_to_members
+            FROM communities
+            WHERE id = $1",
+        )
+        .bind(actor.0.community_id)
+        .fetch_one(pool)
+        .await?;
+
     #[derive(sqlx::FromRow)]
     struct DbMember {
         user_id: UserId,
         role: Role,
         is_active: bool,
+        balance: Option<rust_decimal::Decimal>,
     }
 
-    let db_members: Vec<DbMember> = sqlx::query_as(
-        "SELECT user_id, role, is_active
-        FROM community_members
-        WHERE community_id = $1",
-    )
-    .bind(actor.0.community_id)
-    .fetch_all(pool)
-    .await?;
+    let db_members: Vec<DbMember> = if should_include_balances {
+        sqlx::query_as(
+            "SELECT cm.user_id, cm.role, cm.is_active,
+                    a.balance_cached AS balance
+            FROM community_members cm
+            LEFT JOIN accounts a
+                ON a.community_id = cm.community_id
+                AND a.owner_id = cm.user_id
+                AND a.owner_type = 'member_main'
+            WHERE cm.community_id = $1",
+        )
+        .bind(actor.0.community_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            "SELECT user_id, role, is_active,
+                    NULL::numeric AS balance
+            FROM community_members
+            WHERE community_id = $1",
+        )
+        .bind(actor.0.community_id)
+        .fetch_all(pool)
+        .await?
+    };
 
     with_user_identities(
         db_members,
@@ -1564,6 +1592,7 @@ pub async fn get_members(
                 user,
                 role: m.role,
                 is_active: m.is_active,
+                balance: m.balance,
             })
         },
         &actor.0.community_id,
@@ -3439,6 +3468,8 @@ pub enum StoreError {
     AmountMustBePositive,
     #[error("Invalid treasury operation for this currency mode")]
     InvalidTreasuryOperation,
+    #[error("Invalid credit limit operation for this currency mode")]
+    InvalidCreditLimitOperation,
     #[error("Database invariant violation: invalid account ownership")]
     InvalidAccountOwnership,
     #[error("Database invariant violation: invalid currency configuration")]

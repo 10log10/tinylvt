@@ -72,7 +72,7 @@ struct DbAccount {
     #[sqlx(try_from = "SqlxTs")]
     created_at: Timestamp,
     balance_cached: Decimal,
-    credit_limit: Option<Decimal>,
+    credit_limit_override: Option<Decimal>,
 }
 
 impl TryFrom<DbAccount> for Account {
@@ -88,7 +88,7 @@ impl TryFrom<DbAccount> for Account {
             owner,
             created_at: db.created_at,
             balance_cached: db.balance_cached,
-            credit_limit: db.credit_limit,
+            credit_limit_override: db.credit_limit_override,
         })
     }
 }
@@ -97,7 +97,7 @@ impl TryFrom<DbAccount> for Account {
 pub async fn create_account_tx(
     community_id: &CommunityId,
     owner: AccountOwner,
-    credit_limit: Option<Decimal>,
+    credit_limit_override: Option<Decimal>,
     time_source: &TimeSource,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Account, StoreError> {
@@ -111,7 +111,7 @@ pub async fn create_account_tx(
             owner_id,
             created_at,
             balance_cached,
-            credit_limit
+            credit_limit_override
         )
         VALUES ($1, $2, $3, $4, 0, $5)
         RETURNING *
@@ -121,7 +121,7 @@ pub async fn create_account_tx(
     .bind(owner.owner_type())
     .bind(owner.owner_id())
     .bind(now.to_sqlx())
-    .bind(credit_limit)
+    .bind(credit_limit_override)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -177,7 +177,7 @@ pub(crate) async fn get_effective_credit_limit_tx(
 ) -> Result<Option<Decimal>, StoreError> {
     let row: (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
         r#"
-        SELECT a.credit_limit, c.default_credit_limit
+        SELECT a.credit_limit_override, c.default_credit_limit
         FROM accounts a
         JOIN communities c ON a.community_id = c.id
         WHERE a.id = $1
@@ -370,7 +370,7 @@ async fn get_available_credit_tx(
         Option<Decimal>,
     ) = sqlx::query_as(
         r#"
-        SELECT a.balance_cached, a.owner_type, a.credit_limit,
+        SELECT a.balance_cached, a.owner_type, a.credit_limit_override,
                c.default_credit_limit
         FROM accounts a
         JOIN communities c ON a.community_id = c.id
@@ -449,6 +449,7 @@ pub(crate) async fn check_sufficient_credit_tx(
 ///
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
+#[allow(clippy::too_many_arguments)]
 async fn create_entry(
     community_id: &CommunityId,
     entry_type: EntryType,
@@ -813,6 +814,43 @@ async fn get_member_currency_info(
     })
 }
 
+/// Get a member's credit limit override with permission checking
+/// Requires moderator+ permissions
+pub async fn get_member_credit_limit_override(
+    actor: &super::ValidatedMember,
+    target_user_id: &UserId,
+    pool: &PgPool,
+) -> Result<payloads::responses::MemberCreditLimitOverride, StoreError> {
+    // Requires moderator+ permissions
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Verify the target user is a member of the community
+    let target_member = super::get_validated_member(
+        target_user_id,
+        &actor.0.community_id,
+        pool,
+    )
+    .await?;
+
+    let mut tx = pool.begin().await?;
+
+    // Get the member's account
+    let account = get_account_tx(
+        &target_member.0.community_id,
+        AccountOwner::Member(target_member.0.user_id),
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(payloads::responses::MemberCreditLimitOverride {
+        credit_limit_override: account.credit_limit_override,
+    })
+}
+
 /// Helper function to fetch and format transactions for an account
 async fn fetch_account_transactions(
     account_id: &AccountId,
@@ -1165,13 +1203,14 @@ pub fn currency_settings_to_db(
     }
 }
 
-/// Update the credit limit for a member account with permission checking
+/// Update the credit limit override for a member account with permission
+/// checking
 ///
 /// Requires moderator or higher permissions.
-pub async fn update_credit_limit(
+pub async fn update_credit_limit_override(
     actor: &super::ValidatedMember,
     member_user_id: &UserId,
-    credit_limit: Option<Decimal>,
+    credit_limit_override: Option<Decimal>,
     pool: &PgPool,
 ) -> Result<Account, StoreError> {
     // Check permissions
@@ -1179,19 +1218,34 @@ pub async fn update_credit_limit(
         return Err(StoreError::RequiresModeratorPermissions);
     }
 
+    // Check if currency mode supports credit limits
+    let currency_mode: CurrencyMode = sqlx::query_scalar(
+        "SELECT currency_mode FROM communities WHERE id = $1",
+    )
+    .bind(actor.0.community_id)
+    .fetch_one(pool)
+    .await?;
+
+    if !matches!(
+        currency_mode,
+        CurrencyMode::DistributedClearing | CurrencyMode::DeferredPayment
+    ) {
+        return Err(StoreError::InvalidCreditLimitOperation);
+    }
+
     let mut tx = pool.begin().await?;
 
-    // Update the credit limit
+    // Update the credit limit override
     sqlx::query(
         r#"
         UPDATE accounts
-        SET credit_limit = $1
+        SET credit_limit_override = $1
         WHERE community_id = $2
           AND owner_type = 'member_main'
           AND owner_id = $3
         "#,
     )
-    .bind(credit_limit)
+    .bind(credit_limit_override)
     .bind(actor.0.community_id)
     .bind(member_user_id)
     .execute(&mut *tx)
