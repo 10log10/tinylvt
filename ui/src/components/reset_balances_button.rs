@@ -1,7 +1,7 @@
 use payloads::{CommunityId, requests};
 use yew::prelude::*;
 
-use crate::components::Modal;
+use crate::components::{ConfirmationModal, Modal};
 use crate::get_api_client;
 
 #[derive(Properties, PartialEq)]
@@ -12,27 +12,46 @@ pub struct Props {
 
 #[function_component]
 pub fn ResetBalancesButton(props: &Props) -> Html {
-    let show_modal = use_state(|| false);
+    let show_note_modal = use_state(|| false);
+    let show_confirmation_modal = use_state(|| false);
     let note_input = use_state(String::new);
     let is_submitting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
     let success_message = use_state(|| None::<String>);
 
-    let open_modal = {
-        let show_modal = show_modal.clone();
-        Callback::from(move |_| show_modal.set(true))
+    let open_note_modal = {
+        let show_note_modal = show_note_modal.clone();
+        Callback::from(move |_| show_note_modal.set(true))
     };
 
-    let close_modal = {
-        let show_modal = show_modal.clone();
+    let close_note_modal = {
+        let show_note_modal = show_note_modal.clone();
         let note_input = note_input.clone();
         let error_message = error_message.clone();
         let success_message = success_message.clone();
         Callback::from(move |_| {
-            show_modal.set(false);
+            show_note_modal.set(false);
             note_input.set(String::new());
             error_message.set(None);
             success_message.set(None);
+        })
+    };
+
+    let open_confirmation_modal = {
+        let show_note_modal = show_note_modal.clone();
+        let show_confirmation_modal = show_confirmation_modal.clone();
+        Callback::from(move |_| {
+            show_note_modal.set(false);
+            show_confirmation_modal.set(true);
+        })
+    };
+
+    let close_confirmation_modal = {
+        let show_confirmation_modal = show_confirmation_modal.clone();
+        let show_note_modal = show_note_modal.clone();
+        Callback::from(move |_| {
+            show_confirmation_modal.set(false);
+            show_note_modal.set(true);
         })
     };
 
@@ -44,14 +63,14 @@ pub fn ResetBalancesButton(props: &Props) -> Html {
         })
     };
 
-    let on_submit = {
+    let on_confirm_reset = {
         let community_id = props.community_id;
         let note_input = note_input.clone();
         let is_submitting = is_submitting.clone();
         let error_message = error_message.clone();
         let success_message = success_message.clone();
         let on_success = props.on_success.clone();
-        let show_modal = show_modal.clone();
+        let show_confirmation_modal = show_confirmation_modal.clone();
 
         Callback::from(move |_| {
             let community_id = community_id;
@@ -61,7 +80,7 @@ pub fn ResetBalancesButton(props: &Props) -> Html {
             let error_message = error_message.clone();
             let success_message = success_message.clone();
             let on_success = on_success.clone();
-            let show_modal = show_modal.clone();
+            let show_confirmation_modal = show_confirmation_modal.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 is_submitting.set(true);
@@ -86,9 +105,10 @@ pub fn ResetBalancesButton(props: &Props) -> Html {
                         )));
                         on_success.emit(());
                         // Close modal after 2 seconds
-                        let show_modal_timeout = show_modal.clone();
+                        let show_confirmation_modal_timeout =
+                            show_confirmation_modal.clone();
                         gloo_timers::callback::Timeout::new(2000, move || {
-                            show_modal_timeout.set(false);
+                            show_confirmation_modal_timeout.set(false);
                         })
                         .forget();
                     }
@@ -103,18 +123,18 @@ pub fn ResetBalancesButton(props: &Props) -> Html {
     html! {
         <>
             <button
-                onclick={open_modal}
+                onclick={open_note_modal}
                 class="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded
                        hover:bg-red-700 dark:hover:bg-red-600 transition"
             >
                 {"Reset All Balances"}
             </button>
 
-            if *show_modal {
-                <Modal on_close={close_modal.clone()}>
+            if *show_note_modal {
+                <Modal on_close={close_note_modal.clone()}>
                     <h3 class="text-lg font-semibold text-neutral-900
                               dark:text-neutral-100 mb-4">
-                        {"Confirm Balance Reset"}
+                        {"Reset All Balances"}
                     </h3>
 
                     <div class="mb-4">
@@ -139,71 +159,62 @@ pub fn ResetBalancesButton(props: &Props) -> Html {
                             id="reset-note"
                             value={(*note_input).clone()}
                             oninput={on_note_change}
-                            disabled={*is_submitting}
                             rows="3"
                             class="w-full px-3 py-2 border border-neutral-300
                                   dark:border-neutral-600 rounded
                                   bg-white dark:bg-neutral-700
                                   text-neutral-900 dark:text-neutral-100
                                   focus:outline-none focus:ring-2
-                                  focus:ring-blue-500 dark:focus:ring-blue-400
-                                  disabled:bg-neutral-100
-                                  dark:disabled:bg-neutral-800
-                                  disabled:cursor-not-allowed"
+                                  focus:ring-blue-500 dark:focus:ring-blue-400"
                             placeholder="e.g., Test auction reset"
                         />
                     </div>
 
-                    if let Some(error) = (*error_message).clone() {
-                        <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/20
-                                   border border-red-200 dark:border-red-800
-                                   rounded">
-                            <p class="text-sm text-red-800 dark:text-red-200">
-                                {error}
-                            </p>
-                        </div>
-                    }
-
-                    if let Some(success) = (*success_message).clone() {
-                        <div class="mb-4 p-3 bg-green-50 dark:bg-green-900/20
-                                   border border-green-200 dark:border-green-800
-                                   rounded">
-                            <p class="text-sm text-green-800 dark:text-green-200">
-                                {success}
-                            </p>
-                        </div>
-                    }
-
                     <div class="flex gap-3 justify-end">
                         <button
-                            onclick={close_modal.reform(|_| ())}
-                            disabled={*is_submitting}
+                            onclick={close_note_modal.reform(|_| ())}
                             class="px-4 py-2 border border-neutral-300
                                   dark:border-neutral-600 rounded
                                   text-neutral-700 dark:text-neutral-300
                                   hover:bg-neutral-50 dark:hover:bg-neutral-700
-                                  transition disabled:cursor-not-allowed
-                                  disabled:opacity-50"
+                                  transition"
                         >
                             {"Cancel"}
                         </button>
                         <button
-                            onclick={on_submit}
-                            disabled={*is_submitting}
+                            onclick={open_confirmation_modal.reform(|_| ())}
                             class="px-4 py-2 bg-red-600 dark:bg-red-700
                                   text-white rounded hover:bg-red-700
-                                  dark:hover:bg-red-600 transition
-                                  disabled:bg-red-400 dark:disabled:bg-red-500
-                                  disabled:cursor-not-allowed"
+                                  dark:hover:bg-red-600 transition"
                         >
-                            if *is_submitting {
-                                {"Resetting..."}
-                            } else {
-                                {"Confirm Reset"}
-                            }
+                            {"Continue to Confirmation"}
                         </button>
                     </div>
                 </Modal>
+            }
+
+            if *show_confirmation_modal {
+                <ConfirmationModal
+                    title="Confirm Balance Reset"
+                    message="This will reset all member balances. Please verify you want to proceed."
+                    confirm_text="Reset All Balances"
+                    confirmation_value="RESET"
+                    confirmation_label="RESET"
+                    on_confirm={on_confirm_reset}
+                    on_close={close_confirmation_modal}
+                    is_loading={*is_submitting}
+                    error_message={(*error_message).clone().map(AttrValue::from)}
+                />
+            }
+
+            if let Some(success) = (*success_message).clone() {
+                <div class="fixed bottom-4 right-4 p-4 bg-green-50
+                           dark:bg-green-900/20 border border-green-200
+                           dark:border-green-800 rounded shadow-lg z-50">
+                    <p class="text-sm text-green-800 dark:text-green-200">
+                        {success}
+                    </p>
+                </div>
             }
         </>
     }
