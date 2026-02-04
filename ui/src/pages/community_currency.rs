@@ -1,5 +1,6 @@
 use payloads::{
-    CommunityId, responses::CommunityWithRole, responses::UserProfile,
+    AccountOwner, CommunityId, responses::CommunityWithRole,
+    responses::UserProfile,
 };
 use yew::prelude::*;
 
@@ -230,7 +231,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                     <TransactionList
                                         transactions={txns.clone()}
                                         currency={props.community.community.currency.clone()}
-                                        target_user_id={target_user_id}
+                                        target_account={AccountOwner::Member(target_user_id)}
                                     />
                                 }
                             } else {

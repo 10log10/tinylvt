@@ -1,20 +1,23 @@
 use payloads::{
-    CurrencyMode, CurrencySettings, UserId,
-    responses::{MemberTransaction, TransactionParty},
+    AccountOwner, CurrencyMode, CurrencySettings, EntryType, UserId,
+    responses::{MemberTransaction, TransactionParty, UserIdentity},
 };
+use rust_decimal::Decimal;
 use yew::prelude::*;
+
+use crate::components::user_identity_display::render_user_name;
 
 #[derive(Properties)]
 pub struct Props {
     pub transactions: Vec<MemberTransaction>,
     pub currency: CurrencySettings,
-    pub target_user_id: UserId,
+    pub target_account: AccountOwner,
 }
 
 impl PartialEq for Props {
     fn eq(&self, other: &Self) -> bool {
         self.currency == other.currency
-            && self.target_user_id == other.target_user_id
+            && self.target_account == other.target_account
             && self.transactions.len() == other.transactions.len()
     }
 }
@@ -37,7 +40,7 @@ pub fn TransactionList(props: &Props) -> Html {
                         <TransactionRow
                             transaction={txn.clone()}
                             currency={props.currency.clone()}
-                            target_user_id={props.target_user_id}
+                            target_account={props.target_account}
                         />
                     }
                 }).collect::<Html>()
@@ -46,17 +49,149 @@ pub fn TransactionList(props: &Props) -> Html {
     }
 }
 
+enum Counterparty {
+    Member(UserIdentity),
+    Treasury,
+    NMembers(usize),
+}
+
+fn determine_counterparty(
+    txn: &MemberTransaction,
+    target_account: AccountOwner,
+    currency_mode: CurrencyMode,
+) -> Counterparty {
+    // Helper: count all member lines (excluding treasury)
+    let count_members = || -> usize {
+        txn.lines
+            .iter()
+            .filter(|line| matches!(&line.party, TransactionParty::Member(_)))
+            .count()
+    };
+
+    // Helper: count the number of members for a distributed clearing auction
+    // settlement. Behavior depends on whether the user has a net debit or
+    // credit.
+    let count_members_distributed_clearing = |user_id: UserId| -> usize {
+        let user_net_amount: Decimal = txn
+            .lines
+            .iter()
+            .filter_map(|line| match &line.party {
+                TransactionParty::Member(identity)
+                    if identity.user_id == user_id =>
+                {
+                    Some(line.amount)
+                }
+                _ => None,
+            })
+            .sum();
+        if user_net_amount > Decimal::ZERO {
+            // User is receiving a net credit, count the number of members
+            // making payments
+            txn.lines
+                .iter()
+                .filter(|line| {
+                    matches!(&line.party, TransactionParty::Member(_))
+                        && line.amount < Decimal::ZERO
+                })
+                .count()
+        } else {
+            // User is making a net payment, count the number of members
+            // receiving credits
+            txn.lines
+                .iter()
+                .filter(|line| {
+                    matches!(&line.party, TransactionParty::Member(_))
+                        && line.amount > Decimal::ZERO
+                })
+                .count()
+        }
+    };
+
+    // Helper: get first member identity
+    let find_member = || -> Option<UserIdentity> {
+        txn.lines.iter().find_map(|line| match &line.party {
+            TransactionParty::Member(identity) => Some(identity.clone()),
+            TransactionParty::Treasury => None,
+        })
+    };
+
+    // Helper: get first member excluding a specific user
+    let find_member_except = |exclude_user_id: UserId| -> Option<UserIdentity> {
+        txn.lines.iter().find_map(|line| match &line.party {
+            TransactionParty::Member(identity)
+                if identity.user_id != exclude_user_id =>
+            {
+                Some(identity.clone())
+            }
+            _ => None,
+        })
+    };
+
+    match target_account {
+        AccountOwner::Member(user_id) => match txn.entry_type {
+            // Treasury operations
+            EntryType::IssuanceGrantSingle
+            | EntryType::IssuanceGrantBulk
+            | EntryType::CreditPurchase
+            | EntryType::DistributionCorrection
+            | EntryType::DebtSettlement
+            | EntryType::BalanceReset => Counterparty::Treasury,
+            EntryType::AuctionSettlement => {
+                match currency_mode {
+                    CurrencyMode::DistributedClearing => {
+                        // Though settlement can go to treasury if there are no
+                        // active members, it *should* go towards the members,
+                        // so it's clearer to actually render this as "0
+                        // members", which indicates the anomaly.
+                        Counterparty::NMembers(
+                            count_members_distributed_clearing(user_id),
+                        )
+                    }
+                    CurrencyMode::PointsAllocation
+                    | CurrencyMode::DeferredPayment
+                    | CurrencyMode::PrepaidCredits => Counterparty::Treasury,
+                }
+            }
+            // Transfers are only between members
+            EntryType::Transfer => find_member_except(user_id)
+                .map(Counterparty::Member)
+                .unwrap_or(Counterparty::NMembers(0)), // Should not happen
+        },
+        AccountOwner::Treasury => match txn.entry_type {
+            // Bulk treasury operations to all active members
+            EntryType::IssuanceGrantBulk
+            | EntryType::DistributionCorrection
+            | EntryType::BalanceReset => {
+                Counterparty::NMembers(count_members())
+            }
+            // Treasury operations to individual members
+            EntryType::IssuanceGrantSingle
+            | EntryType::CreditPurchase
+            | EntryType::DebtSettlement => find_member()
+                .map(Counterparty::Member)
+                .unwrap_or(Counterparty::NMembers(0)), // Should not happen
+            EntryType::AuctionSettlement => {
+                Counterparty::NMembers(count_members())
+            }
+            // Transfers are only between members, should not happen
+            EntryType::Transfer => find_member()
+                .map(Counterparty::Member)
+                .unwrap_or(Counterparty::NMembers(0)),
+        },
+    }
+}
+
 #[derive(Properties)]
 struct TransactionRowProps {
     pub transaction: MemberTransaction,
     pub currency: CurrencySettings,
-    pub target_user_id: UserId,
+    pub target_account: AccountOwner,
 }
 
 impl PartialEq for TransactionRowProps {
     fn eq(&self, other: &Self) -> bool {
         self.currency == other.currency
-            && self.target_user_id == other.target_user_id
+            && self.target_account == other.target_account
     }
 }
 
@@ -78,54 +213,35 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         payloads::EntryType::BalanceReset => "Balance Reset",
     };
 
-    // Determine counterparty based on entry type and currency mode
-    let counterparty = match txn.entry_type {
-        payloads::EntryType::IssuanceGrantSingle
-        | payloads::EntryType::IssuanceGrantBulk
-        | payloads::EntryType::CreditPurchase
-        | payloads::EntryType::DistributionCorrection
-        | payloads::EntryType::DebtSettlement
-        | payloads::EntryType::BalanceReset => "Treasury",
-        payloads::EntryType::AuctionSettlement => match props.currency.mode() {
-            CurrencyMode::DistributedClearing => "The Community",
-            CurrencyMode::PointsAllocation
-            | CurrencyMode::DeferredPayment
-            | CurrencyMode::PrepaidCredits => "Treasury",
-        },
-        payloads::EntryType::Transfer => {
-            // For transfers, find the other party (not target user)
-            txn.lines
-                .iter()
-                .find_map(|line| match &line.party {
-                    TransactionParty::Member(identity) => {
-                        if identity.user_id != props.target_user_id {
-                            Some(
-                                identity
-                                    .display_name
-                                    .as_ref()
-                                    .unwrap_or(&identity.username)
-                                    .as_str(),
-                            )
-                        } else {
-                            None
-                        }
-                    }
-                    TransactionParty::Treasury => None,
-                })
-                .unwrap_or("Unknown")
+    // Determine counterparty
+    let counterparty = determine_counterparty(
+        txn,
+        props.target_account,
+        props.currency.mode(),
+    );
+
+    // Render counterparty as Html
+    let counterparty_display = match counterparty {
+        Counterparty::Member(identity) => render_user_name(&identity),
+        Counterparty::Treasury => html! { "Treasury" },
+        Counterparty::NMembers(count) => {
+            html! { {format!("{} Members", count)} }
         }
     };
 
-    // Net amount for the target user only (not all lines which sum to
-    // zero)
+    // Net amount for the target account only (not all lines which sum
+    // to zero)
     let net_amount: rust_decimal::Decimal = txn
         .lines
         .iter()
         .filter(|line| match &line.party {
-            TransactionParty::Member(identity) => {
-                identity.user_id == props.target_user_id
+            TransactionParty::Member(identity) => match props.target_account {
+                AccountOwner::Member(user_id) => identity.user_id == user_id,
+                AccountOwner::Treasury => false,
+            },
+            TransactionParty::Treasury => {
+                matches!(props.target_account, AccountOwner::Treasury)
             }
-            TransactionParty::Treasury => false,
         })
         .map(|line| line.amount)
         .sum();
@@ -152,7 +268,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
                         <span class="text-sm text-neutral-600 dark:text-neutral-400">
                             {if is_credit { "from" } else { "to" }}
                             {" "}
-                            {counterparty}
+                            {counterparty_display}
                         </span>
                     </div>
 

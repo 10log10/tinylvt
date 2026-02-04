@@ -1,6 +1,4 @@
-use payloads::{
-    CommunityId, responses::CommunityWithRole, responses::UserProfile,
-};
+use payloads::{AccountOwner, CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::{
@@ -19,13 +17,12 @@ pub fn CommunityTreasuryPage(props: &Props) -> Html {
     let community_id = props.community_id;
 
     html! {
-        <RequireAuth render={Callback::from(move |profile: UserProfile| {
+        <RequireAuth render={Callback::from(move |_profile| {
             let render_content = Callback::from(move |community: CommunityWithRole| {
                 html! {
                     <CommunityTreasuryContent
                         community={community}
                         community_id={community_id}
-                        user_profile={profile.clone()}
                     />
                 }
             });
@@ -44,7 +41,6 @@ pub fn CommunityTreasuryPage(props: &Props) -> Html {
 struct ContentProps {
     pub community: CommunityWithRole,
     pub community_id: CommunityId,
-    pub user_profile: UserProfile,
 }
 
 #[function_component]
@@ -67,8 +63,6 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
             </div>
         };
     }
-
-    let target_user_id = props.user_profile.user_id;
 
     // Fetch treasury account info
     let treasury_account = use_treasury_account(props.community_id);
@@ -186,7 +180,7 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                     <TransactionList
                                         transactions={txns.clone()}
                                         currency={props.community.community.currency.clone()}
-                                        target_user_id={target_user_id}
+                                        target_account={AccountOwner::Treasury}
                                     />
                                 }
                             } else {

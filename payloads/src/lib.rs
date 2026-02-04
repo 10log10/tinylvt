@@ -492,14 +492,18 @@ impl AccountOwner {
     sqlx(type_name = "entry_type", rename_all = "snake_case")
 )]
 pub enum EntryType {
+    // Treasury credit operations
     IssuanceGrantSingle,
     IssuanceGrantBulk,
     CreditPurchase,
     DistributionCorrection,
     DebtSettlement,
-    AuctionSettlement,
-    Transfer,
+    // Reset all balances in the community
     BalanceReset,
+    // Auction settlement to treasury or active members depending on mode
+    AuctionSettlement,
+    // Member-member transfer
+    Transfer,
 }
 
 #[derive(
