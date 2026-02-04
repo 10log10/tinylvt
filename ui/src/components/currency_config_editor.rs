@@ -450,11 +450,7 @@ fn render_credit_limit_input(
 
                 on_change_callback.emit(CurrencySettings {
                     mode_config: new_mode_config,
-                    name: currency.name.clone(),
-                    symbol: currency.symbol.clone(),
-                    minor_units: currency.minor_units,
-                    balances_visible_to_members: currency
-                        .balances_visible_to_members,
+                    ..currency.clone()
                 });
             }
         })
@@ -568,11 +564,7 @@ fn render_allowance_amount_input(
 
                 on_change_callback.emit(CurrencySettings {
                     mode_config: new_mode_config,
-                    name: currency.name.clone(),
-                    symbol: currency.symbol.clone(),
-                    minor_units: currency.minor_units,
-                    balances_visible_to_members: currency
-                        .balances_visible_to_members,
+                    ..currency.clone()
                 });
             }
         })
@@ -645,11 +637,7 @@ fn render_allowance_period_input(
 
                 on_change_callback.emit(CurrencySettings {
                     mode_config: new_mode_config,
-                    name: currency.name.clone(),
-                    symbol: currency.symbol.clone(),
-                    minor_units: currency.minor_units,
-                    balances_visible_to_members: currency
-                        .balances_visible_to_members,
+                    ..currency.clone()
                 });
             }
         })
@@ -756,11 +744,7 @@ fn render_allowance_start_input(
 
                 on_change_callback.emit(CurrencySettings {
                     mode_config: new_mode_config,
-                    name: currency.name.clone(),
-                    symbol: currency.symbol.clone(),
-                    minor_units: currency.minor_units,
-                    balances_visible_to_members: currency
-                        .balances_visible_to_members,
+                    ..currency.clone()
                 });
             }
         })
