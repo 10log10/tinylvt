@@ -429,6 +429,17 @@ pub(crate) async fn check_sufficient_credit_tx(
     Ok(())
 }
 
+/// Parameters for creating a journal entry
+struct CreateEntryParams<'a> {
+    community_id: &'a CommunityId,
+    entry_type: EntryType,
+    idempotency_key: IdempotencyKey,
+    lines: Vec<(AccountId, Decimal)>,
+    auction_id: Option<&'a payloads::AuctionId>,
+    initiated_by_id: Option<&'a UserId>,
+    note: Option<String>,
+}
+
 /// Create a journal entry with lines, updating balances atomically
 ///
 /// This is the core ledger operation. It:
@@ -449,15 +460,8 @@ pub(crate) async fn check_sufficient_credit_tx(
 ///
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
-#[allow(clippy::too_many_arguments)]
 async fn create_entry(
-    community_id: &CommunityId,
-    entry_type: EntryType,
-    idempotency_key: IdempotencyKey,
-    lines: Vec<(AccountId, Decimal)>,
-    auction_id: Option<&payloads::AuctionId>,
-    initiated_by_id: Option<&UserId>,
-    note: Option<String>,
+    params: CreateEntryParams<'_>,
     time_source: &TimeSource,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
@@ -465,7 +469,7 @@ async fn create_entry(
     let existing: Option<JournalEntryId> = sqlx::query_scalar(
         "SELECT id FROM journal_entries WHERE idempotency_key = $1",
     )
-    .bind(idempotency_key)
+    .bind(params.idempotency_key)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -474,7 +478,7 @@ async fn create_entry(
     }
 
     // Validate lines sum to zero
-    let sum: Decimal = lines.iter().map(|(_, amount)| amount).sum();
+    let sum: Decimal = params.lines.iter().map(|(_, amount)| amount).sum();
     if sum != Decimal::ZERO {
         return Err(StoreError::JournalLinesDoNotSumToZero(sum));
     }
@@ -485,20 +489,24 @@ async fn create_entry(
     // - Auction settlement: locked balance already includes debits
     // - Balance reset: accounts are pre-locked and credit checks will pass
     let skip_checks = matches!(
-        entry_type,
+        params.entry_type,
         EntryType::AuctionSettlement | EntryType::BalanceReset
     );
 
     if !skip_checks {
         // Validate one line per account
-        let unique_accounts: std::collections::HashSet<AccountId> =
-            lines.iter().map(|(account_id, _)| *account_id).collect();
-        if unique_accounts.len() != lines.len() {
+        let unique_accounts: std::collections::HashSet<AccountId> = params
+            .lines
+            .iter()
+            .map(|(account_id, _)| *account_id)
+            .collect();
+        if unique_accounts.len() != params.lines.len() {
             return Err(StoreError::DuplicateAccountInJournalEntry);
         }
 
         // Collect debited accounts and sort by ID to prevent deadlocks
-        let mut debited_accounts: Vec<_> = lines
+        let mut debited_accounts: Vec<_> = params
+            .lines
             .iter()
             .filter(|(_, amount)| *amount < Decimal::ZERO)
             .map(|(account_id, _)| *account_id)
@@ -517,7 +525,7 @@ async fn create_entry(
         }
 
         // Check credit limits BEFORE making changes
-        for (account_id, amount) in &lines {
+        for (account_id, amount) in &params.lines {
             if *amount >= Decimal::ZERO {
                 continue; // Skip credits, only check debits
             }
@@ -542,18 +550,18 @@ async fn create_entry(
         RETURNING id
         "#,
     )
-    .bind(community_id)
-    .bind(entry_type)
-    .bind(idempotency_key)
-    .bind(auction_id)
-    .bind(initiated_by_id)
-    .bind(&note)
+    .bind(params.community_id)
+    .bind(params.entry_type)
+    .bind(params.idempotency_key)
+    .bind(params.auction_id)
+    .bind(params.initiated_by_id)
+    .bind(&params.note)
     .bind(now.to_sqlx())
     .fetch_one(&mut **tx)
     .await?;
 
     // Create journal lines and update balances
-    for (account_id, amount) in &lines {
+    for (account_id, amount) in &params.lines {
         // Insert journal line
         sqlx::query(
             r#"
@@ -731,13 +739,15 @@ pub async fn create_auction_settlement_entry(
 
     // Create the journal entry as an auction settlement
     create_entry(
-        community_id,
-        EntryType::AuctionSettlement,
-        idempotency_key,
-        lines,
-        Some(auction_id),
-        None, // No initiated_by_id for automated settlements
-        None, // No note
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::AuctionSettlement,
+            idempotency_key,
+            lines,
+            auction_id: Some(auction_id),
+            initiated_by_id: None, // No initiated_by_id for automated settlements
+            note: None,
+        },
         time_source,
         tx,
     )
@@ -1308,13 +1318,15 @@ pub async fn create_transfer(
 
     // Create the journal entry
     create_entry(
-        &sender.0.community_id,
-        EntryType::Transfer,
-        idempotency_key,
-        lines,
-        None, // No auction_id
-        None, // No initiated_by_id for member-to-member transfers
-        note,
+        CreateEntryParams {
+            community_id: &sender.0.community_id,
+            entry_type: EntryType::Transfer,
+            idempotency_key,
+            lines,
+            auction_id: None,
+            initiated_by_id: None, // No initiated_by_id for member-to-member transfers
+            note,
+        },
         time_source,
         &mut tx,
     )
@@ -1459,13 +1471,15 @@ pub async fn treasury_credit_operation(
 
     // Create journal entry
     create_entry(
-        community_id,
-        entry_type,
-        idempotency_key,
-        lines,
-        None, // No auction_id
-        Some(initiated_by_id),
-        note,
+        CreateEntryParams {
+            community_id,
+            entry_type,
+            idempotency_key,
+            lines,
+            auction_id: None,
+            initiated_by_id: Some(initiated_by_id),
+            note,
+        },
         time_source,
         &mut tx,
     )
@@ -1602,13 +1616,15 @@ pub async fn reset_all_balances(
     // Create journal entry using shared create_entry function
     let idempotency_key = payloads::IdempotencyKey(uuid::Uuid::new_v4());
     create_entry(
-        community_id,
-        EntryType::BalanceReset,
-        idempotency_key,
-        lines,
-        None, // No auction_id
-        Some(&actor.0.user_id),
-        note,
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::BalanceReset,
+            idempotency_key,
+            lines,
+            auction_id: None,
+            initiated_by_id: Some(&actor.0.user_id),
+            note,
+        },
         time_source,
         &mut tx,
     )
