@@ -1567,7 +1567,8 @@ pub async fn get_members(
                 ON a.community_id = cm.community_id
                 AND a.owner_id = cm.user_id
                 AND a.owner_type = 'member_main'
-            WHERE cm.community_id = $1",
+            WHERE cm.community_id = $1
+            ORDER BY cm.created_at ASC",
         )
         .bind(actor.0.community_id)
         .fetch_all(pool)
@@ -1577,7 +1578,8 @@ pub async fn get_members(
             "SELECT user_id, role, is_active,
                     NULL::numeric AS balance
             FROM community_members
-            WHERE community_id = $1",
+            WHERE community_id = $1
+            ORDER BY created_at ASC",
         )
         .bind(actor.0.community_id)
         .fetch_all(pool)
@@ -1642,6 +1644,41 @@ pub async fn set_membership_schedule(
     }
 
     tx.commit().await?;
+
+    Ok(())
+}
+
+/// Update the active status of a community member (moderator+ only).
+/// This is a manual override independent of the membership schedule.
+pub async fn update_member_active_status(
+    actor: &ValidatedMember,
+    member_user_id: &UserId,
+    is_active: bool,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Check permissions
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Verify target member exists
+    let _target_member =
+        get_validated_member(member_user_id, &actor.0.community_id, pool)
+            .await?;
+
+    // Update active status
+    sqlx::query(
+        "UPDATE community_members
+        SET is_active = $1, updated_at = $2
+        WHERE community_id = $3 AND user_id = $4",
+    )
+    .bind(is_active)
+    .bind(time_source.now().to_sqlx())
+    .bind(actor.0.community_id)
+    .bind(member_user_id)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }

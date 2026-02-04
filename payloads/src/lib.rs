@@ -726,6 +726,13 @@ pub mod requests {
         pub member_user_id: super::UserId,
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct UpdateMemberActiveStatus {
+        pub community_id: super::CommunityId,
+        pub member_user_id: super::UserId,
+        pub is_active: bool,
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct GetMemberCurrencyInfo {
         pub community_id: super::CommunityId,
@@ -1367,6 +1374,15 @@ impl APIClient {
         let response =
             self.post("get_membership_schedule", &community_id).await?;
         ok_body(response).await
+    }
+
+    pub async fn update_member_active_status(
+        &self,
+        details: &requests::UpdateMemberActiveStatus,
+    ) -> Result<(), ClientError> {
+        let response =
+            self.post("update_member_active_status", &details).await?;
+        ok_empty(response).await
     }
 
     pub async fn create_site(

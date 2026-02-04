@@ -202,6 +202,31 @@ pub async fn get_membership_schedule(
     Ok(HttpResponse::Ok().json(schedule))
 }
 
+/// Update a member's active status (moderator+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/update_member_active_status")]
+pub async fn update_member_active_status(
+    user: Identity,
+    details: web::Json<requests::UpdateMemberActiveStatus>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::update_member_active_status(
+        &validated_member,
+        &details.member_user_id,
+        details.is_active,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
 /// Delete a community (leader only)
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_community")]

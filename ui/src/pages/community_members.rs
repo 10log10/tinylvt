@@ -1,8 +1,10 @@
 use payloads::{CommunityId, Role, responses::CommunityWithRole};
+use yew::classes;
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveTab, CommunityPageWrapper, CommunityTabHeader, EditCreditLimitModal,
+    ActiveStatusToggle, ActiveTab, CommunityPageWrapper, CommunityTabHeader,
+    EditCreditLimitModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
 use crate::hooks::use_members;
@@ -42,65 +44,74 @@ pub struct MembersContentProps {
 fn MembersContent(props: &MembersContentProps) -> Html {
     let members_hook = use_members(props.community.id);
 
-    if members_hook.is_loading {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">{"Loading members..."}</p>
-            </div>
-        };
-    }
+    members_hook.render("members", |members, is_loading, error| {
+        html! {
+            <div class="relative">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold text-neutral-900 \
+                               dark:text-neutral-100">
+                        {"Community Members"}
+                    </h2>
+                    // Contextual loading indicator during refetch (inline)
+                    {if is_loading {
+                        html! {
+                            <span class="text-xs text-neutral-500 \
+                                        dark:text-neutral-400 italic">
+                                {"Refreshing..."}
+                            </span>
+                        }
+                    } else {
+                        html! {}
+                    }}
+                </div>
 
-    if let Some(error) = &members_hook.error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-            </div>
-        };
-    }
-
-    match members_hook.data.as_ref() {
-        Some(members) => {
-            if members.is_empty() {
-                html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400">
-                            {"No members found in this community."}
-                        </p>
-                    </div>
-                }
-            } else {
-                html! {
-                    <div>
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-                                {"Community Members"}
-                            </h2>
-                            // Invite Member button moved to Invites tab
+                // Refetch error display
+                {if let Some(err) = error {
+                    html! {
+                        <div class="mb-4 p-4 rounded-md bg-red-50 \
+                                    dark:bg-red-900/20 border border-red-200 \
+                                    dark:border-red-800">
+                            <p class="text-sm text-red-700 dark:text-red-400">
+                                {"Error refreshing: "}{err}
+                            </p>
                         </div>
+                    }
+                } else {
+                    html! {}
+                }}
 
-                        <div class="space-y-3">
+                // Member list (always visible when data exists)
+                {if members.is_empty() {
+                    html! {
+                        <div class="text-center py-12">
+                            <p class="text-neutral-600 dark:text-neutral-400">
+                                {"No members found in this community."}
+                            </p>
+                        </div>
+                    }
+                } else {
+                    html! {
+                        <div class={classes!(
+                            "space-y-3",
+                            if is_loading { "opacity-75" } else { "" }
+                        )}>
                             {members.iter().map(|member| {
+                                let on_update = members_hook.refetch.clone();
                                 html! {
                                     <MemberRow
                                         key={member.user.user_id.to_string()}
                                         member={member.clone()}
                                         community={props.community.clone()}
+                                        on_update={on_update}
                                     />
                                 }
                             }).collect::<Html>()}
                         </div>
-                    </div>
-                }
-            }
+                    }
+                }}
+            </div>
         }
-        None => {
-            html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">{"No members data available"}</p>
-                </div>
-            }
-        }
-    }
+    })
 }
 
 #[derive(Properties, PartialEq)]
@@ -140,6 +151,7 @@ fn RoleBadge(props: &RoleBadgeProps) -> Html {
 struct MemberRowProps {
     pub member: payloads::responses::CommunityMember,
     pub community: CommunityWithRole,
+    pub on_update: Callback<()>,
 }
 
 #[function_component]
@@ -157,6 +169,9 @@ fn MemberRow(props: &MemberRowProps) -> Html {
             payloads::CurrencyModeConfig::DistributedClearing(_)
                 | payloads::CurrencyModeConfig::DeferredPayment(_)
         );
+
+    // Check if user can edit active status
+    let can_edit_active_status = community.user_role.is_ge_moderator();
 
     let on_edit_click = {
         let show_edit_modal = show_edit_modal.clone();
@@ -205,6 +220,23 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                         {community.community.currency.format_amount(balance)}
                                     </div>
                                 </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
+
+                    // Active status toggle
+                    {
+                        if can_edit_active_status {
+                            html! {
+                                <ActiveStatusToggle
+                                    community_id={community.id}
+                                    member_user_id={member.user.user_id}
+                                    current_status={member.is_active}
+                                    on_success={props.on_update.clone()}
+                                    disabled={false}
+                                />
                             }
                         } else {
                             html! {}
