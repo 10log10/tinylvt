@@ -1,6 +1,6 @@
 use yew::prelude::*;
 
-const SUPPORT_EMAIL: &str = env!("SUPPORT_EMAIL");
+const SUPPORT_EMAIL: Option<&str> = option_env!("SUPPORT_EMAIL");
 
 #[function_component]
 pub fn HelpPage() -> Html {
@@ -27,17 +27,25 @@ pub fn HelpPage() -> Html {
                 </a>
             </div>
 
-            <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 mb-6">
-                <h2 class="text-xl font-semibold text-neutral-900 dark:text-white mb-4">
-                    {"Need help with your account?"}
-                </h2>
-                <p class="text-neutral-700 dark:text-neutral-300 mb-4">
-                    {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact us:"}
-                </p>
-                <span class="text-neutral-900 dark:text-white font-semibold">
-                    {SUPPORT_EMAIL}
-                </span>
-            </div>
+            {
+                if let Some(email) = SUPPORT_EMAIL {
+                    html! {
+                        <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 mb-6">
+                            <h2 class="text-xl font-semibold text-neutral-900 dark:text-white mb-4">
+                                {"Need help with your account?"}
+                            </h2>
+                            <p class="text-neutral-700 dark:text-neutral-300 mb-4">
+                                {"If you're experiencing issues with your account, email verification, or have any questions about using TinyLVT, please contact us:"}
+                            </p>
+                            <span class="text-neutral-900 dark:text-white font-semibold">
+                                {email}
+                            </span>
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
 
             <div class="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
                 <h2 class="text-xl font-semibold text-neutral-900 dark:text-white mb-4">

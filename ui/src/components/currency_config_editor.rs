@@ -87,7 +87,7 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
         (
             CurrencyMode::PrepaidCredits,
             "Prepaid Credits",
-            "Members purchase credits from treasury upfront",
+            "Members purchase credits from treasury up front",
         ),
     ];
 
@@ -344,7 +344,7 @@ fn render_new_members_default_active_checkbox(props: &Props) -> Html {
                     {"Active members receive "}
                     {match props.currency.mode_config {
                         CurrencyModeConfig::PointsAllocation(_) => {
-                            "allowances from bulk points issuance"
+                            "allowances from treasury issuance"
                         },
                         CurrencyModeConfig::DistributedClearing(_) => {
                             "a share of auction settlements"
@@ -411,6 +411,12 @@ fn render_points_allocation_fields(
             {render_allowance_amount_input(props, boxed_config)}
             {render_allowance_period_input(props, boxed_config)}
             {render_allowance_start_input(props, boxed_config)}
+
+            <div class="p-3 bg-neutral-100 dark:bg-neutral-800 rounded text-sm text-neutral-700 dark:text-neutral-300">
+                <p>
+                    {"Note: The allowance period and start date are configured for transparency. Automated scheduling is not yet implemented, so allowances must be issued manually from the Treasury page."}
+                </p>
+            </div>
         </div>
     }
 }
@@ -451,7 +457,7 @@ fn render_prepaid_credits_fields(
     html! {
         <div class="space-y-4">
             <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                {"In Prepaid Credits mode, members purchase credits from the treasury upfront."}
+                {"In Prepaid Credits mode, members purchase credits from the treasury up front."}
             </p>
 
             {render_debts_callable_checkbox(props, config.debts_callable)}

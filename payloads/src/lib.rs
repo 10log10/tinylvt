@@ -271,7 +271,7 @@ pub struct IOUConfig {
 }
 
 /// Prepaid credits configuration
-/// Members purchase credits from treasury upfront
+/// Members purchase credits from treasury up front
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrepaidCreditsConfig {
     /// Whether debts carry promise of settlement

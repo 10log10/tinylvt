@@ -119,6 +119,58 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                         <h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
                             {"Issue Credits"}
                         </h2>
+
+                        // Explanatory text based on currency mode
+                        <div class="mb-4 p-4 bg-neutral-50 dark:bg-neutral-700 rounded text-sm text-neutral-700 dark:text-neutral-300">
+                        {
+                            match props.community.community.currency.mode_config.mode() {
+                                payloads::CurrencyMode::PointsAllocation => html! {
+                                    <p>
+                                        {"Treasury operations in "}
+                                        <span class="font-semibold">{"Points Allocation"}</span>
+                                        {" mode are used to issue allowances to members."}
+                                    </p>
+                                },
+                                payloads::CurrencyMode::DistributedClearing => html! {
+                                    <>
+                                        <p class="mb-2">
+                                            {"Treasury operations in "}
+                                            <span class="font-semibold">{"Distributed Clearing"}</span>
+                                            {" mode are only needed when an auction balance was sent to the treasury."}
+                                        </p>
+                                        <p>
+                                            {"This occurs when no members were \"active\" during an auction. Only active members are eligible to receive auction distributions. Leaders must manually correct the failed allocation after fixing the lack of active members."}
+                                        </p>
+                                    </>
+                                },
+                                payloads::CurrencyMode::DeferredPayment => html! {
+                                    <>
+                                        <p class="mb-2">
+                                            {"Treasury operations in "}
+                                            <span class="font-semibold">{"Deferred Payment"}</span>
+                                            {" mode are used to mark debts as paid."}
+                                        </p>
+                                        <p>
+                                            {"Payment occurs outside TinyLVT. Use this operation to record that a member has settled their debt."}
+                                        </p>
+                                    </>
+                                },
+                                payloads::CurrencyMode::PrepaidCredits => html! {
+                                    <>
+                                        <p class="mb-2">
+                                            {"Treasury operations in "}
+                                            <span class="font-semibold">{"Prepaid Credits"}</span>
+                                            {" mode are used to record credit purchases."}
+                                        </p>
+                                        <p>
+                                            {"Members purchase credits from the treasury to use in auctions. Record each purchase with this operation."}
+                                        </p>
+                                    </>
+                                },
+                            }
+                        }
+                        </div>
+
                         <TreasuryCreditForm
                             community_id={props.community_id}
                             community={props.community.clone()}
