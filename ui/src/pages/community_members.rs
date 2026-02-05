@@ -1,5 +1,4 @@
 use payloads::{CommunityId, Role, responses::CommunityWithRole};
-use yew::classes;
 use yew::prelude::*;
 
 use crate::components::{
@@ -91,10 +90,7 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                     }
                 } else {
                     html! {
-                        <div class={classes!(
-                            "space-y-3",
-                            if is_loading { "opacity-75" } else { "" }
-                        )}>
+                        <div class="space-y-3">
                             {members.iter().map(|member| {
                                 let on_update = members_hook.refetch.clone();
                                 html! {

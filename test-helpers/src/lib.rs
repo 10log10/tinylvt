@@ -323,11 +323,15 @@ impl TestApp {
         self.create_alice_user().await?;
         let community_id = self.create_test_community().await?;
 
+        self.time_source.advance(Span::new().seconds(1));
+
         // Invite and add Bob
         self.invite_bob().await?;
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
+
+        self.time_source.advance(Span::new().seconds(1));
 
         // Invite and add Charlie
         self.login_alice().await?;
