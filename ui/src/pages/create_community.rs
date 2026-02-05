@@ -35,6 +35,7 @@ fn CreateCommunityPageInner() -> Html {
         symbol: "$".to_string(),
         minor_units: 2,
         balances_visible_to_members: true,
+        new_members_default_active: true,
     });
 
     let on_submit = {
@@ -58,7 +59,6 @@ fn CreateCommunityPageInner() -> Html {
 
             let community_request = requests::CreateCommunity {
                 name,
-                new_members_default_active: true,
                 currency: (*currency).clone(),
             };
 

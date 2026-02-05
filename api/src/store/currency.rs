@@ -1112,6 +1112,7 @@ pub struct CurrencySettingsDb {
     pub currency_symbol: String,
     pub currency_minor_units: i16,
     pub balances_visible_to_members: bool,
+    pub new_members_default_active: bool,
 }
 
 /// Convert database columns to complete CurrencySettings
@@ -1134,6 +1135,7 @@ pub fn currency_settings_from_db(
         symbol: db.currency_symbol,
         minor_units: db.currency_minor_units,
         balances_visible_to_members: db.balances_visible_to_members,
+        new_members_default_active: db.new_members_default_active,
     })
 }
 
@@ -1210,6 +1212,7 @@ pub fn currency_settings_to_db(
         currency_symbol: settings.symbol.clone(),
         currency_minor_units: settings.minor_units,
         balances_visible_to_members: settings.balances_visible_to_members,
+        new_members_default_active: settings.new_members_default_active,
     }
 }
 
@@ -1766,8 +1769,9 @@ pub async fn update_currency_config(
              allowance_amount = $8,
              allowance_period = $9,
              allowance_start = $10,
-             updated_at = $11
-         WHERE id = $12",
+             new_members_default_active = $11,
+             updated_at = $12
+         WHERE id = $13",
     )
     .bind(currency_db.mode)
     .bind(currency_db.default_credit_limit)
@@ -1785,6 +1789,7 @@ pub async fn update_currency_config(
             .transpose()?,
     )
     .bind(currency_db.allowance_start.as_ref().map(|t| t.to_sqlx()))
+    .bind(currency_db.new_members_default_active)
     .bind(time_source.now().to_sqlx())
     .bind(actor.0.community_id)
     .execute(pool)

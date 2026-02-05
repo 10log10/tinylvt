@@ -292,13 +292,13 @@ impl TestApp {
     pub async fn create_test_community(&self) -> anyhow::Result<CommunityId> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
-            new_members_default_active: true,
             currency: payloads::CurrencySettings {
                 mode_config: default_currency_config(),
                 name: "dollars".into(),
                 symbol: "$".into(),
                 minor_units: 2,
                 balances_visible_to_members: true,
+                new_members_default_active: true,
             },
         };
         Ok(self.client.create_community(&body).await?)

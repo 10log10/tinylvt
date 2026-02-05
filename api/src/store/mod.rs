@@ -726,13 +726,13 @@ impl TryFrom<DbCommunity> for Community {
                 currency_symbol: db.currency_symbol,
                 currency_minor_units: db.currency_minor_units,
                 balances_visible_to_members: db.balances_visible_to_members,
+                new_members_default_active: db.new_members_default_active,
             })
             .ok_or(StoreError::InvalidCurrencyConfiguration)?;
 
         Ok(Community {
             id: db.id,
             name: db.name,
-            new_members_default_active: db.new_members_default_active,
             created_at: db.created_at,
             updated_at: db.updated_at,
             currency,
@@ -801,7 +801,7 @@ pub async fn create_community(
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING *;",
     )
     .bind(&details.name)
-    .bind(details.new_members_default_active)
+    .bind(currency_db.new_members_default_active)
     .bind(currency_db.mode)
     .bind(currency_db.default_credit_limit)
     .bind(currency_db.debts_callable)
@@ -1372,15 +1372,20 @@ pub async fn accept_invite(
         return Err(StoreError::MismatchedInviteEmail);
     }
 
+    // Fetch community to get new_members_default_active setting
+    let community = get_community_by_id(&invite.community_id, pool).await?;
+    let is_active = community.currency.new_members_default_active;
+
     let mut tx = pool.begin().await?;
 
     let result = sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4);",
+        "INSERT INTO community_members (community_id, user_id, role, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $5);",
     )
     .bind(invite.community_id)
     .bind(user_id)
     .bind(Role::Member)
+    .bind(is_active)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await;

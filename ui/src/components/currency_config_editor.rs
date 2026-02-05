@@ -99,6 +99,8 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                     let on_change_callback = props.on_change.clone();
                     let balances_visible = props.currency.balances_visible_to_members;
                     let currency_minor_units = props.currency.minor_units;
+                    let new_members_default_active =
+                        props.currency.new_members_default_active;
                     let mode = *mode;
                     Callback::from(move |_| {
                         let new_mode_config = create_default_config_for_mode(&mode);
@@ -121,6 +123,7 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                             symbol: currency_symbol,
                             minor_units: currency_minor_units,
                             balances_visible_to_members: balances_visible,
+                            new_members_default_active,
                         });
                     })
                 };
@@ -288,6 +291,7 @@ fn render_balances_visible_checkbox(props: &Props) -> Html {
     html! {
         <div class="flex items-start">
             <input
+                id="balances-visible-checkbox"
                 type="checkbox"
                 checked={props.currency.balances_visible_to_members}
                 onchange={on_change}
@@ -295,7 +299,7 @@ fn render_balances_visible_checkbox(props: &Props) -> Html {
                 class="mt-1 mr-2"
             />
             <div>
-                <label class="text-sm font-medium">
+                <label for="balances-visible-checkbox" class="text-sm font-medium cursor-pointer">
                     {"Balances visible to all members"}
                 </label>
                 <p class="text-sm text-neutral-600 dark:text-neutral-400">
@@ -306,17 +310,76 @@ fn render_balances_visible_checkbox(props: &Props) -> Html {
     }
 }
 
+fn render_new_members_default_active_checkbox(props: &Props) -> Html {
+    let on_change = {
+        let on_change_callback = props.on_change.clone();
+        let currency = props.currency.clone();
+
+        Callback::from(move |e: Event| {
+            let input: HtmlInputElement =
+                e.target().unwrap().dyn_into().unwrap();
+            let checked = input.checked();
+            on_change_callback.emit(CurrencySettings {
+                new_members_default_active: checked,
+                ..currency.clone()
+            });
+        })
+    };
+
+    html! {
+        <div class="flex items-start">
+            <input
+                id="new-members-default-active-checkbox"
+                type="checkbox"
+                checked={props.currency.new_members_default_active}
+                onchange={on_change}
+                disabled={props.disabled}
+                class="mt-1 mr-2"
+            />
+            <div>
+                <label for="new-members-default-active-checkbox" class="text-sm font-medium cursor-pointer">
+                    {"New members active by default"}
+                </label>
+                <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                    {"Active members receive "}
+                    {match props.currency.mode_config {
+                        CurrencyModeConfig::PointsAllocation(_) => {
+                            "allowances from bulk points issuance"
+                        },
+                        CurrencyModeConfig::DistributedClearing(_) => {
+                            "a share of auction settlements"
+                        },
+                        _ => {
+                            "nothing" // should not be rendered
+                        },
+                    }}
+                </p>
+            </div>
+        </div>
+    }
+}
+
 fn render_mode_specific_fields(props: &Props, _mode: &CurrencyMode) -> Html {
     match props.currency.mode_config {
         CurrencyModeConfig::PointsAllocation(ref config) => {
-            render_points_allocation_fields(props, config)
+            html! {
+                <>
+                    {render_points_allocation_fields(props, config)}
+                    {render_new_members_default_active_checkbox(props)}
+                </>
+            }
         }
         CurrencyModeConfig::DistributedClearing(ref config) => {
-            render_iou_fields(
-                props,
-                config,
-                "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
-            )
+            html! {
+                <>
+                    {render_iou_fields(
+                        props,
+                        config,
+                        "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
+                    )}
+                    {render_new_members_default_active_checkbox(props)}
+                </>
+            }
         }
         CurrencyModeConfig::DeferredPayment(ref config) => render_iou_fields(
             props,
@@ -463,6 +526,7 @@ fn render_credit_limit_input(
             </label>
             <div class="flex items-start space-x-3">
                 <input
+                    id="unlimited-credit-checkbox"
                     type="checkbox"
                     checked={is_unlimited}
                     onchange={on_unlimited_change}
@@ -470,7 +534,7 @@ fn render_credit_limit_input(
                     class="mt-2"
                 />
                 <div class="flex-1">
-                    <label class="text-sm">{"Unlimited"}</label>
+                    <label for="unlimited-credit-checkbox" class="text-sm cursor-pointer">{"Unlimited"}</label>
                 </div>
             </div>
             if !is_unlimited {
@@ -518,6 +582,7 @@ fn render_debts_callable_checkbox(props: &Props, current_value: bool) -> Html {
     html! {
         <div class="flex items-start">
             <input
+                id="debts-callable-checkbox"
                 type="checkbox"
                 checked={current_value}
                 onchange={on_change}
@@ -525,7 +590,7 @@ fn render_debts_callable_checkbox(props: &Props, current_value: bool) -> Html {
                 class="mt-1 mr-2"
             />
             <div>
-                <label class="text-sm font-medium">
+                <label for="debts-callable-checkbox" class="text-sm font-medium cursor-pointer">
                     {"Debts are callable"}
                 </label>
                 <p class="text-sm text-neutral-600 dark:text-neutral-400">

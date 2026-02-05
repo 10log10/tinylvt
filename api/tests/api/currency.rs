@@ -955,6 +955,7 @@ async fn update_currency_config_coleader_permissions() -> anyhow::Result<()> {
             symbol: "C".to_string(),
             minor_units: 2,
             balances_visible_to_members: false,
+            new_members_default_active: true,
         },
     };
     let result = app.client.update_currency_config(&body).await;
@@ -989,7 +990,6 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
     // Create community with DistributedClearing mode
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
-        new_members_default_active: true,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DistributedClearing(
                 payloads::IOUConfig {
@@ -1001,6 +1001,7 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
             symbol: "$".to_string(),
             minor_units: 2,
             balances_visible_to_members: true,
+            new_members_default_active: true,
         },
     };
     let community_id = app.client.create_community(&body).await?;
@@ -1019,6 +1020,7 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
             symbol: "$".to_string(),
             minor_units: 2,
             balances_visible_to_members: true,
+            new_members_default_active: true,
         },
     };
     let result = app.client.update_currency_config(&update_body).await;
@@ -1051,6 +1053,7 @@ async fn currency_config_validation() -> anyhow::Result<()> {
             symbol: "$".to_string(),
             minor_units: 2,
             balances_visible_to_members: true,
+            new_members_default_active: true,
         },
     };
     let result = app.client.update_currency_config(&body).await;
@@ -1065,6 +1068,7 @@ async fn currency_config_validation() -> anyhow::Result<()> {
             symbol: "TOOLONG".to_string(),
             minor_units: 2,
             balances_visible_to_members: true,
+            new_members_default_active: true,
         },
     };
     let result = app.client.update_currency_config(&body).await;
@@ -1079,6 +1083,7 @@ async fn currency_config_validation() -> anyhow::Result<()> {
             symbol: "P".to_string(),
             minor_units: 0,
             balances_visible_to_members: false,
+            new_members_default_active: true,
         },
     };
     app.client.update_currency_config(&body).await?;
@@ -1101,7 +1106,6 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
     // Create community with specific IOU config
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
-        new_members_default_active: true,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DistributedClearing(
                 payloads::IOUConfig {
@@ -1113,6 +1117,7 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
             symbol: "$".to_string(),
             minor_units: 2,
             balances_visible_to_members: true,
+            new_members_default_active: true,
         },
     };
     let community_id = app.client.create_community(&body).await?;
@@ -1132,6 +1137,7 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
             symbol: "¢".to_string(),
             minor_units: 3,
             balances_visible_to_members: false,
+            new_members_default_active: true,
         },
     };
     app.client.update_currency_config(&update_body).await?;

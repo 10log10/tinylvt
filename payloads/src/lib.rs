@@ -397,6 +397,7 @@ pub struct CurrencySettings {
     pub symbol: String,
     pub minor_units: i16,
     pub balances_visible_to_members: bool,
+    pub new_members_default_active: bool,
 }
 
 impl CurrencySettings {
@@ -609,7 +610,6 @@ pub mod requests {
     #[derive(Debug, Serialize, Deserialize)]
     pub struct CreateCommunity {
         pub name: String,
-        pub new_members_default_active: bool,
         pub currency: CurrencySettings,
     }
 
@@ -814,7 +814,6 @@ pub mod responses {
     pub struct Community {
         pub id: CommunityId,
         pub name: String,
-        pub new_members_default_active: bool,
         pub created_at: Timestamp,
         pub updated_at: Timestamp,
         pub currency: super::CurrencySettings,

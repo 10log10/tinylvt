@@ -171,7 +171,12 @@ fn MemberRow(props: &MemberRowProps) -> Html {
         );
 
     // Check if user can edit active status
-    let can_edit_active_status = community.user_role.is_ge_moderator();
+    let can_edit_active_status = community.user_role.is_ge_moderator()
+        && matches!(
+            community.community.currency.mode_config,
+            payloads::CurrencyModeConfig::PointsAllocation(_)
+                | payloads::CurrencyModeConfig::DistributedClearing(_)
+        );
 
     let on_edit_click = {
         let show_edit_modal = show_edit_modal.clone();
