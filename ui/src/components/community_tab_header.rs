@@ -99,7 +99,7 @@ pub fn CommunityTabHeader(props: &Props) -> Html {
 
             // Tab Navigation
             <div class="border-b border-neutral-200 dark:border-neutral-700">
-                <nav class="-mb-px flex space-x-8">
+                <nav class="-mb-px flex flex-wrap gap-x-8 gap-y-2">
                     {get_tab_configs().iter().filter_map(|tab_config| {
                         // Check if user has required role
                         let has_permission = match tab_config.min_role {
