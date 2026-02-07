@@ -1,6 +1,7 @@
+use payloads::{IdempotencyKey, requests};
 use reqwest::StatusCode;
-
-use payloads::requests;
+use rust_decimal::Decimal;
+use uuid::Uuid;
 
 use test_helpers::{assert_status_code, spawn_app};
 
@@ -140,6 +141,59 @@ async fn delete_community_leader_only() -> anyhow::Result<()> {
     // Verify community is gone
     let communities = app.client.get_communities().await?;
     assert!(communities.is_empty());
+
+    Ok(())
+}
+
+/// Community deletion should succeed even when there's financial history.
+/// This tests that delete_community properly clears journal_entries first
+/// to unblock the cascade.
+#[tokio::test]
+async fn delete_community_with_financial_history() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Get Bob's user_id
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    let bob_id = bob.user.user_id;
+
+    // Alice transfers funds to Bob (creates journal entries)
+    app.login_alice().await?;
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to_user_id: bob_id,
+            amount: Decimal::new(5000, 2), // 50.00
+            note: Some("Test transfer".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Verify journal entries exist
+    let entry_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM journal_entries WHERE community_id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert!(entry_count > 0, "Should have journal entries");
+
+    // Alice deletes community - should succeed despite financial history
+    app.client.delete_community(&community_id).await?;
+
+    // Verify community is gone
+    let communities = app.client.get_communities().await?;
+    assert!(communities.is_empty());
+
+    // Verify journal entries are also gone
+    let entry_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM journal_entries WHERE community_id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(entry_count, 0, "Journal entries should be deleted");
 
     Ok(())
 }
