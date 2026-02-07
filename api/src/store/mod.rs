@@ -2211,20 +2211,34 @@ pub async fn delete_community(
         return Err(StoreError::RequiresLeaderPermissions);
     }
 
+    let mut tx = pool.begin().await?;
+
+    // Delete journal_entries first to unblock cascade deletions.
+    // The ledger uses RESTRICT on auction_id and account_id FKs to preserve
+    // financial history, but community deletion is the one case where we
+    // intentionally destroy everything.
+    sqlx::query("DELETE FROM journal_entries WHERE community_id = $1")
+        .bind(community_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Delete community - cascades to:
     // - community_members
     // - community_invites
     // - community_membership_schedule
     // - site_images
     // - sites (which cascades to spaces, auctions, etc.)
+    // - accounts
     let result = sqlx::query("DELETE FROM communities WHERE id = $1")
         .bind(community_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     if result.rows_affected() == 0 {
         return Err(StoreError::CommunityNotFound);
     }
+
+    tx.commit().await?;
 
     // Clean up orphaned auction params
     cleanup_unused_auction_params(pool).await;
@@ -2249,19 +2263,29 @@ pub async fn delete_site(
 
     let mut tx = pool.begin().await?;
 
-    // remove any remaining open hours
+    // Remove any remaining open hours
     update_open_hours(&existing_site.open_hours_id, &None, &mut tx).await?;
 
-    sqlx::query("DELETE FROM sites WHERE id = $1")
+    let delete_result = sqlx::query("DELETE FROM sites WHERE id = $1")
         .bind(site_id)
         .execute(&mut *tx)
-        .await?;
+        .await;
 
-    tx.commit().await?;
-
-    cleanup_unused_auction_params(pool).await;
-
-    Ok(())
+    match delete_result {
+        Ok(_) => {
+            tx.commit().await?;
+            cleanup_unused_auction_params(pool).await;
+            Ok(())
+        }
+        Err(sqlx::Error::Database(db_err))
+            if db_err.is_foreign_key_violation() =>
+        {
+            // FK violation means site has auctions with financial history:
+            // sites → auctions (CASCADE) → journal_entries.auction_id (RESTRICT)
+            Err(StoreError::SiteHasFinancialHistory)
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub async fn soft_delete_site(
@@ -3666,6 +3690,8 @@ pub enum StoreError {
     DuplicateAccountInJournalEntry,
     #[error("Cannot reset balances while auctions are active")]
     CannotResetDuringActiveAuction,
+    #[error("Cannot delete site with financial history")]
+    SiteHasFinancialHistory,
 }
 
 /// Convert a space name unique constraint violation into a more specific error.

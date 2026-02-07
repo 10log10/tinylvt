@@ -774,6 +774,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         on_close={on_close_soft_delete_modal}
                         is_loading={*is_soft_deleting}
                         error_message={(*soft_delete_error_message).clone().map(AttrValue::from)}
+                        is_irreversible={false}
                     />
                 }
             } else {

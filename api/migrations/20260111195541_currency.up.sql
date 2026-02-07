@@ -188,13 +188,26 @@ CREATE TYPE ENTRY_TYPE AS ENUM (
 
 -- Entries in the ledger
 -- Each entry has legs in journal_lines with amounts that sum to 0
+--
+-- ## Deletion semantics
+--
+-- The ledger defines what must be preserved. FKs use ON DELETE RESTRICT to
+-- block deletion of referenced rows:
+-- - journal_entries.auction_id → blocks auction/site deletion
+-- - journal_lines.account_id → blocks account/user deletion
+--
+-- This means:
+-- - Users with transaction history are anonymized, not deleted
+-- - Sites with auction settlements cannot be hard-deleted
+-- - Community deletion explicitly deletes journal_entries first to unblock
+--   the cascade (the one case where we destroy financial history)
 CREATE TABLE journal_entries (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     community_id      UUID NOT NULL REFERENCES communities (id)
         ON DELETE CASCADE,
     entry_type        ENTRY_TYPE NOT NULL,
     idempotency_key   UUID NOT NULL,
-    auction_id        UUID REFERENCES auctions (id),
+    auction_id        UUID REFERENCES auctions (id) ON DELETE RESTRICT,
     -- User who initiated this entry (for treasury/admin operations)
     -- NULL for member-to-member transfers (implicit from account)
     initiated_by_id   UUID REFERENCES users (id)
@@ -211,7 +224,7 @@ CREATE TABLE journal_lines (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entry_id          UUID NOT NULL REFERENCES journal_entries (id)
         ON DELETE CASCADE,
-    account_id        UUID NOT NULL REFERENCES accounts (id),
+    account_id        UUID NOT NULL REFERENCES accounts (id) ON DELETE RESTRICT,
     amount            NUMERIC(20, 6) NOT NULL
 );
 
