@@ -4,6 +4,7 @@ mod currency;
 mod database;
 mod email;
 mod login;
+mod member_removal;
 mod proxy_bidding;
 mod security_headers;
 mod site;

@@ -1,6 +1,6 @@
 use actix_identity::Identity;
 use actix_web::{HttpResponse, post, web};
-use payloads::requests;
+use payloads::{CommunityId, requests};
 use sqlx::PgPool;
 
 use crate::store;
@@ -237,6 +237,57 @@ pub async fn reset_all_balances(
         details.note.clone(),
         &pool,
         &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(result))
+}
+
+// Orphaned Account Management
+
+/// Get orphaned accounts (coleader+ only)
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/orphaned_accounts")]
+pub async fn get_orphaned_accounts(
+    user: Identity,
+    community_id: web::Json<CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &community_id, &pool).await?;
+
+    let orphaned =
+        store::currency::get_orphaned_accounts(&validated_member, &pool)
+            .await?;
+
+    Ok(
+        HttpResponse::Ok().json(payloads::responses::OrphanedAccountsList {
+            orphaned_accounts: orphaned,
+        }),
+    )
+}
+
+/// Resolve orphaned account balance (coleader+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/resolve_orphaned_balance")]
+pub async fn resolve_orphaned_balance(
+    user: Identity,
+    details: web::Json<requests::ResolveOrphanedBalance>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    let result = store::currency::resolve_orphaned_balance(
+        &validated_member,
+        &details.orphaned_account_id,
+        details.note.clone(),
+        details.idempotency_key,
+        &time_source,
+        &pool,
     )
     .await?;
 

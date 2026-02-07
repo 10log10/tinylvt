@@ -1378,6 +1378,23 @@ pub async fn accept_invite(
 
     let mut tx = pool.begin().await?;
 
+    // Check if an orphaned account exists (user previously left)
+    let orphaned_account_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM accounts
+            WHERE community_id = $1
+              AND owner_id = $2
+              AND owner_type = 'member_main'
+        )
+        "#,
+    )
+    .bind(invite.community_id)
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Insert community_members row (new member or returning member)
     let result = sqlx::query(
         "INSERT INTO community_members (community_id, user_id, role, is_active, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $5);",
@@ -1394,15 +1411,18 @@ pub async fn accept_invite(
         return Err(StoreError::AlreadyMember);
     }
 
-    // Create member_main account for the new member
-    currency::create_account_tx(
-        &invite.community_id,
-        payloads::AccountOwner::Member(*user_id),
-        None,
-        time_source,
-        &mut tx,
-    )
-    .await?;
+    // Only create account if this is a new member (no orphaned account)
+    if !orphaned_account_exists {
+        currency::create_account_tx(
+            &invite.community_id,
+            payloads::AccountOwner::Member(*user_id),
+            None,
+            time_source,
+            &mut tx,
+        )
+        .await?;
+    }
+    // else: Orphaned account exists, member is reconnecting to it
 
     if invite.email.is_some() || invite.single_use {
         sqlx::query("DELETE FROM community_invites WHERE id = $1")
@@ -1606,6 +1626,105 @@ pub async fn get_members(
         pool,
     )
     .await
+}
+
+// Helper function to check if actor can remove a member with the target role
+fn can_remove_role(actor_role: &Role, target_role: &Role) -> bool {
+    match actor_role {
+        // Leader can remove anyone but themselves
+        Role::Leader => !target_role.is_leader(),
+        // Coleader can remove member or moderator
+        Role::Coleader => {
+            matches!(target_role, Role::Member | Role::Moderator)
+        }
+        // Moderator can only remove member
+        Role::Moderator => matches!(target_role, Role::Member),
+        // Member cannot remove anyone
+        Role::Member => false,
+    }
+}
+
+pub async fn remove_member(
+    actor: &ValidatedMember,
+    member_user_id: &UserId,
+    pool: &PgPool,
+    _time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Permission check: Moderator+
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Cannot remove yourself (use leave_community instead)
+    if member_user_id == &actor.0.user_id {
+        return Err(StoreError::CannotRemoveSelf);
+    }
+
+    // Get target member to validate they exist and check their role
+    let target_member =
+        get_validated_member(member_user_id, &actor.0.community_id, pool)
+            .await?;
+
+    let mut tx = pool.begin().await?;
+
+    // Cannot remove higher role
+    if !can_remove_role(&actor.0.role, &target_member.0.role) {
+        return Err(StoreError::CannotRemoveHigherRole);
+    }
+
+    // Delete the community_members row (account persists)
+    // Include role != 'leader' check to prevent race condition where member
+    // gets promoted to leader between our check and deletion
+    let rows_deleted = sqlx::query(
+        "DELETE FROM community_members
+         WHERE community_id = $1 AND user_id = $2 AND role != 'leader'",
+    )
+    .bind(actor.0.community_id)
+    .bind(member_user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // If no rows deleted, member was promoted to leader (race condition).
+    // Or member was already removed/left (also race).
+    // The error isn't accurate for the latter case but a retry will then yield
+    // MemberNotFound.
+    if rows_deleted == 0 {
+        return Err(StoreError::CannotRemoveHigherRole);
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn leave_community(
+    member: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Early check for leader (avoids unnecessary delete attempt)
+    if member.0.role.is_leader() {
+        return Err(StoreError::LeaderMustTransferFirst);
+    }
+
+    // Delete the community_members row (but not if leader).
+    // Atomic check during deletion prevents races.
+    let rows_deleted = sqlx::query(
+        "DELETE FROM community_members
+         WHERE community_id = $1 AND user_id = $2 AND role != 'leader'",
+    )
+    .bind(member.0.community_id)
+    .bind(member.0.user_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    // If no rows deleted, user was promoted to leader (race condition)
+    // or the user was already removed.
+    if rows_deleted == 0 {
+        return Err(StoreError::LeaderMustTransferFirst);
+    }
+
+    Ok(())
 }
 
 pub async fn set_membership_schedule(
@@ -3434,6 +3553,18 @@ pub enum StoreError {
     AlreadyMember,
     #[error("Member not found")]
     MemberNotFound,
+    #[error("Cannot remove yourself from community")]
+    CannotRemoveSelf,
+    #[error("Cannot remove user with higher role")]
+    CannotRemoveHigherRole,
+    #[error(
+        "Cannot leave community as leader (must transfer leadership first)"
+    )]
+    LeaderMustTransferFirst,
+    #[error("Orphaned account not found")]
+    OrphanedAccountNotFound,
+    #[error("No active members to distribute balance to")]
+    NoActiveMembersForDistribution,
     #[error("Span too large")]
     SpanTooLarge(Box<Span>),
     #[error("A space with the name '{name}' already exists in this site")]

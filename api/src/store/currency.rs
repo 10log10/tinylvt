@@ -60,6 +60,16 @@ use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 
 use super::StoreError;
+
+/// Scale for NUMERIC(20, 6) in the database. All amounts should be rounded to
+/// this scale before validation and storage to ensure consistency.
+const DB_DECIMAL_SCALE: u32 = 6;
+
+/// Round a decimal amount to match database precision (6 decimal places).
+/// This ensures calculations match what PostgreSQL will store.
+fn round_to_db_scale(amount: Decimal) -> Decimal {
+    amount.round_dp(DB_DECIMAL_SCALE)
+}
 use crate::time::TimeSource;
 
 /// Database-level Account struct that matches the accounts table schema
@@ -678,18 +688,10 @@ pub async fn create_auction_settlement_entry(
         }
         CurrencyMode::DistributedClearing => {
             // Distribute equally among active members
-            let active_member_ids: Vec<UserId> = sqlx::query_scalar(
-                r#"
-                SELECT user_id
-                FROM community_members
-                WHERE community_id = $1 AND is_active = true
-                "#,
-            )
-            .bind(community_id)
-            .fetch_all(&mut **tx)
-            .await?;
+            let active_member_account_ids =
+                get_active_member_account_ids_tx(community_id, tx).await?;
 
-            if active_member_ids.is_empty() {
+            if active_member_account_ids.is_empty() {
                 // Fallback: if no active members, send to treasury
                 // This can occur if membership schedules expire or all members
                 // are manually set to inactive
@@ -698,41 +700,15 @@ pub async fn create_auction_settlement_entry(
                         .await?;
                 lines.push((treasury_account.id, total_paid));
             } else {
-                // Calculate per-member distribution
-                let num_active = Decimal::from(active_member_ids.len());
-                let base_amount = total_paid / num_active;
-
                 // Add credit lines for each active member
                 // Winners who are also active members will have both debit
                 // (above) and credit (here) lines, making the journal
                 // transparent
-                //
-                // To handle rounding: Give all members except the last one
-                // base_amount, then give the last member exactly what's
-                // left. This guarantees the sum equals total_paid with no
-                // floating-point precision errors.
-                let mut distributed_so_far = Decimal::ZERO;
-
-                for (idx, member_user_id) in
-                    active_member_ids.iter().enumerate()
-                {
-                    let member_account = get_account_tx(
-                        community_id,
-                        AccountOwner::Member(*member_user_id),
-                        tx,
-                    )
-                    .await?;
-
-                    let amount = if idx == active_member_ids.len() - 1 {
-                        // Last member gets exactly what's left
-                        total_paid - distributed_so_far
-                    } else {
-                        distributed_so_far += base_amount;
-                        base_amount
-                    };
-
-                    lines.push((member_account.id, amount));
-                }
+                let distribution_lines = distribute_amount_evenly(
+                    total_paid,
+                    &active_member_account_ids,
+                );
+                lines.extend(distribution_lines);
             }
         }
     }
@@ -778,6 +754,76 @@ async fn get_account_tx(
     .ok_or(StoreError::AccountNotFound)?;
 
     db_account.try_into()
+}
+
+/// Get account IDs for all active members in a community
+///
+/// Returns a vector of account IDs for members where is_active = true,
+/// ordered by account ID for consistency.
+async fn get_active_member_account_ids_tx(
+    community_id: &CommunityId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Vec<AccountId>, StoreError> {
+    let account_ids: Vec<AccountId> = sqlx::query_scalar(
+        r#"
+        SELECT a.id
+        FROM accounts a
+        JOIN community_members cm
+            ON a.community_id = cm.community_id
+            AND a.owner_id = cm.user_id
+        WHERE a.community_id = $1
+          AND a.owner_type = 'member_main'
+          AND cm.is_active = true
+        ORDER BY a.id
+        "#,
+    )
+    .bind(community_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    Ok(account_ids)
+}
+
+/// Distribute an amount evenly among a list of accounts
+///
+/// Uses careful decimal arithmetic to ensure the distributed amounts sum
+/// exactly to the total, with no rounding errors (see module docustring). The
+/// last recipient gets any remainder to guarantee exact balance.
+///
+/// # Arguments
+/// * `total_amount` - The total amount to distribute
+/// * `account_ids` - List of account IDs to distribute to
+///
+/// # Returns
+/// Vector of (AccountId, Decimal) tuples representing credit lines
+///
+/// # Panics
+/// Panics if account_ids is empty (caller should check)
+fn distribute_amount_evenly(
+    total_amount: Decimal,
+    account_ids: &[AccountId],
+) -> Vec<(AccountId, Decimal)> {
+    assert!(!account_ids.is_empty(), "Cannot distribute to empty list");
+
+    let num_recipients = Decimal::from(account_ids.len());
+    // Round to DB scale to match what will be stored
+    let base_amount = round_to_db_scale(total_amount / num_recipients);
+    let mut distributed_so_far = Decimal::ZERO;
+    let mut lines = Vec::with_capacity(account_ids.len());
+
+    for (idx, account_id) in account_ids.iter().enumerate() {
+        let amount = if idx == account_ids.len() - 1 {
+            // Last recipient gets exactly what's left to avoid rounding errors
+            total_amount - distributed_so_far
+        } else {
+            distributed_so_far += base_amount;
+            base_amount
+        };
+
+        lines.push((*account_id, amount));
+    }
+
+    lines
 }
 
 /// Get currency information for a member
@@ -1293,6 +1339,9 @@ pub async fn create_transfer(
     time_source: &TimeSource,
     pool: &PgPool,
 ) -> Result<(), StoreError> {
+    // Round to DB scale to ensure consistency
+    let amount = round_to_db_scale(amount);
+
     if amount <= Decimal::ZERO {
         return Err(StoreError::AmountMustBePositive);
     }
@@ -1370,6 +1419,9 @@ pub async fn treasury_credit_operation(
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
+    // Round to DB scale to ensure consistency
+    let amount_per_recipient = round_to_db_scale(amount_per_recipient);
+
     if amount_per_recipient <= Decimal::ZERO {
         return Err(StoreError::AmountMustBePositive);
     }
@@ -1387,26 +1439,23 @@ pub async fn treasury_credit_operation(
     .fetch_one(&mut *tx)
     .await?;
 
-    // Get recipient list based on TreasuryRecipient
-    let recipient_ids: Vec<UserId> = match &recipient {
+    // Get recipient account IDs based on TreasuryRecipient
+    let recipient_account_ids: Vec<AccountId> = match &recipient {
         payloads::TreasuryRecipient::SingleMember(user_id) => {
-            vec![*user_id]
+            let account = get_account_tx(
+                community_id,
+                AccountOwner::Member(*user_id),
+                &mut tx,
+            )
+            .await?;
+            vec![account.id]
         }
         payloads::TreasuryRecipient::AllActiveMembers => {
-            sqlx::query_scalar(
-                r#"
-                SELECT user_id
-                FROM community_members
-                WHERE community_id = $1 AND is_active = true
-                "#,
-            )
-            .bind(community_id)
-            .fetch_all(&mut *tx)
-            .await?
+            get_active_member_account_ids_tx(community_id, &mut tx).await?
         }
     };
 
-    let recipient_count = recipient_ids.len();
+    let recipient_count = recipient_account_ids.len();
 
     if recipient_count == 0 {
         // No recipients - return early with zero result
@@ -1462,14 +1511,8 @@ pub async fn treasury_credit_operation(
     lines.push((treasury_account.id, -total_amount));
 
     // Credit line for each recipient
-    for recipient_user_id in &recipient_ids {
-        let member_account = get_account_tx(
-            community_id,
-            AccountOwner::Member(*recipient_user_id),
-            &mut tx,
-        )
-        .await?;
-        lines.push((member_account.id, amount_per_recipient));
+    for recipient_account_id in &recipient_account_ids {
+        lines.push((*recipient_account_id, amount_per_recipient));
     }
 
     // Create journal entry
@@ -1494,6 +1537,210 @@ pub async fn treasury_credit_operation(
         recipient_count,
         total_amount,
     })
+}
+
+/// Resolve orphaned account balance
+///
+/// The resolution target depends on the currency mode:
+/// - DistributedClearing: Distributes to active members (fails if none exist)
+/// - All other modes: Transfers to treasury
+///
+/// Requires coleader+ permissions.
+pub async fn resolve_orphaned_balance(
+    actor: &super::ValidatedMember,
+    orphaned_account_id: &AccountId,
+    note: Option<String>,
+    idempotency_key: IdempotencyKey,
+    time_source: &TimeSource,
+    pool: &PgPool,
+) -> Result<payloads::TreasuryOperationResult, StoreError> {
+    // Permission check: Coleader+
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Get currency mode to determine resolution behavior
+    let currency_mode: CurrencyMode = sqlx::query_scalar(
+        "SELECT currency_mode FROM communities WHERE id = $1",
+    )
+    .bind(actor.0.community_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Verify account is orphaned (no matching community_members row exists)
+    let is_orphaned: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM accounts a
+            WHERE a.id = $1
+              AND a.community_id = $2
+              AND a.owner_type = 'member_main'
+              AND NOT EXISTS (
+                SELECT 1 FROM community_members cm
+                WHERE cm.community_id = a.community_id
+                  AND cm.user_id = a.owner_id
+              )
+        )
+        "#,
+    )
+    .bind(orphaned_account_id)
+    .bind(actor.0.community_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if !is_orphaned {
+        return Err(StoreError::OrphanedAccountNotFound);
+    }
+
+    // Get account by querying its owner_id first, then lock for update
+    let owner_id: Option<UserId> =
+        sqlx::query_scalar("SELECT owner_id FROM accounts WHERE id = $1")
+            .bind(orphaned_account_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    let owner_id = owner_id.ok_or(StoreError::OrphanedAccountNotFound)?;
+
+    // Get account and lock it for update
+    let orphaned_account = get_account_for_update_tx(
+        &actor.0.community_id,
+        AccountOwner::Member(owner_id),
+        &mut tx,
+    )
+    .await?;
+
+    let balance = orphaned_account.balance_cached;
+
+    // If balance is zero, nothing to transfer
+    if balance == Decimal::ZERO {
+        tx.commit().await?;
+        return Ok(payloads::TreasuryOperationResult {
+            recipient_count: 0,
+            total_amount: Decimal::ZERO,
+        });
+    }
+
+    // Determine recipients based on currency mode
+    let recipient_account_ids: Vec<AccountId> = if currency_mode
+        == CurrencyMode::DistributedClearing
+    {
+        // Distribute to active members (no treasury fallback)
+        let member_ids =
+            get_active_member_account_ids_tx(&actor.0.community_id, &mut tx)
+                .await?;
+
+        if member_ids.is_empty() {
+            return Err(StoreError::NoActiveMembersForDistribution);
+        }
+        member_ids
+    } else {
+        // All other modes: transfer to treasury
+        let treasury = get_account_tx(
+            &actor.0.community_id,
+            AccountOwner::Treasury,
+            &mut tx,
+        )
+        .await?;
+        vec![treasury.id]
+    };
+
+    // Build journal lines
+    let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
+
+    // Debit orphaned account (zeroes the balance)
+    lines.push((orphaned_account.id, -balance));
+
+    // Credit recipients with evenly distributed amounts
+    let distribution_lines =
+        distribute_amount_evenly(balance, &recipient_account_ids);
+    lines.extend(distribution_lines);
+
+    // Create journal entry
+    create_entry(
+        CreateEntryParams {
+            community_id: &actor.0.community_id,
+            entry_type: EntryType::OrphanedAccountTransfer,
+            idempotency_key,
+            lines,
+            auction_id: None,
+            initiated_by_id: Some(&actor.0.user_id),
+            note,
+        },
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(payloads::TreasuryOperationResult {
+        recipient_count: recipient_account_ids.len(),
+        total_amount: balance,
+    })
+}
+
+/// Get all orphaned accounts in a community with non-zero balances
+///
+/// Orphaned accounts are member accounts where the member has left the
+/// community (no community_members row exists). Only returns accounts with
+/// non-zero balances since zero-balance accounts don't need resolution.
+/// Requires coleader+.
+pub async fn get_orphaned_accounts(
+    actor: &super::ValidatedMember,
+    pool: &PgPool,
+) -> Result<Vec<payloads::responses::OrphanedAccount>, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Get orphaned accounts with non-zero balances
+    let db_accounts: Vec<DbAccount> = sqlx::query_as(
+        r#"
+        SELECT a.*
+        FROM accounts a
+        WHERE a.community_id = $1
+          AND a.owner_type = 'member_main'
+          AND a.balance_cached != 0
+          AND NOT EXISTS (
+            SELECT 1 FROM community_members cm
+            WHERE cm.community_id = a.community_id
+              AND cm.user_id = a.owner_id
+          )
+        ORDER BY a.created_at DESC
+        "#,
+    )
+    .bind(actor.0.community_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Extract user IDs (filter out None, though member_main should always
+    // have owner_id)
+    let user_ids: Vec<UserId> =
+        db_accounts.iter().filter_map(|a| a.owner_id).collect();
+
+    // Batch fetch user identities (deleted users won't be in the map)
+    let user_identities =
+        super::get_user_identities(&user_ids, &actor.0.community_id, pool)
+            .await?;
+
+    // Map to OrphanedAccount with optional user identity
+    let orphaned_accounts = db_accounts
+        .into_iter()
+        .map(|db| {
+            let previous_owner = db
+                .owner_id
+                .and_then(|uid| user_identities.get(&uid).cloned());
+
+            Ok(payloads::responses::OrphanedAccount {
+                account: db.try_into()?,
+                previous_owner,
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+
+    Ok(orphaned_accounts)
 }
 
 /// Get treasury account for a community

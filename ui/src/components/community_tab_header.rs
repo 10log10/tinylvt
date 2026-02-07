@@ -17,6 +17,7 @@ pub enum ActiveTab {
     Invites,
     Currency,
     Treasury,
+    OrphanedAccounts,
     Settings,
 }
 
@@ -27,7 +28,7 @@ struct TabConfig {
     min_role: Option<Role>,
 }
 
-fn get_tab_configs() -> [TabConfig; 6] {
+fn get_tab_configs() -> [TabConfig; 7] {
     [
         TabConfig {
             label: "Sites",
@@ -57,6 +58,12 @@ fn get_tab_configs() -> [TabConfig; 6] {
             label: "Treasury",
             tab: ActiveTab::Treasury,
             route: |id| Route::CommunityTreasury { id },
+            min_role: Some(Role::Coleader),
+        },
+        TabConfig {
+            label: "Orphaned Accounts",
+            tab: ActiveTab::OrphanedAccounts,
+            route: |id| Route::OrphanedAccounts { id },
             min_role: Some(Role::Coleader),
         },
         TabConfig {

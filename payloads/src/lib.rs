@@ -505,6 +505,9 @@ pub enum EntryType {
     AuctionSettlement,
     // Member-member transfer
     Transfer,
+    // Transfer from orphaned account (member who left) to treasury or
+    // active members
+    OrphanedAccountTransfer,
 }
 
 #[derive(
@@ -637,6 +640,30 @@ pub mod requests {
     pub struct SetMembershipSchedule {
         pub community_id: CommunityId,
         pub schedule: Vec<super::MembershipSchedule>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct RemoveMember {
+        pub community_id: CommunityId,
+        pub member_user_id: super::UserId,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct LeaveCommunity {
+        pub community_id: CommunityId,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GetOrphanedAccounts {
+        pub community_id: CommunityId,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct ResolveOrphanedBalance {
+        pub community_id: CommunityId,
+        pub orphaned_account_id: super::AccountId,
+        pub note: Option<String>,
+        pub idempotency_key: super::IdempotencyKey,
     }
 
     /// Details about a community member for a community one is a part of.
@@ -869,6 +896,17 @@ pub mod responses {
         fn deref(&self) -> &Self::Target {
             &self.community
         }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct OrphanedAccount {
+        pub account: super::Account,
+        pub previous_owner: Option<UserIdentity>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct OrphanedAccountsList {
+        pub orphaned_accounts: Vec<OrphanedAccount>,
     }
 
     /// Details about a community member for a community one is a part of.
@@ -1382,6 +1420,38 @@ impl APIClient {
         let response =
             self.post("update_member_active_status", &details).await?;
         ok_empty(response).await
+    }
+
+    pub async fn remove_member(
+        &self,
+        details: &requests::RemoveMember,
+    ) -> Result<(), ClientError> {
+        let response = self.post("remove_member", &details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn leave_community(
+        &self,
+        details: &requests::LeaveCommunity,
+    ) -> Result<(), ClientError> {
+        let response = self.post("leave_community", &details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn get_orphaned_accounts(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<responses::OrphanedAccountsList, ClientError> {
+        let response = self.post("orphaned_accounts", &community_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn resolve_orphaned_balance(
+        &self,
+        details: &requests::ResolveOrphanedBalance,
+    ) -> Result<TreasuryOperationResult, ClientError> {
+        let response = self.post("resolve_orphaned_balance", &details).await?;
+        ok_body(response).await
     }
 
     pub async fn create_site(

@@ -7,7 +7,8 @@ use crate::{
     hooks::{FetchHookReturn, use_fetch_with_cache},
 };
 
-/// Hook to manage members data with lazy loading and global state caching
+/// Hook to manage members data with global state caching.
+/// Always refetches on mount to ensure fresh data.
 #[hook]
 pub fn use_members(
     community_id: CommunityId,
@@ -15,7 +16,6 @@ pub fn use_members(
     let (state, dispatch) = use_store::<State>();
 
     let get_cached_state = state.clone();
-    let should_fetch_state = state.clone();
     let fetch_dispatch = dispatch.clone();
 
     use_fetch_with_cache(
@@ -25,9 +25,8 @@ pub fn use_members(
                 .get_members_for_community(community_id)
                 .cloned()
         },
-        move || {
-            !should_fetch_state.has_members_loaded_for_community(community_id)
-        },
+        // Always refetch on mount to ensure fresh data
+        || true,
         move || {
             let dispatch = fetch_dispatch.clone();
             async move {

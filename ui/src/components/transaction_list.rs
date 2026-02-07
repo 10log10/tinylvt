@@ -128,6 +128,7 @@ fn determine_counterparty(
     };
 
     match target_account {
+        // Transactions from the User's perspective
         AccountOwner::Member(user_id) => match txn.entry_type {
             // Treasury operations
             EntryType::IssuanceGrantSingle
@@ -136,7 +137,8 @@ fn determine_counterparty(
             | EntryType::DistributionCorrection
             | EntryType::DebtSettlement
             | EntryType::BalanceReset => Counterparty::Treasury,
-            EntryType::AuctionSettlement => {
+            EntryType::AuctionSettlement
+            | EntryType::OrphanedAccountTransfer => {
                 match currency_mode {
                     CurrencyMode::DistributedClearing => {
                         // Though settlement can go to treasury if there are no
@@ -157,6 +159,7 @@ fn determine_counterparty(
                 .map(Counterparty::Member)
                 .unwrap_or(Counterparty::NMembers(0)), // Should not happen
         },
+        // Transactions from the Treasury's perspective
         AccountOwner::Treasury => match txn.entry_type {
             // Bulk treasury operations to all active members
             EntryType::IssuanceGrantBulk
@@ -175,6 +178,10 @@ fn determine_counterparty(
             }
             // Transfers are only between members, should not happen
             EntryType::Transfer => find_member()
+                .map(Counterparty::Member)
+                .unwrap_or(Counterparty::NMembers(0)),
+            // Orphaned account transfer to treasury
+            EntryType::OrphanedAccountTransfer => find_member()
                 .map(Counterparty::Member)
                 .unwrap_or(Counterparty::NMembers(0)),
         },
@@ -211,6 +218,9 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         payloads::EntryType::AuctionSettlement => "Auction Settlement",
         payloads::EntryType::Transfer => "Transfer",
         payloads::EntryType::BalanceReset => "Balance Reset",
+        payloads::EntryType::OrphanedAccountTransfer => {
+            "Orphaned Account Transfer"
+        }
     };
 
     // Determine counterparty

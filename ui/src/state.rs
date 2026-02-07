@@ -262,13 +262,6 @@ impl State {
         self.individual_auctions.clear();
     }
 
-    pub fn has_members_loaded_for_community(
-        &self,
-        community_id: CommunityId,
-    ) -> bool {
-        self.members.contains_key(&community_id)
-    }
-
     pub fn get_members_for_community(
         &self,
         community_id: CommunityId,

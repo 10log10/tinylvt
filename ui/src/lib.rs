@@ -20,8 +20,8 @@ use pages::{
     CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
     HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
-    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteDetailPage,
-    SiteSettingsPage, VerifyEmailPage,
+    OrphanedAccountsPage, ProfilePage, ResetPasswordPage, SiteAuctionsPage,
+    SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -94,6 +94,8 @@ pub enum Route {
     CommunityCurrency { id: CommunityId },
     #[at("/communities/:id/treasury")]
     CommunityTreasury { id: CommunityId },
+    #[at("/communities/:id/orphaned_accounts")]
+    OrphanedAccounts { id: CommunityId },
     #[at("/communities/:id/settings")]
     CommunitySettings { id: CommunityId },
     #[at("/communities/:id/sites/new")]
@@ -144,6 +146,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityTreasury { id } => {
             html! { <CommunityTreasuryPage community_id={id} /> }
+        }
+        Route::OrphanedAccounts { id } => {
+            html! { <OrphanedAccountsPage community_id={id} /> }
         }
         Route::CommunitySettings { id } => {
             html! { <CommunitySettingsPage community_id={id} /> }

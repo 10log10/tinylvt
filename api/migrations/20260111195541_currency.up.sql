@@ -182,7 +182,8 @@ CREATE TYPE ENTRY_TYPE AS ENUM (
     'debt_settlement',
     'auction_settlement',
     'transfer',
-    'balance_reset'
+    'balance_reset',
+    'orphaned_account_transfer'
 );
 
 -- Entries in the ledger

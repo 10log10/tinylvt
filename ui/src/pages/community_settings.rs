@@ -4,7 +4,7 @@ use yew_router::prelude::*;
 
 use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, ConfirmationModal,
-    CurrencyConfigEditor,
+    CurrencyConfigEditor, LeaveCommunityButton,
 };
 use crate::hooks::use_communities;
 use crate::{Route, get_api_client};
@@ -268,6 +268,28 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
                         </div>
                     }
                 </div>
+
+                // Leave Community Section (non-leaders)
+                if !is_leader {
+                    <div class="bg-red-50 dark:bg-red-900/10 rounded-lg \
+                                border border-red-200 dark:border-red-800 p-6">
+                        <h3 class="text-lg font-semibold text-red-800 \
+                                   dark:text-red-200 mb-2">
+                            {"Leave Community"}
+                        </h3>
+                        <p class="text-sm text-red-700 dark:text-red-300 mb-4">
+                            {"You can leave this community at any time. Your \
+                              account balance may be preserved and you can rejoin \
+                              if invited again."}
+                        </p>
+
+                        <LeaveCommunityButton
+                            community_id={props.community_id}
+                            community_name={props.community.community.name.clone()}
+                            user_role={props.community.user_role}
+                        />
+                    </div>
+                }
 
                 // Danger Zone Section (Leaders only)
                 if is_leader {
