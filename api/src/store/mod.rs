@@ -975,7 +975,14 @@ pub async fn delete_user(
         Err(sqlx::Error::Database(db_err))
             if db_err.is_foreign_key_violation() =>
         {
-            // User has auction history, anonymize instead
+            // FK violation means user has historical data that must be
+            // preserved. This can happen via:
+            // - bids.user_id → user placed auction bids
+            // - auction_results.winning_user_id → user won auction rounds
+            // - entry_lines.account_id (via accounts cascade) → user has
+            //   transaction history
+            //
+            // In these cases, anonymize the user instead of deleting.
             let now = time_source.now().to_sqlx();
             let mut tx = pool.begin().await?;
 
