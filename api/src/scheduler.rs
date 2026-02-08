@@ -109,9 +109,11 @@ async fn process_auctions_without_rounds(
             Ok(true) => continue, // Processed one, try for more
             Ok(false) => break,   // No more auctions to process
             Err(e) => {
-                // Log error but continue to next auction
+                // Break on error - the scheduler's tick interval provides
+                // natural backoff. Individual auction failures are recorded
+                // in the database with exponential backoff.
                 tracing::error!("Failed to process auction: {:#}", e);
-                continue;
+                break;
             }
         }
     }
@@ -756,12 +758,14 @@ async fn process_proxy_bidding_for_active_rounds(
             Ok(true) => continue, // Processed one, try for more
             Ok(false) => break,   // No more rounds to process
             Err(e) => {
-                // Log error but continue to next round
+                // Break on error - the scheduler's tick interval provides
+                // natural backoff. Individual round failures are recorded
+                // in the database with exponential backoff.
                 tracing::error!(
                     "Failed to process proxy bidding for round: {:#}",
                     e
                 );
-                continue;
+                break;
             }
         }
     }
