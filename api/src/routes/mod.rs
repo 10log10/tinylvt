@@ -1,5 +1,6 @@
 pub mod auction;
 pub mod community;
+pub mod currency;
 pub mod login;
 pub mod proxy_bidding;
 pub mod site;
@@ -39,6 +40,11 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_members)
         .service(community::set_membership_schedule)
         .service(community::get_membership_schedule)
+        .service(community::update_member_active_status)
+        .service(community::remove_member)
+        .service(community::leave_community)
+        .service(currency::get_orphaned_accounts)
+        .service(currency::resolve_orphaned_balance)
         .service(community::delete_community)
         .service(site::create_site)
         .service(site::get_site)
@@ -81,6 +87,16 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(proxy_bidding::create_or_update_proxy_bidding)
         .service(proxy_bidding::get_proxy_bidding)
         .service(proxy_bidding::delete_proxy_bidding)
+        .service(currency::update_credit_limit_override)
+        .service(currency::get_member_credit_limit_override)
+        .service(currency::get_member_currency_info)
+        .service(currency::get_member_transactions)
+        .service(currency::create_transfer)
+        .service(currency::get_treasury_account)
+        .service(currency::get_treasury_transactions)
+        .service(currency::treasury_credit_operation)
+        .service(currency::reset_all_balances)
+        .service(currency::update_currency_config)
 }
 
 #[get("/health_check")]
@@ -122,7 +138,18 @@ impl ResponseError for APIError {
 impl From<StoreError> for APIError {
     fn from(e: StoreError) -> Self {
         match e {
+            // Database errors
             StoreError::Database(_) => APIError::UnexpectedError(e.into()),
+
+            // Database invariant violations (should never happen)
+            StoreError::InvalidAccountOwnership => {
+                APIError::UnexpectedError(e.into())
+            }
+            StoreError::InvalidCurrencyConfiguration => {
+                APIError::UnexpectedError(e.into())
+            }
+
+            // Not found errors
             StoreError::MemberNotFound => APIError::AuthError(e.into()),
             StoreError::TokenNotFound => APIError::NotFound(e.into()),
             StoreError::UserNotFound => APIError::NotFound(e.into()),
@@ -141,6 +168,9 @@ impl From<StoreError> for APIError {
             StoreError::CommunityInviteNotFound => APIError::NotFound(e.into()),
             StoreError::OpenHoursNotFound => APIError::NotFound(e.into()),
             StoreError::AuctionParamsNotFound => APIError::NotFound(e.into()),
+            StoreError::AccountNotFound => APIError::NotFound(e.into()),
+
+            // All other errors are bad requests (client errors)
             _ => APIError::BadRequest(e.into()),
         }
     }

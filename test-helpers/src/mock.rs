@@ -78,7 +78,14 @@ impl DevDataset {
         app.login_bob().await?;
         let bob_community_body = requests::CreateCommunity {
             name: "Tech Startup Collective".into(),
-            new_members_default_active: true,
+            currency: payloads::CurrencySettings {
+                mode_config: crate::default_currency_config(),
+                name: "dollars".into(),
+                symbol: "$".into(),
+                minor_units: 2,
+                balances_visible_to_members: true,
+                new_members_default_active: true,
+            },
         };
         let bob_community_id =
             app.client.create_community(&bob_community_body).await?;
@@ -559,7 +566,14 @@ async fn create_bob_community(app: &TestApp) -> Result<CommunityId> {
 
     let bob_community_body = requests::CreateCommunity {
         name: "Tech Startup Collective".into(),
-        new_members_default_active: true,
+        currency: payloads::CurrencySettings {
+            mode_config: crate::default_currency_config(),
+            name: "dollars".into(),
+            symbol: "$".into(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
     };
     let bob_community_id =
         app.client.create_community(&bob_community_body).await?;

@@ -23,6 +23,9 @@ pub struct ConfirmationModalProps {
     /// Error message to display
     #[prop_or_default]
     pub error_message: Option<AttrValue>,
+    /// Whether to show "cannot be undone" warning (default: true)
+    #[prop_or(true)]
+    pub is_irreversible: bool,
 }
 
 #[function_component]
@@ -82,11 +85,21 @@ pub fn ConfirmationModal(props: &ConfirmationModalProps) -> Html {
 
                 <div class="space-y-4">
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                        {"This action "}
-                        <span class="font-semibold text-red-600 dark:text-red-400">
-                            {"cannot be undone"}
-                        </span>
-                        {". "}{&props.message}
+                        {if props.is_irreversible {
+                            html! {
+                                <>
+                                    {"This action "}
+                                    <span class="font-semibold text-red-600 \
+                                                 dark:text-red-400">
+                                        {"cannot be undone"}
+                                    </span>
+                                    {". "}
+                                </>
+                            }
+                        } else {
+                            html! {}
+                        }}
+                        {&props.message}
                     </p>
 
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">

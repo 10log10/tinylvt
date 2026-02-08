@@ -174,7 +174,7 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
             </div>
         }
     } else {
-        match &auctions_hook.auctions {
+        match auctions_hook.data.as_ref() {
             Some(auctions) if !auctions.is_empty() => {
                 // Filter auctions by status
                 let mut filtered_auctions: Vec<_> = auctions
@@ -226,7 +226,7 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                         // Filters and Sorting Controls
                         <div class="mb-6 space-y-4">
                             // Filter Controls
-                            <div class="flex gap-4 items-center">
+                            <div class="flex flex-wrap gap-4 items-center">
                                 <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                                     {"Show:"}
                                 </span>
@@ -252,7 +252,7 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                             </div>
 
                             // Sort Controls
-                            <div class="flex gap-4 items-center">
+                            <div class="flex flex-wrap gap-4 items-center">
                                 <span class="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                                     {"Sort by:"}
                                 </span>

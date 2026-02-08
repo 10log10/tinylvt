@@ -3,28 +3,36 @@
 //! ## Design Decisions
 //!
 //! ### Token Management
-//! - **Auto-generated UUIDs**: The database automatically generates UUIDs for tokens using `DEFAULT gen_random_uuid()`.
-//!   This ensures consistent UUID generation and reduces network overhead.
-//! - **Single-use tokens**: All tokens (email verification, password reset) are marked as used after consumption
-//!   and cannot be reused.
-//! - **Time-based expiration**: Tokens have database-enforced expiration times. Email verification tokens
-//!   expire after 24 hours, password reset tokens after 1 hour.
+//! - **Auto-generated UUIDs**: The database automatically generates UUIDs
+//!   for tokens using `DEFAULT gen_random_uuid()`. This ensures consistent
+//!   UUID generation and reduces network overhead.
+//! - **Single-use tokens**: All tokens (email verification, password
+//!   reset) are marked as used after consumption and cannot be reused.
+//! - **Time-based expiration**: Tokens have database-enforced expiration
+//!   times. Email verification tokens expire after 24 hours, password
+//!   reset tokens after 1 hour.
 //!
 //! ### Time Source Dependency
-//! - **Mocked time for testing**: Functions that need current time (`consume_token`, `cleanup_expired_tokens`)
-//!   accept a `TimeSource` parameter instead of creating their own. This allows time to be mocked during tests.
-//! - **Consistent time handling**: All time-sensitive operations use the same `TimeSource` instance passed
-//!   from the application routes.
+//! - **Mocked time for testing**: Functions that need current time
+//!   (`consume_token`, `cleanup_expired_tokens`) accept a `TimeSource`
+//!   parameter instead of creating their own. This allows time to be
+//!   mocked during tests.
+//! - **Consistent time handling**: All time-sensitive operations use the
+//!   same `TimeSource` instance passed from the application routes.
 //!
 //! ### Database Triggers
-//! - **Auto-updated timestamps**: The database has triggers that automatically update `updated_at` fields,
-//!   so application code doesn't need to manually set these values.
-//! - **Consistent audit trail**: All modifications are tracked at the database level for reliability.
+//! - **Auto-updated timestamps**: The database has triggers that
+//!   automatically update `updated_at` fields, so application code doesn't
+//!   need to manually set these values.
+//! - **Consistent audit trail**: All modifications are tracked at the
+//!   database level for reliability.
 //!
 //! ### Type Safety
-//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it can be used directly with sqlx
-//!   queries without accessing the inner UUID value (`.0`).
-//! - **UserId binding**: Similar pattern for all ID types to ensure type safety at the query level.
+//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it
+//!   can be used directly with sqlx queries without accessing the inner
+//!   UUID value (`.0`).
+//! - **UserId binding**: Similar pattern for all ID types to ensure type
+//!   safety at the query level.
 
 use anyhow::Context;
 use derive_more::Display;
@@ -35,18 +43,20 @@ use jiff_sqlx::{Span as SqlxSpan, Timestamp as SqlxTs};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
-use sqlx::{FromRow, PgPool, Postgres, Transaction, Type};
+use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, Type};
 use sqlx_postgres::types::PgInterval;
 use tracing::Level;
 use uuid::Uuid;
 
 use payloads::{
-    AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, PermissionLevel,
-    Role, SiteId, SiteImageId, SpaceId, UserId, requests,
+    AuctionId, AuctionRoundId, Bid, CommunityId, InviteId, OptionalTimestamp,
+    PermissionLevel, Role, SiteId, SiteImageId, SpaceId, UserId, requests,
     responses::{self, Community},
 };
 
 use crate::time::TimeSource;
+
+pub mod currency;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize, Type,
@@ -128,16 +138,6 @@ pub struct CommunityMember {
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub updated_at: Timestamp,
-}
-
-#[derive(sqlx::Type)]
-#[sqlx(transparent)]
-struct OptionalTimestamp(Option<SqlxTs>);
-
-impl From<OptionalTimestamp> for Option<Timestamp> {
-    fn from(x: OptionalTimestamp) -> Option<Timestamp> {
-        x.0.map(|x| x.to_jiff())
-    }
 }
 
 /// A type that can only exist if the interior CommunityMember has been
@@ -686,6 +686,60 @@ pub async fn delete_proxy_bidding(
 #[sqlx(transparent)]
 pub struct AuditLogId(pub Uuid);
 
+/// Database-level Community struct that matches the communities table schema
+#[derive(Debug, Clone, FromRow)]
+struct DbCommunity {
+    id: CommunityId,
+    name: String,
+    new_members_default_active: bool,
+    #[sqlx(try_from = "SqlxTs")]
+    created_at: Timestamp,
+    #[sqlx(try_from = "SqlxTs")]
+    updated_at: Timestamp,
+    currency_mode: payloads::CurrencyMode,
+    default_credit_limit: Option<Decimal>,
+    currency_name: String,
+    currency_symbol: String,
+    currency_minor_units: i16,
+    debts_callable: bool,
+    balances_visible_to_members: bool,
+    allowance_amount: Option<Decimal>,
+    #[sqlx(try_from = "payloads::OptionalSpan")]
+    allowance_period: Option<jiff::Span>,
+    #[sqlx(try_from = "payloads::OptionalTimestamp")]
+    allowance_start: Option<Timestamp>,
+}
+
+impl TryFrom<DbCommunity> for Community {
+    type Error = StoreError;
+
+    fn try_from(db: DbCommunity) -> Result<Self, Self::Error> {
+        let currency =
+            currency::currency_settings_from_db(currency::CurrencySettingsDb {
+                mode: db.currency_mode,
+                default_credit_limit: db.default_credit_limit,
+                debts_callable: db.debts_callable,
+                allowance_amount: db.allowance_amount,
+                allowance_period: db.allowance_period,
+                allowance_start: db.allowance_start,
+                currency_name: db.currency_name,
+                currency_symbol: db.currency_symbol,
+                currency_minor_units: db.currency_minor_units,
+                balances_visible_to_members: db.balances_visible_to_members,
+                new_members_default_active: db.new_members_default_active,
+            })
+            .ok_or(StoreError::InvalidCurrencyConfiguration)?;
+
+        Ok(Community {
+            id: db.id,
+            name: db.name,
+            created_at: db.created_at,
+            updated_at: db.updated_at,
+            currency,
+        })
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct AuditLog {
     pub id: AuditLogId,
@@ -714,19 +768,55 @@ pub async fn create_community(
     }
     let mut tx = pool.begin().await?;
 
-    let community = sqlx::query_as::<_, Community>(
+    // Validate and convert currency config enum to database columns
+    // For IOU modes: if debts aren't callable, must have finite credit limit
+    match &details.currency.mode_config {
+        payloads::CurrencyModeConfig::DistributedClearing(cfg)
+        | payloads::CurrencyModeConfig::DeferredPayment(cfg) => {
+            if !cfg.debts_callable && cfg.default_credit_limit.is_none() {
+                return Err(StoreError::InvalidCurrencyConfiguration);
+            }
+        }
+        _ => {}
+    }
+
+    let currency_db = currency::currency_settings_to_db(&details.currency);
+
+    let db_community = sqlx::query_as::<_, DbCommunity>(
         "INSERT INTO communities (
             name,
             new_members_default_active,
+            currency_mode,
+            default_credit_limit,
+            debts_callable,
+            currency_name,
+            currency_symbol,
+            currency_minor_units,
+            balances_visible_to_members,
+            allowance_amount,
+            allowance_period,
+            allowance_start,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $3) RETURNING *;",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING *;",
     )
     .bind(&details.name)
-    .bind(details.new_members_default_active)
+    .bind(currency_db.new_members_default_active)
+    .bind(currency_db.mode)
+    .bind(currency_db.default_credit_limit)
+    .bind(currency_db.debts_callable)
+    .bind(&currency_db.currency_name)
+    .bind(&currency_db.currency_symbol)
+    .bind(currency_db.currency_minor_units)
+    .bind(currency_db.balances_visible_to_members)
+    .bind(currency_db.allowance_amount)
+    .bind(currency_db.allowance_period.as_ref().map(span_to_interval).transpose()?)
+    .bind(currency_db.allowance_start.as_ref().map(|t| t.to_sqlx()))
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;
+
+    let community: Community = db_community.try_into()?;
 
     sqlx::query(
         "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
@@ -737,6 +827,26 @@ pub async fn create_community(
     .bind(Role::Leader)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
+    .await?;
+
+    // Create treasury account
+    currency::create_account_tx(
+        &community.id,
+        payloads::AccountOwner::Treasury,
+        None,
+        time_source,
+        &mut tx,
+    )
+    .await?;
+
+    // Create leader's member_main account
+    currency::create_account_tx(
+        &community.id,
+        payloads::AccountOwner::Member(user_id),
+        None,
+        time_source,
+        &mut tx,
+    )
     .await?;
 
     tx.commit().await?;
@@ -865,7 +975,14 @@ pub async fn delete_user(
         Err(sqlx::Error::Database(db_err))
             if db_err.is_foreign_key_violation() =>
         {
-            // User has auction history, anonymize instead
+            // FK violation means user has historical data that must be
+            // preserved. This can happen via:
+            // - bids.user_id → user placed auction bids
+            // - auction_results.winning_user_id → user won auction rounds
+            // - entry_lines.account_id (via accounts cascade) → user has
+            //   transaction history
+            //
+            // In these cases, anonymize the user instead of deleting.
             let now = time_source.now().to_sqlx();
             let mut tx = pool.begin().await?;
 
@@ -1117,6 +1234,82 @@ pub async fn get_validated_member(
     Ok(ValidatedMember(member))
 }
 
+/// Batch fetch user identities for a list of user IDs
+///
+/// Returns a HashMap of user_id -> UserIdentity. This is useful for
+/// efficiently fetching display information for multiple users at once.
+pub(crate) async fn get_user_identities(
+    user_ids: &[UserId],
+    // TODO: migrate display_name to community_member table and use this param
+    _community_id: &CommunityId,
+    pool: &PgPool,
+) -> Result<
+    std::collections::HashMap<UserId, payloads::responses::UserIdentity>,
+    StoreError,
+> {
+    if user_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let identities: Vec<payloads::responses::UserIdentity> = sqlx::query_as(
+        r#"
+        SELECT
+            u.id as user_id,
+            u.username,
+            u.display_name
+        FROM users u
+        WHERE u.id = ANY($1)
+        "#,
+    )
+    .bind(user_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(identities
+        .into_iter()
+        .map(|identity| (identity.user_id, identity))
+        .collect())
+}
+
+/// Helper to enrich a collection of items with user identities
+///
+/// Given a collection of items, extracts user IDs, batch loads their identities,
+/// and maps each item to a result using the provided mapper function.
+pub(crate) async fn with_user_identities<T, R, F>(
+    items: Vec<T>,
+    get_user_id: impl Fn(&T) -> UserId,
+    mapper: F,
+    community_id: &CommunityId,
+    pool: &PgPool,
+) -> Result<Vec<R>, StoreError>
+where
+    F: Fn(T, payloads::responses::UserIdentity) -> Result<R, StoreError>,
+{
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Extract user IDs
+    let user_ids: Vec<UserId> = items.iter().map(&get_user_id).collect();
+
+    // Batch fetch identities
+    let user_identities =
+        get_user_identities(&user_ids, community_id, pool).await?;
+
+    // Map items with their identities
+    items
+        .into_iter()
+        .map(|item| {
+            let user_id = get_user_id(&item);
+            let identity = user_identities
+                .get(&user_id)
+                .cloned()
+                .ok_or(StoreError::UserNotFound)?;
+            mapper(item, identity)
+        })
+        .collect()
+}
+
 pub async fn invite_community_member(
     actor: &ValidatedMember,
     new_member_email: &Option<String>,
@@ -1186,15 +1379,37 @@ pub async fn accept_invite(
         return Err(StoreError::MismatchedInviteEmail);
     }
 
+    // Fetch community to get new_members_default_active setting
+    let community = get_community_by_id(&invite.community_id, pool).await?;
+    let is_active = community.currency.new_members_default_active;
+
     let mut tx = pool.begin().await?;
 
+    // Check if an orphaned account exists (user previously left)
+    let orphaned_account_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM accounts
+            WHERE community_id = $1
+              AND owner_id = $2
+              AND owner_type = 'member_main'
+        )
+        "#,
+    )
+    .bind(invite.community_id)
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Insert community_members row (new member or returning member)
     let result = sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4);",
+        "INSERT INTO community_members (community_id, user_id, role, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $5);",
     )
     .bind(invite.community_id)
     .bind(user_id)
     .bind(Role::Member)
+    .bind(is_active)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await;
@@ -1202,6 +1417,19 @@ pub async fn accept_invite(
     if let Err(StoreError::NotUnique(_)) = result.map_err(StoreError::from) {
         return Err(StoreError::AlreadyMember);
     }
+
+    // Only create account if this is a new member (no orphaned account)
+    if !orphaned_account_exists {
+        currency::create_account_tx(
+            &invite.community_id,
+            payloads::AccountOwner::Member(*user_id),
+            None,
+            time_source,
+            &mut tx,
+        )
+        .await?;
+    }
+    // else: Orphaned account exists, member is reconnecting to it
 
     if invite.email.is_some() || invite.single_use {
         sqlx::query("DELETE FROM community_invites WHERE id = $1")
@@ -1250,13 +1478,9 @@ pub async fn get_communities(
     user_id: &UserId,
     pool: &PgPool,
 ) -> Result<Vec<payloads::responses::CommunityWithRole>, StoreError> {
-    Ok(sqlx::query_as::<_, payloads::responses::CommunityWithRole>(
-        "SELECT 
-            b.id,
-            b.name,
-            b.new_members_default_active,
-            b.created_at,
-            b.updated_at,
+    let rows = sqlx::query(
+        "SELECT
+            b.*,
             a.role as user_role,
             a.is_active as user_is_active
         FROM community_members a
@@ -1265,21 +1489,37 @@ pub async fn get_communities(
     )
     .bind(user_id)
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    let mut communities = Vec::new();
+    for row in rows {
+        let db_community = DbCommunity::from_row(&row)?;
+        let community: Community = db_community.try_into()?;
+        let user_role: Role = row.try_get("user_role")?;
+        let user_is_active: bool = row.try_get("user_is_active")?;
+        communities.push(payloads::responses::CommunityWithRole {
+            community,
+            user_role,
+            user_is_active,
+        });
+    }
+
+    Ok(communities)
 }
 
 pub async fn get_community_by_id(
     community_id: &CommunityId,
     pool: &PgPool,
 ) -> Result<Community, StoreError> {
-    let community = sqlx::query_as::<_, Community>(
+    let db_community = sqlx::query_as::<_, DbCommunity>(
         "SELECT * FROM communities WHERE id = $1",
     )
     .bind(community_id)
     .fetch_optional(pool)
-    .await?;
+    .await?
+    .ok_or(StoreError::CommunityNotFound)?;
 
-    community.ok_or(StoreError::CommunityNotFound)
+    db_community.try_into()
 }
 
 pub async fn get_received_invites(
@@ -1332,19 +1572,166 @@ pub async fn get_members(
     actor: &ValidatedMember,
     pool: &PgPool,
 ) -> Result<Vec<responses::CommunityMember>, StoreError> {
-    Ok(sqlx::query_as::<_, responses::CommunityMember>(
-        "SELECT
-            a.role,
-            a.is_active,
-            b.username,
-            b.display_name
-        FROM community_members a
-        JOIN users b ON a.user_id = b.id
-        WHERE a.community_id = $1",
+    let should_include_balances = actor.0.role.is_ge_coleader()
+        || sqlx::query_scalar::<_, bool>(
+            "SELECT balances_visible_to_members
+            FROM communities
+            WHERE id = $1",
+        )
+        .bind(actor.0.community_id)
+        .fetch_one(pool)
+        .await?;
+
+    #[derive(sqlx::FromRow)]
+    struct DbMember {
+        user_id: UserId,
+        role: Role,
+        is_active: bool,
+        balance: Option<rust_decimal::Decimal>,
+    }
+
+    let db_members: Vec<DbMember> = if should_include_balances {
+        sqlx::query_as(
+            "SELECT cm.user_id, cm.role, cm.is_active,
+                    a.balance_cached AS balance
+            FROM community_members cm
+            LEFT JOIN accounts a
+                ON a.community_id = cm.community_id
+                AND a.owner_id = cm.user_id
+                AND a.owner_type = 'member_main'
+            WHERE cm.community_id = $1
+            ORDER BY cm.created_at ASC",
+        )
+        .bind(actor.0.community_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            "SELECT user_id, role, is_active,
+                    NULL::numeric AS balance
+            FROM community_members
+            WHERE community_id = $1
+            ORDER BY created_at ASC",
+        )
+        .bind(actor.0.community_id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    with_user_identities(
+        db_members,
+        |m| m.user_id,
+        |m, user| {
+            Ok(responses::CommunityMember {
+                user,
+                role: m.role,
+                is_active: m.is_active,
+                balance: m.balance,
+            })
+        },
+        &actor.0.community_id,
+        pool,
+    )
+    .await
+}
+
+// Helper function to check if actor can remove a member with the target role
+fn can_remove_role(actor_role: &Role, target_role: &Role) -> bool {
+    match actor_role {
+        // Leader can remove anyone but themselves
+        Role::Leader => !target_role.is_leader(),
+        // Coleader can remove member or moderator
+        Role::Coleader => {
+            matches!(target_role, Role::Member | Role::Moderator)
+        }
+        // Moderator can only remove member
+        Role::Moderator => matches!(target_role, Role::Member),
+        // Member cannot remove anyone
+        Role::Member => false,
+    }
+}
+
+pub async fn remove_member(
+    actor: &ValidatedMember,
+    member_user_id: &UserId,
+    pool: &PgPool,
+    _time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Permission check: Moderator+
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Cannot remove yourself (use leave_community instead)
+    if member_user_id == &actor.0.user_id {
+        return Err(StoreError::CannotRemoveSelf);
+    }
+
+    // Get target member to validate they exist and check their role
+    let target_member =
+        get_validated_member(member_user_id, &actor.0.community_id, pool)
+            .await?;
+
+    let mut tx = pool.begin().await?;
+
+    // Cannot remove higher role
+    if !can_remove_role(&actor.0.role, &target_member.0.role) {
+        return Err(StoreError::CannotRemoveHigherRole);
+    }
+
+    // Delete the community_members row (account persists)
+    // Include role != 'leader' check to prevent race condition where member
+    // gets promoted to leader between our check and deletion
+    let rows_deleted = sqlx::query(
+        "DELETE FROM community_members
+         WHERE community_id = $1 AND user_id = $2 AND role != 'leader'",
     )
     .bind(actor.0.community_id)
-    .fetch_all(pool)
-    .await?)
+    .bind(member_user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // If no rows deleted, member was promoted to leader (race condition).
+    // Or member was already removed/left (also race).
+    // The error isn't accurate for the latter case but a retry will then yield
+    // MemberNotFound.
+    if rows_deleted == 0 {
+        return Err(StoreError::CannotRemoveHigherRole);
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn leave_community(
+    member: &ValidatedMember,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    // Early check for leader (avoids unnecessary delete attempt)
+    if member.0.role.is_leader() {
+        return Err(StoreError::LeaderMustTransferFirst);
+    }
+
+    // Delete the community_members row (but not if leader).
+    // Atomic check during deletion prevents races.
+    let rows_deleted = sqlx::query(
+        "DELETE FROM community_members
+         WHERE community_id = $1 AND user_id = $2 AND role != 'leader'",
+    )
+    .bind(member.0.community_id)
+    .bind(member.0.user_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    // If no rows deleted, user was promoted to leader (race condition)
+    // or the user was already removed.
+    if rows_deleted == 0 {
+        return Err(StoreError::LeaderMustTransferFirst);
+    }
+
+    Ok(())
 }
 
 pub async fn set_membership_schedule(
@@ -1388,6 +1775,41 @@ pub async fn set_membership_schedule(
     }
 
     tx.commit().await?;
+
+    Ok(())
+}
+
+/// Update the active status of a community member (moderator+ only).
+/// This is a manual override independent of the membership schedule.
+pub async fn update_member_active_status(
+    actor: &ValidatedMember,
+    member_user_id: &UserId,
+    is_active: bool,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Check permissions
+    if !actor.0.role.is_ge_moderator() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Verify target member exists
+    let _target_member =
+        get_validated_member(member_user_id, &actor.0.community_id, pool)
+            .await?;
+
+    // Update active status
+    sqlx::query(
+        "UPDATE community_members
+        SET is_active = $1, updated_at = $2
+        WHERE community_id = $3 AND user_id = $4",
+    )
+    .bind(is_active)
+    .bind(time_source.now().to_sqlx())
+    .bind(actor.0.community_id)
+    .bind(member_user_id)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -1789,20 +2211,34 @@ pub async fn delete_community(
         return Err(StoreError::RequiresLeaderPermissions);
     }
 
+    let mut tx = pool.begin().await?;
+
+    // Delete journal_entries first to unblock cascade deletions.
+    // The ledger uses RESTRICT on auction_id and account_id FKs to preserve
+    // financial history, but community deletion is the one case where we
+    // intentionally destroy everything.
+    sqlx::query("DELETE FROM journal_entries WHERE community_id = $1")
+        .bind(community_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Delete community - cascades to:
     // - community_members
     // - community_invites
     // - community_membership_schedule
     // - site_images
     // - sites (which cascades to spaces, auctions, etc.)
+    // - accounts
     let result = sqlx::query("DELETE FROM communities WHERE id = $1")
         .bind(community_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     if result.rows_affected() == 0 {
         return Err(StoreError::CommunityNotFound);
     }
+
+    tx.commit().await?;
 
     // Clean up orphaned auction params
     cleanup_unused_auction_params(pool).await;
@@ -1827,19 +2263,29 @@ pub async fn delete_site(
 
     let mut tx = pool.begin().await?;
 
-    // remove any remaining open hours
+    // Remove any remaining open hours
     update_open_hours(&existing_site.open_hours_id, &None, &mut tx).await?;
 
-    sqlx::query("DELETE FROM sites WHERE id = $1")
+    let delete_result = sqlx::query("DELETE FROM sites WHERE id = $1")
         .bind(site_id)
         .execute(&mut *tx)
-        .await?;
+        .await;
 
-    tx.commit().await?;
-
-    cleanup_unused_auction_params(pool).await;
-
-    Ok(())
+    match delete_result {
+        Ok(_) => {
+            tx.commit().await?;
+            cleanup_unused_auction_params(pool).await;
+            Ok(())
+        }
+        Err(sqlx::Error::Database(db_err))
+            if db_err.is_foreign_key_violation() =>
+        {
+            // FK violation means site has auctions with financial history:
+            // sites → auctions (CASCADE) → journal_entries.auction_id (RESTRICT)
+            Err(StoreError::SiteHasFinancialHistory)
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub async fn soft_delete_site(
@@ -1940,8 +2386,9 @@ pub async fn list_sites(
     Ok(site_responses)
 }
 
-/// Get a space and validate that the user has the required permission level in the site's community.
-/// Returns both the space and the validated member if successful.
+/// Get a space and validate that the user has the required permission
+/// level in the site's community. Returns both the space and the
+/// validated member if successful.
 async fn get_validated_space(
     space_id: &SpaceId,
     user_id: &UserId,
@@ -1979,7 +2426,8 @@ async fn get_validated_space(
 }
 
 /// Internal transaction-aware space creation function.
-/// Caller is responsible for managing the transaction and validating permissions.
+/// Caller is responsible for managing the transaction and validating
+/// permissions.
 async fn create_space_tx(
     details: &payloads::Space,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -2306,8 +2754,9 @@ pub async fn list_spaces(
     Ok(spaces.into_iter().map(Into::into).collect())
 }
 
-/// Get an auction and validate that the user has the required permission level in the site's community.
-/// Returns both the auction and the validated member if successful.
+/// Get an auction and validate that the user has the required permission
+/// level in the site's community. Returns both the auction and the
+/// validated member if successful.
 async fn get_validated_auction(
     auction_id: &AuctionId,
     user_id: &UserId,
@@ -2354,7 +2803,7 @@ pub async fn create_auction(
 
     // Check if the site has been deleted
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
-        .bind(&details.site_id)
+        .bind(details.site_id)
         .fetch_one(pool)
         .await?;
 
@@ -2535,17 +2984,9 @@ pub async fn get_round_space_result(
     get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
         .await?;
 
-    let round_space_result = sqlx::query_as::<_, payloads::RoundSpaceResult>(
-        r#"
-        SELECT
-            space_id,
-            round_id,
-            (SELECT username FROM users WHERE id = winning_user_id)
-                AS winning_username,
-            value
-        FROM round_space_results
-        WHERE space_id = $1 AND round_id = $2
-        "#,
+    // Fetch the round_space_result
+    let db_result = sqlx::query_as::<_, RoundSpaceResult>(
+        "SELECT * FROM round_space_results WHERE space_id = $1 AND round_id = $2",
     )
     .bind(space_id)
     .bind(round_id)
@@ -2556,7 +2997,36 @@ pub async fn get_round_space_result(
         e => e.into(),
     })?;
 
-    Ok(round_space_result)
+    // Get the space to find its community
+    let space =
+        sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = $1")
+            .bind(space_id)
+            .fetch_one(pool)
+            .await?;
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(space.site_id)
+        .fetch_one(pool)
+        .await?;
+
+    // Fetch user identity
+    let user_identities = get_user_identities(
+        &[db_result.winning_user_id],
+        &site.community_id,
+        pool,
+    )
+    .await?;
+
+    let winner = user_identities
+        .get(&db_result.winning_user_id)
+        .cloned()
+        .ok_or(StoreError::UserNotFound)?;
+
+    Ok(payloads::RoundSpaceResult {
+        space_id: db_result.space_id,
+        round_id: db_result.round_id,
+        winner,
+        value: db_result.value,
+    })
 }
 
 pub async fn list_round_space_results_for_round(
@@ -2585,23 +3055,29 @@ pub async fn list_round_space_results_for_round(
     let community_id = get_site_community_id(&auction.site_id, pool).await?;
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
-    let round_space_results = sqlx::query_as::<_, payloads::RoundSpaceResult>(
-        r#"
-        SELECT
-            space_id,
-            round_id,
-            (SELECT username FROM users WHERE id = winning_user_id)
-                AS winning_username,
-            value
-        FROM round_space_results
-        WHERE round_id = $1
-        "#,
+    // Fetch round space results
+    let db_results = sqlx::query_as::<_, RoundSpaceResult>(
+        "SELECT * FROM round_space_results WHERE round_id = $1",
     )
     .bind(round_id)
     .fetch_all(pool)
     .await?;
 
-    Ok(round_space_results)
+    with_user_identities(
+        db_results,
+        |r| r.winning_user_id,
+        |r, winner| {
+            Ok(payloads::RoundSpaceResult {
+                space_id: r.space_id,
+                round_id: r.round_id,
+                winner,
+                value: r.value,
+            })
+        },
+        &community_id,
+        pool,
+    )
+    .await
 }
 
 pub async fn create_bid(
@@ -2643,7 +3119,7 @@ pub async fn create_bid_tx(
 
     // Check if the site has been deleted
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
-        .bind(&space.site_id)
+        .bind(space.site_id)
         .fetch_one(pool)
         .await?;
 
@@ -2747,6 +3223,66 @@ pub async fn create_bid_tx(
             });
         }
     }
+
+    // Check credit limit before creating bid
+    // Get and lock the account for this user in the community
+    let account = currency::get_account_for_update_tx(
+        &site.community_id,
+        payloads::AccountOwner::Member(*user_id),
+        tx,
+    )
+    .await?;
+
+    // Get bid increment from auction params
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(round.auction_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    let auction_params = sqlx::query_as::<_, AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(auction.auction_params_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Calculate the amount this bid will lock
+    // Get previous round's value for this space (if any)
+    let prev_value: Option<Decimal> = if round.round_num > 0 {
+        let prev_round_id: Option<payloads::AuctionRoundId> =
+            sqlx::query_scalar(
+                "SELECT id FROM auction_rounds
+                WHERE auction_id = $1 AND round_num = $2",
+            )
+            .bind(round.auction_id)
+            .bind(round.round_num - 1)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+        if let Some(prev_id) = prev_round_id {
+            sqlx::query_scalar(
+                "SELECT value FROM round_space_results
+                WHERE round_id = $1 AND space_id = $2",
+            )
+            .bind(prev_id)
+            .bind(space_id)
+            .fetch_optional(&mut **tx)
+            .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Bid amount = (prev value + bid increment) OR zero
+    let bid_amount = prev_value
+        .map(|v| v + auction_params.bid_increment)
+        .unwrap_or(Decimal::ZERO);
+
+    // Check if user has sufficient credit for this bid
+    currency::check_sufficient_credit_tx(&account.id, bid_amount, tx).await?;
 
     // Create the bid
     sqlx::query(
@@ -3048,6 +3584,18 @@ pub enum StoreError {
     AlreadyMember,
     #[error("Member not found")]
     MemberNotFound,
+    #[error("Cannot remove yourself from community")]
+    CannotRemoveSelf,
+    #[error("Cannot remove user with higher role")]
+    CannotRemoveHigherRole,
+    #[error(
+        "Cannot leave community as leader (must transfer leadership first)"
+    )]
+    LeaderMustTransferFirst,
+    #[error("Orphaned account not found")]
+    OrphanedAccountNotFound,
+    #[error("No active members to distribute balance to")]
+    NoActiveMembersForDistribution,
     #[error("Span too large")]
     SpanTooLarge(Box<Span>),
     #[error("A space with the name '{name}' already exists in this site")]
@@ -3116,22 +3664,50 @@ pub enum StoreError {
     TokenExpired,
     #[error("Cannot delete user who is a leader of a community")]
     UserIsLeader,
+    #[error("Account not found")]
+    AccountNotFound,
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+    #[error("Amount must be positive")]
+    AmountMustBePositive,
+    #[error("Invalid treasury operation for this currency mode")]
+    InvalidTreasuryOperation,
+    #[error("Invalid credit limit operation for this currency mode")]
+    InvalidCreditLimitOperation,
+    #[error("Database invariant violation: invalid account ownership")]
+    InvalidAccountOwnership,
+    #[error("Database invariant violation: invalid currency configuration")]
+    InvalidCurrencyConfiguration,
+    #[error("Currency mode cannot be changed after community creation")]
+    CurrencyModeImmutable,
+    #[error("Invalid currency name (max 50 characters)")]
+    InvalidCurrencyName,
+    #[error("Invalid currency symbol (max 5 characters)")]
+    InvalidCurrencySymbol,
+    #[error("Journal entry lines must sum to zero, got {0}")]
+    JournalLinesDoNotSumToZero(rust_decimal::Decimal),
+    #[error("Duplicate account in journal entry")]
+    DuplicateAccountInJournalEntry,
+    #[error("Cannot reset balances while auctions are active")]
+    CannotResetDuringActiveAuction,
+    #[error("Cannot delete site with financial history")]
+    SiteHasFinancialHistory,
 }
 
 /// Convert a space name unique constraint violation into a more specific error.
 /// If the error is a unique violation on the spaces_site_id_name_unique index,
 /// returns SpaceNameNotUnique. Otherwise returns the original error.
 fn map_space_name_unique_error(e: sqlx::Error, space_name: &str) -> StoreError {
-    if let sqlx::Error::Database(db_err) = &e {
-        if db_err.is_unique_violation() {
-            // Check if this is the spaces_site_id_name_unique constraint
-            if let Some(constraint) = db_err.constraint() {
-                if constraint == "spaces_site_id_name_unique" {
-                    return StoreError::SpaceNameNotUnique {
-                        name: space_name.to_string(),
-                    };
-                }
-            }
+    if let sqlx::Error::Database(db_err) = &e
+        && db_err.is_unique_violation()
+    {
+        // Check if this is the spaces_site_id_name_unique constraint
+        if let Some(constraint) = db_err.constraint()
+            && constraint == "spaces_site_id_name_unique"
+        {
+            return StoreError::SpaceNameNotUnique {
+                name: space_name.to_string(),
+            };
         }
     }
     e.into()

@@ -365,6 +365,7 @@ pub async fn user_profile(
     let user_data = store::read_user(&pool, &user_id).await?;
 
     let profile = payloads::responses::UserProfile {
+        user_id,
         username: user_data.username,
         email: user_data.email,
         display_name: user_data.display_name,
@@ -404,6 +405,7 @@ pub async fn update_profile(
     .await?;
 
     let profile = payloads::responses::UserProfile {
+        user_id,
         username: updated_user.username,
         email: updated_user.email,
         display_name: updated_user.display_name,

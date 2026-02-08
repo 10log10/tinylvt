@@ -47,7 +47,8 @@ fn LoginFormFallback() -> Html {
 }
 
 /// Returns an inline login form for use when auth is required.
-/// Shows a spinner while auth is being checked, then the login form if logged out.
+/// Shows a spinner while auth is being checked, then the login form if
+/// logged out.
 pub fn login_form() -> Html {
     html! { <LoginFormFallback /> }
 }

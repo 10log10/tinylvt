@@ -57,7 +57,7 @@ fn AuctionRoundsPageInner(props: &Props) -> Html {
     }
 
     // Get auction data
-    let Some(auction) = &auction_hook.auction else {
+    let Some(auction) = auction_hook.data.as_ref() else {
         return html! {
             <div class="text-center py-12">
                 <p class="text-neutral-600 dark:text-neutral-400">
@@ -67,6 +67,7 @@ fn AuctionRoundsPageInner(props: &Props) -> Html {
         };
     };
 
+    let auction_clone = auction.clone();
     html! {
         <div>
             <AuctionTabHeader
@@ -74,12 +75,14 @@ fn AuctionRoundsPageInner(props: &Props) -> Html {
                 active_tab={ActiveTab::Rounds}
             />
             <div class="py-6">
-                <RoundsContent
-                    auction={auction.clone()}
-                    rounds={rounds_hook.rounds.as_ref().cloned()}
-                    is_loading={rounds_hook.is_loading}
-                    error={rounds_hook.error.clone()}
-                />
+                {rounds_hook.render("rounds", move |rounds, _is_loading, _error| {
+                    html! {
+                        <RoundsContent
+                            auction={auction_clone.clone()}
+                            rounds={rounds.clone()}
+                        />
+                    }
+                })}
             </div>
         </div>
     }
@@ -88,16 +91,12 @@ fn AuctionRoundsPageInner(props: &Props) -> Html {
 #[derive(Properties, PartialEq)]
 struct RoundsContentProps {
     auction: payloads::responses::Auction,
-    rounds: Option<Vec<payloads::responses::AuctionRound>>,
-    is_loading: bool,
-    error: Option<String>,
+    rounds: Vec<payloads::responses::AuctionRound>,
 }
 
 #[function_component]
 fn RoundsContent(props: &RoundsContentProps) -> Html {
     let rounds = &props.rounds;
-    let is_loading = props.is_loading;
-    let error = &props.error;
     let auction_id = props.auction.auction_id;
     let site_id = props.auction.auction_details.site_id;
     let (state, _) = use_store::<State>();
@@ -116,105 +115,100 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
         use_auction_round_results(auction_id, rounds.clone());
     let spaces_hook = use_spaces(site_id);
 
-    if is_loading {
+    if rounds.is_empty() {
         return html! {
             <div class="text-center py-12">
                 <p class="text-neutral-600 dark:text-neutral-400">
-                    {"Loading rounds..."}
+                    {"This auction has not started yet. No rounds have been \
+                     created."}
                 </p>
             </div>
         };
     }
 
-    if let Some(err) = error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 \
-                        border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">
-                    {format!("Error loading rounds: {}", err)}
-                </p>
-            </div>
-        };
-    }
+    // Sort rounds by round_num (descending, most recent first)
+    let mut sorted_rounds = rounds.clone();
+    sorted_rounds.sort_by(|a, b| {
+        b.round_details.round_num.cmp(&a.round_details.round_num)
+    });
 
-    match rounds {
-        Some(rounds) => {
-            if rounds.is_empty() {
+    let bids_by_round = user_bids_hook.data.clone();
+    let results_by_round = round_results_hook.data.clone();
+    let spaces = spaces_hook.data.as_ref().cloned().unwrap_or_default();
+
+    html! {
+        <div>
+            <h2 class="text-xl font-semibold text-neutral-900 \
+                       dark:text-neutral-100 mb-6">
+                {"Auction Rounds"}
+            </h2>
+
+            // Show errors for round results and user bids
+            {if let Some(err) = &round_results_hook.error {
                 html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400">
-                            {"This auction has not started yet. No rounds have been \
-                             created."}
+                    <div class="mb-4 p-4 rounded-md bg-red-50 \
+                               dark:bg-red-900/20 border border-red-200 \
+                               dark:border-red-800">
+                        <p class="text-sm text-red-700 dark:text-red-400">
+                            {format!("Error loading round results: {}", err)}
                         </p>
                     </div>
                 }
             } else {
-                // Sort rounds by round_num (descending, most recent first)
-                let mut sorted_rounds = rounds.clone();
-                sorted_rounds.sort_by(|a, b| {
-                    b.round_details.round_num.cmp(&a.round_details.round_num)
-                });
+                html! {}
+            }}
 
-                let bids_by_round = user_bids_hook.bids_by_round.clone();
-                let results_by_round =
-                    round_results_hook.results_by_round.clone();
-                let spaces = spaces_hook.spaces.clone().unwrap_or_default();
-
+            {if let Some(err) = &user_bids_hook.error {
                 html! {
-                    <div>
-                        <h2 class="text-xl font-semibold text-neutral-900 \
-                                   dark:text-neutral-100 mb-6">
-                            {"Auction Rounds"}
-                        </h2>
-                        <div class="space-y-4">
-                            {sorted_rounds.iter().map(|round| {
-                                let round_id = round.round_id;
-                                let round_num = round.round_details.round_num;
-                                let user_bids_for_round = bids_by_round.as_ref()
-                                    .and_then(|map| map.get(&round_id))
-                                    .cloned();
-                                let results_for_round = results_by_round.as_ref()
-                                    .and_then(|map| map.get(&round_id))
-                                    .cloned();
-                                // Get previous round's results for calculating bid values
-                                let previous_round_results = if round_num > 0 {
-                                    sorted_rounds.iter()
-                                        .find(|r| r.round_details.round_num == round_num - 1)
-                                        .and_then(|prev_round| {
-                                            results_by_round.as_ref()
-                                                .and_then(|map| map.get(&prev_round.round_id))
-                                                .cloned()
-                                        })
-                                } else {
-                                    None
-                                };
-                                html! {
-                                    <RoundCard
-                                        key={round_id.0.to_string()}
-                                        round={round.clone()}
-                                        bid_increment={props.auction.auction_details.auction_params.bid_increment}
-                                        user_bids={user_bids_for_round}
-                                        round_results={results_for_round}
-                                        previous_round_results={previous_round_results}
-                                        current_username={current_username.clone()}
-                                        spaces={spaces.clone()}
-                                    />
-                                }
-                            }).collect::<Html>()}
-                        </div>
+                    <div class="mb-4 p-4 rounded-md bg-red-50 \
+                               dark:bg-red-900/20 border border-red-200 \
+                               dark:border-red-800">
+                        <p class="text-sm text-red-700 dark:text-red-400">
+                            {format!("Error loading your bids: {}", err)}
+                        </p>
                     </div>
                 }
-            }
-        }
-        None => {
-            html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">
-                        {"No rounds data available"}
-                    </p>
-                </div>
-            }
-        }
+            } else {
+                html! {}
+            }}
+
+            <div class="space-y-4">
+                {sorted_rounds.iter().map(|round| {
+                    let round_id = round.round_id;
+                    let round_num = round.round_details.round_num;
+                    let user_bids_for_round = bids_by_round.as_ref()
+                        .and_then(|map| map.get(&round_id))
+                        .cloned();
+                    let results_for_round = results_by_round.as_ref()
+                        .and_then(|map| map.get(&round_id))
+                        .cloned();
+                    // Get previous round's results for calculating bid values
+                    let previous_round_results = if round_num > 0 {
+                        sorted_rounds.iter()
+                            .find(|r| r.round_details.round_num == round_num - 1)
+                            .and_then(|prev_round| {
+                                results_by_round.as_ref()
+                                    .and_then(|map| map.get(&prev_round.round_id))
+                                    .cloned()
+                            })
+                    } else {
+                        None
+                    };
+                    html! {
+                        <RoundCard
+                            key={round_id.0.to_string()}
+                            round={round.clone()}
+                            bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                            user_bids={user_bids_for_round}
+                            round_results={results_for_round}
+                            previous_round_results={previous_round_results}
+                            current_username={current_username.clone()}
+                            spaces={spaces.clone()}
+                        />
+                    }
+                }).collect::<Html>()}
+            </div>
+        </div>
     }
 }
 
@@ -242,7 +236,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
     {
         results
             .iter()
-            .filter(|result| &result.winning_username == username)
+            .filter(|result| &result.winner.username == username)
             .collect::<Vec<_>>()
     } else {
         vec![]

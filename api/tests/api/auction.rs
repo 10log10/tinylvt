@@ -394,14 +394,12 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
         round_space_result.value,
         rust_decimal::Decimal::from(max_rounds)
     );
+    assert_eq!(round_space_result.space_id, space.space_id);
+    assert_eq!(round_space_result.round_id, round.round_id);
+    assert_eq!(round_space_result.winner.username, "bob");
     assert_eq!(
-        round_space_result,
-        payloads::RoundSpaceResult {
-            space_id: space.space_id,
-            round_id: round.round_id,
-            winning_username: "bob".into(),
-            value: rust_decimal::Decimal::from(max_rounds),
-        }
+        round_space_result.value,
+        rust_decimal::Decimal::from(max_rounds)
     );
 
     // Verify conclusion of the auction after bidding stops
@@ -486,8 +484,8 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .find(|r| r.space_id == space_b.space_id)
         .unwrap();
 
-    assert_eq!(space_a_result.winning_username, "alice");
-    assert_eq!(space_b_result.winning_username, "bob");
+    assert_eq!(space_a_result.winner.username, "alice");
+    assert_eq!(space_b_result.winner.username, "bob");
 
     // Alice cannot bid on space_a in round 1 since she's already winning it
     app.login_alice().await?;

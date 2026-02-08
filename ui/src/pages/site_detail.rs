@@ -56,7 +56,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
 
     // Check if there's an in-progress auction
     let has_in_progress_auction = auctions_hook
-        .auctions
+        .data
         .as_ref()
         .map(|auctions| {
             let now = jiff::Timestamp::now();
@@ -78,7 +78,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     let on_toggle_edit = {
         let is_editing = is_editing.clone();
         let edit_states = edit_states.clone();
-        let spaces = spaces_hook.spaces.clone();
+        let spaces = spaces_hook.data.as_ref().cloned();
         let show_edit_warning_modal = show_edit_warning_modal.clone();
         Callback::from(move |_| {
             if *is_editing {
@@ -91,9 +91,9 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                     show_edit_warning_modal.set(true);
                 } else {
                     // No auction, proceed directly
-                    if let Some(ref spaces) = spaces {
+                    if let Some(ref spaces_vec) = spaces {
                         let mut states = HashMap::new();
-                        for space in spaces {
+                        for space in spaces_vec {
                             states.insert(
                                 space.space_id,
                                 space.space_details.clone(),
@@ -139,12 +139,12 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         let show_edit_warning_modal = show_edit_warning_modal.clone();
         let is_editing = is_editing.clone();
         let edit_states = edit_states.clone();
-        let spaces = spaces_hook.spaces.clone();
+        let spaces = spaces_hook.data.as_ref().cloned();
         Callback::from(move |()| {
             // User confirmed, proceed with edit mode
-            if let Some(ref spaces) = spaces {
+            if let Some(ref spaces_vec) = spaces {
                 let mut states = HashMap::new();
-                for space in spaces {
+                for space in spaces_vec {
                     states.insert(space.space_id, space.space_details.clone());
                 }
                 edit_states.set(states);
@@ -155,20 +155,20 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     };
 
     let on_save_all = {
-        let spaces = spaces_hook.spaces.clone();
+        let spaces = spaces_hook.data.as_ref().cloned();
         let edit_states = edit_states.clone();
         let is_saving = is_saving.clone();
         let save_error = save_error.clone();
         let is_editing = is_editing.clone();
         let refetch = spaces_hook.refetch.clone();
         Callback::from(move |_| {
-            let spaces = match &spaces {
-                Some(s) => s.clone(),
+            let spaces_vec = match &spaces {
+                Some(s) => s,
                 None => return,
             };
 
             let mut updates = Vec::new();
-            for space in &spaces {
+            for space in spaces_vec {
                 if let Some(edit_state) = edit_states.get(&space.space_id)
                     && edit_state != &space.space_details
                 {
@@ -227,7 +227,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
             </div>
         }
     } else {
-        match &spaces_hook.spaces {
+        match spaces_hook.data.as_ref() {
             Some(spaces) => {
                 if spaces.is_empty() {
                     html! {
@@ -250,20 +250,20 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                         </div>
                     }
                 } else {
-                    let has_changes = if let Some(spaces) = &spaces_hook.spaces
-                    {
-                        spaces.iter().any(|space| {
-                            if let Some(edit_state) =
-                                edit_states.get(&space.space_id)
-                            {
-                                edit_state != &space.space_details
-                            } else {
-                                false
-                            }
-                        })
-                    } else {
-                        false
-                    };
+                    let has_changes =
+                        if let Some(spaces) = spaces_hook.data.as_ref() {
+                            spaces.iter().any(|space| {
+                                if let Some(edit_state) =
+                                    edit_states.get(&space.space_id)
+                                {
+                                    edit_state != &space.space_details
+                                } else {
+                                    false
+                                }
+                            })
+                        } else {
+                            false
+                        };
 
                     html! {
                         <div>

@@ -292,7 +292,14 @@ impl TestApp {
     pub async fn create_test_community(&self) -> anyhow::Result<CommunityId> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
-            new_members_default_active: true,
+            currency: payloads::CurrencySettings {
+                mode_config: default_currency_config(),
+                name: "dollars".into(),
+                symbol: "$".into(),
+                minor_units: 2,
+                balances_visible_to_members: true,
+                new_members_default_active: true,
+            },
         };
         Ok(self.client.create_community(&body).await?)
     }
@@ -316,11 +323,15 @@ impl TestApp {
         self.create_alice_user().await?;
         let community_id = self.create_test_community().await?;
 
+        self.time_source.advance(Span::new().seconds(1));
+
         // Invite and add Bob
         self.invite_bob().await?;
         self.create_bob_user().await?;
         self.login_bob().await?;
         self.accept_invite().await?;
+
+        self.time_source.advance(Span::new().seconds(1));
 
         // Invite and add Charlie
         self.login_alice().await?;
@@ -341,6 +352,30 @@ impl TestApp {
 
         self.login_alice().await?;
         Ok(community_id)
+    }
+
+    /// Set community to points_allocation mode for testing treasury
+    /// operations
+    pub async fn set_points_allocation_mode(
+        &self,
+        community_id: CommunityId,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE communities
+            SET currency_mode = 'points_allocation',
+                default_credit_limit = 0,
+                debts_callable = false,
+                allowance_amount = 1000,
+                allowance_period = INTERVAL '1 week',
+                allowance_start = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(community_id)
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn create_schedule(
@@ -843,6 +878,15 @@ pub fn assert_auction_equal(
     assert_eq!(auction.possession_end_at, retrieved.possession_end_at);
     assert_eq!(auction.start_at, retrieved.start_at);
     Ok(())
+}
+
+/// Default currency configuration for testing: distributed clearing with
+/// unlimited credit and callable debts
+pub fn default_currency_config() -> payloads::CurrencyModeConfig {
+    payloads::CurrencyModeConfig::DistributedClearing(payloads::IOUConfig {
+        default_credit_limit: None,
+        debts_callable: true,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]

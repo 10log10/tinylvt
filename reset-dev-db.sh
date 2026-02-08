@@ -6,7 +6,9 @@ docker stop postgres 2>/dev/null || true
 docker rm postgres 2>/dev/null || true
 
 # Prevent running out of disk space after many restarts
+# system prune removes containers/images, volume prune removes anonymous volumes
 docker system prune -f
+docker volume prune -f
 
 # Start the container with a high number of max connections, since we have
 # plenty resources to run many tests in parallel.

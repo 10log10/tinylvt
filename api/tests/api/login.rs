@@ -1,6 +1,8 @@
 use api::store;
-use payloads::requests;
+use payloads::{IdempotencyKey, requests};
 use reqwest::StatusCode;
+use rust_decimal::Decimal;
+use uuid::Uuid;
 
 use test_helpers::{assert_status_code, spawn_app};
 
@@ -234,7 +236,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
         .list_round_space_results_for_round(&round.round_id)
         .await?;
     assert!(!results.is_empty());
-    assert_eq!(results[0].winning_username, "bob");
+    assert_eq!(results[0].winner.username, "bob");
 
     // Get Bob's user ID before deletion
     let bob_id = sqlx::query_scalar::<_, payloads::UserId>(
@@ -296,7 +298,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
         .await?;
     assert!(!results.is_empty());
     assert!(
-        results[0].winning_username.starts_with("deleted-"),
+        results[0].winner.username.starts_with("deleted-"),
         "Auction history should show anonymized username"
     );
 
@@ -326,6 +328,79 @@ async fn delete_user_leader_blocked() -> anyhow::Result<()> {
     // Verify Alice is still logged in
     let is_logged_in = app.client.login_check().await?;
     assert!(is_logged_in);
+
+    Ok(())
+}
+
+/// User with transaction history (but no auction history) should be anonymized.
+/// The FK constraint chain is: users -> accounts (CASCADE) -> entry_lines (RESTRICT)
+/// So if the user's account has any entry_lines, the cascade is blocked.
+#[tokio::test]
+async fn delete_user_with_transaction_history() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    // Create a community with Alice (leader) and Bob (member)
+    let community_id = app.create_two_person_community().await?;
+
+    // Get Bob's user_id
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    let bob_id = bob.user.user_id;
+
+    // Alice transfers funds to Bob (creates entry_lines for Bob's account)
+    app.login_alice().await?;
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to_user_id: bob_id,
+            amount: Decimal::new(5000, 2), // 50.00
+            note: Some("Test transfer".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Bob leaves the community (account becomes orphaned)
+    app.login_bob().await?;
+    app.client
+        .leave_community(&requests::LeaveCommunity { community_id })
+        .await?;
+
+    // Bob deletes his account (should anonymize due to transaction history)
+    app.client.delete_user().await?;
+
+    // Verify user still exists but is anonymized
+    let anonymized_user =
+        sqlx::query_as::<_, store::User>("SELECT * FROM users WHERE id = $1")
+            .bind(bob_id)
+            .fetch_one(&app.db_pool)
+            .await?;
+
+    assert!(
+        anonymized_user.deleted_at.is_some(),
+        "deleted_at should be set"
+    );
+    assert!(
+        anonymized_user.username.starts_with("deleted-"),
+        "Username should be anonymized"
+    );
+    assert!(
+        anonymized_user.email.ends_with("@deleted.local"),
+        "Email should be anonymized"
+    );
+
+    // Verify account still exists (orphaned) with preserved balance
+    let balance = sqlx::query_scalar::<_, Decimal>(
+        "SELECT balance_cached FROM accounts WHERE owner_id = $1",
+    )
+    .bind(bob_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+
+    assert_eq!(
+        balance,
+        Decimal::new(5000, 2),
+        "Account balance should be preserved"
+    );
 
     Ok(())
 }

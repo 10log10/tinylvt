@@ -17,7 +17,7 @@ use api::store::{
     self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
     OpenHoursWeekday, Site, Space, StoreError, User,
 };
-use payloads::{CommunityId, SiteId, responses::Community};
+use payloads::{CommunityId, SiteId};
 
 use test_helpers::spawn_app;
 
@@ -29,46 +29,51 @@ fn timestamp_is_recent(ts: Timestamp) -> bool {
 }
 
 #[tokio::test]
-async fn test_community() -> Result<(), Error> {
+async fn test_populate() -> Result<(), StoreError> {
     let app = spawn_app().await;
-    let conn = app.db_pool;
-    let name = "community".to_string();
-    let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name, new_members_default_active, created_at, updated_at)
-        VALUES ($1, false, $2, $2) RETURNING *;",
+    let conn = &app.db_pool;
+
+    // Create a verified user first
+    let user = store::create_user(
+        conn,
+        "leader_user",
+        "leader@example.com",
+        "hashed_pw",
+        &app.time_source,
     )
-    .bind(name)
-    .bind(app.time_source.now().to_sqlx())
-    .fetch_one(&conn)
+    .await?;
+
+    // Verify the user's email
+    sqlx::query("UPDATE users SET email_verified = true WHERE id = $1")
+        .bind(user.id)
+        .execute(conn)
+        .await?;
+
+    let community = store::create_community(
+        &payloads::requests::CreateCommunity {
+            name: "Test Community".to_string(),
+            currency: payloads::CurrencySettings {
+                mode_config: test_helpers::default_currency_config(),
+                name: "dollars".to_string(),
+                symbol: "$".to_string(),
+                minor_units: 2,
+                balances_visible_to_members: true,
+                new_members_default_active: false,
+            },
+        },
+        user.id,
+        conn,
+        &app.time_source,
+    )
     .await?;
 
     assert!(timestamp_is_recent(community.created_at));
     assert!(timestamp_is_recent(community.updated_at));
 
-    let community_retrieved = sqlx::query_as::<_, Community>(
-        "SELECT * FROM communities WHERE id = $1;",
-    )
-    .bind(community.id)
-    .fetch_one(&conn)
-    .await?;
+    let community_retrieved =
+        store::get_community_by_id(&community.id, conn).await?;
 
     assert_eq!(community, community_retrieved);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_populate() -> Result<(), StoreError> {
-    let app = spawn_app().await;
-    let conn = &app.db_pool;
-
-    let community = sqlx::query_as::<_, Community>(
-        "INSERT INTO communities (name, created_at, updated_at) VALUES ($1, $2, $2) RETURNING *;",
-    )
-    .bind("Test Community")
-    .bind(app.time_source.now().to_sqlx())
-    .fetch_one(conn)
-    .await?;
     println!("1");
     let _users = populate_users(conn, &community.id, &app.time_source).await?;
     println!("2");
@@ -98,7 +103,8 @@ async fn populate_users(
     time_source: &api::time::TimeSource,
 ) -> Result<Vec<User>, StoreError> {
     use payloads::Role;
-    let roles = [Role::Leader, Role::Coleader, Role::Member];
+    // Skip Leader since the community creator is already the leader
+    let roles = [Role::Coleader, Role::Member];
 
     for (i, role) in roles.iter().enumerate() {
         let user = store::create_user(

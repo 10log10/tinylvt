@@ -1,10 +1,10 @@
-use payloads::requests;
+use payloads::{CurrencyModeConfig, CurrencySettings, IOUConfig, requests};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
-use crate::components::RequireAuth;
+use crate::components::{CurrencyConfigEditor, RequireAuth};
 use crate::hooks::use_communities;
 
 #[function_component]
@@ -25,11 +25,25 @@ fn CreateCommunityPageInner() -> Html {
     let error_message = use_state(|| None::<String>);
     let is_loading = use_state(|| false);
 
+    // Currency config state
+    let currency = use_state(|| CurrencySettings {
+        mode_config: CurrencyModeConfig::DistributedClearing(IOUConfig {
+            default_credit_limit: None,
+            debts_callable: true,
+        }),
+        name: "dollars".to_string(),
+        symbol: "$".to_string(),
+        minor_units: 2,
+        balances_visible_to_members: true,
+        new_members_default_active: true,
+    });
+
     let on_submit = {
         let name_ref = name_ref.clone();
         let error_message = error_message.clone();
         let is_loading = is_loading.clone();
         let navigator = navigator.clone();
+        let currency = currency.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -45,7 +59,7 @@ fn CreateCommunityPageInner() -> Html {
 
             let community_request = requests::CreateCommunity {
                 name,
-                new_members_default_active: true,
+                currency: (*currency).clone(),
             };
 
             let error_message = error_message.clone();
@@ -82,9 +96,17 @@ fn CreateCommunityPageInner() -> Html {
         })
     };
 
+    let on_currency_config_change = {
+        let currency = currency.clone();
+
+        Callback::from(move |new_currency: CurrencySettings| {
+            currency.set(new_currency);
+        })
+    };
+
     html! {
         <div class="flex items-center justify-center min-h-[60vh]">
-            <div class="max-w-md w-full bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-md">
+            <div class="max-w-2xl w-full bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-md">
                 <div class="mb-8 text-center">
                     <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                         {"Create New Community"}
@@ -117,6 +139,18 @@ fn CreateCommunityPageInner() -> Html {
                                    focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
                                    dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
                             placeholder="Enter community name"
+                        />
+                    </div>
+
+                    <div>
+                        <h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
+                            {"Currency Configuration"}
+                        </h2>
+                        <CurrencyConfigEditor
+                            currency={(*currency).clone()}
+                            on_change={on_currency_config_change}
+                            disabled={*is_loading}
+                            can_change_mode={true}
                         />
                     </div>
 

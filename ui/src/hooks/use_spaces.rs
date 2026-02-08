@@ -2,25 +2,10 @@ use payloads::{SiteId, responses};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
-use crate::{State, get_api_client};
-
-/// Hook return type for spaces data
-#[derive(Debug)]
-pub struct SpacesHookReturn {
-    pub spaces: Option<Vec<responses::Space>>,
-    pub is_loading: bool,
-    pub error: Option<String>,
-    #[allow(dead_code)]
-    pub refetch: Callback<()>,
-}
-
-impl SpacesHookReturn {
-    /// Returns true if this is the initial load (no data, no error, loading)
-    #[allow(dead_code)]
-    pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.spaces.is_none() && self.error.is_none()
-    }
-}
+use crate::{
+    State, get_api_client,
+    hooks::{FetchHookReturn, use_fetch_with_cache},
+};
 
 /// Hook to manage spaces data with lazy loading and global state caching
 ///
@@ -30,79 +15,38 @@ impl SpacesHookReturn {
 /// 2. `use_sites(community_id)` - Fetches all sites for a specific community
 /// 3. `use_spaces(site_id)` - Fetches all spaces for a specific site
 ///
-/// This hierarchy allows for efficient data loading and caching at the appropriate
-/// granularity. Each level caches its data in the global state, preventing
-/// unnecessary re-fetches when components unmount and remount.
+/// This hierarchy allows for efficient data loading and caching at the
+/// appropriate granularity. Each level caches its data in the global state,
+/// preventing unnecessary re-fetches when components unmount and remount.
 #[hook]
-pub fn use_spaces(site_id: SiteId) -> SpacesHookReturn {
+pub fn use_spaces(site_id: SiteId) -> FetchHookReturn<Vec<responses::Space>> {
     let (state, dispatch) = use_store::<State>();
-    let is_loading = use_state(|| false);
-    let error = use_state(|| None::<String>);
 
-    let refetch = {
-        let dispatch = dispatch.clone();
-        let is_loading = is_loading.clone();
-        let error = error.clone();
+    let get_cached_state = state.clone();
+    let should_fetch_state = state.clone();
+    let fetch_dispatch = dispatch.clone();
 
-        use_callback(site_id, move |site_id, _| {
-            let dispatch = dispatch.clone();
-            let is_loading = is_loading.clone();
-            let error = error.clone();
-
-            yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error.set(None);
-
+    use_fetch_with_cache(
+        site_id,
+        move || {
+            get_cached_state
+                .get_spaces_for_site(site_id)
+                .map(|space_refs| space_refs.into_iter().cloned().collect())
+        },
+        move || !should_fetch_state.has_spaces_loaded_for_site(site_id),
+        move || {
+            let dispatch = fetch_dispatch.clone();
+            async move {
                 let api_client = get_api_client();
-                match api_client.list_spaces(&site_id).await {
-                    Ok(spaces) => {
-                        dispatch.reduce_mut(|state| {
-                            state.set_spaces_for_site(site_id, spaces);
-                        });
-                        error.set(None);
-                    }
-                    Err(e) => {
-                        error.set(Some(e.to_string()));
-                    }
-                }
-
-                is_loading.set(false);
-            });
-        })
-    };
-
-    // Auto-load spaces if not already loaded and user is authenticated
-    {
-        let refetch = refetch.clone();
-        let state = state.clone();
-        let is_loading = is_loading.clone();
-
-        use_effect_with(
-            (state.auth_state.clone(), site_id),
-            move |(_, site_id)| {
-                if state.is_authenticated()
-                    && !state.has_spaces_loaded_for_site(*site_id)
-                    && !*is_loading
-                {
-                    refetch.emit(*site_id);
-                }
-            },
-        );
-    }
-
-    // Consider it "loading" if actively loading OR if we're in initial state
-    // (no data, no error yet)
-    let spaces = state
-        .get_spaces_for_site(site_id)
-        .map(|space_refs| space_refs.into_iter().cloned().collect());
-    let current_error = (*error).clone();
-    let effective_is_loading =
-        *is_loading || (spaces.is_none() && current_error.is_none());
-
-    SpacesHookReturn {
-        spaces,
-        is_loading: effective_is_loading,
-        error: current_error,
-        refetch: Callback::from(move |_| refetch.emit(site_id)),
-    }
+                let spaces = api_client
+                    .list_spaces(&site_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                dispatch.reduce_mut(|s| {
+                    s.set_spaces_for_site(site_id, spaces.clone());
+                });
+                Ok(spaces)
+            }
+        },
+    )
 }

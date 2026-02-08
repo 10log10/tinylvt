@@ -73,6 +73,7 @@ pub async fn invite_community_member(
             .send_community_invite_email(
                 email,
                 &community.name,
+                &invite_id.to_string(),
                 &config.base_url,
             )
             .await
@@ -199,6 +200,72 @@ pub async fn get_membership_schedule(
     let schedule =
         store::get_membership_schedule(&validated_member, &pool).await?;
     Ok(HttpResponse::Ok().json(schedule))
+}
+
+/// Update a member's active status (moderator+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/update_member_active_status")]
+pub async fn update_member_active_status(
+    user: Identity,
+    details: web::Json<requests::UpdateMemberActiveStatus>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::update_member_active_status(
+        &validated_member,
+        &details.member_user_id,
+        details.is_active,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+/// Remove a member from the community (moderator+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/remove_member")]
+pub async fn remove_member(
+    user: Identity,
+    details: web::Json<requests::RemoveMember>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::remove_member(
+        &validated_member,
+        &details.member_user_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+/// Leave a community voluntarily
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/leave_community")]
+pub async fn leave_community(
+    user: Identity,
+    details: web::Json<requests::LeaveCommunity>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::leave_community(&member, &pool).await?;
+
+    Ok(HttpResponse::Ok().finish())
 }
 
 /// Delete a community (leader only)

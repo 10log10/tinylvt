@@ -28,13 +28,9 @@ fn CommunityPageWrapperInner(props: &Props) -> Html {
     let communities_hook = use_communities();
 
     // Find the community in the global state
-    let community =
-        communities_hook
-            .communities
-            .as_ref()
-            .and_then(|communities| {
-                communities.iter().find(|c| c.id == props.community_id)
-            });
+    let community = communities_hook.data.as_ref().and_then(|communities| {
+        communities.iter().find(|c| c.id == props.community_id)
+    });
 
     if communities_hook.is_loading {
         return html! {

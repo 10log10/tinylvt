@@ -60,7 +60,7 @@ fn AuctionDetailPageInner(props: &Props) -> Html {
     }
 
     // Get auction data
-    let Some(auction) = &auction_hook.auction else {
+    let Some(auction) = auction_hook.data.as_ref() else {
         return html! {
             <div class="text-center py-12">
                 <p class="text-neutral-600 dark:text-neutral-400">
@@ -136,7 +136,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     // Cancel refetch when round data changes (successful refetch)
     {
         let cancel_refetch = cancel_transition_refetch.clone();
-        let current_round = current_round_hook.current_round.clone();
+        let current_round = current_round_hook.data.clone();
 
         use_effect_with(current_round, move |_| {
             // When round changes, cancel any pending refetch timeouts
@@ -163,7 +163,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     // During refetches, keep the UI rendered and let data update smoothly
     if current_round_hook.is_initial_loading()
         || proxy_bidding_hook.is_initial_loading()
-        || (spaces_hook.is_loading && spaces_hook.spaces.is_none())
+        || (spaces_hook.is_loading && !spaces_hook.data.is_fetched())
         || user_values_hook.is_initial_loading()
     {
         return html! {
@@ -180,14 +180,12 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     // - NotFetched: still loading (handled above)
     // - Fetched(None): fetched, but no rounds exist
     // - Fetched(Some(round)): fetched with a round
-    let current_round_opt = current_round_hook
-        .current_round
-        .as_ref()
-        .and_then(|o| o.as_ref());
+    let current_round_opt =
+        current_round_hook.data.as_ref().and_then(|o| o.as_ref());
 
     // Check if auction was canceled before starting
     if props.auction.end_at.is_some() && current_round_opt.is_none() {
-        let spaces = spaces_hook.spaces.clone().unwrap_or_default();
+        let spaces = spaces_hook.data.as_ref().cloned().unwrap_or_default();
         return html! {
             <div class="space-y-6">
                 <AuctionToplineInfo
@@ -228,7 +226,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
 
     let Some(current_round) = current_round_opt else {
         // No rounds exist yet - show countdown with proxy bidding and space list
-        let spaces = spaces_hook.spaces.clone().unwrap_or_default();
+        let spaces = spaces_hook.data.as_ref().cloned().unwrap_or_default();
         let settings_opt = proxy_bidding_hook
             .settings
             .as_ref()
@@ -335,7 +333,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     };
 
     // Extract data from hooks to pass to child component
-    let spaces = spaces_hook.spaces.clone();
+    let spaces = spaces_hook.data.as_ref().cloned();
     let settings_opt = proxy_bidding_hook
         .settings
         .as_ref()
@@ -414,7 +412,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     let prices_round_id = if current_round_num == 0 {
         None
     } else {
-        rounds_hook.rounds.as_ref().and_then(|rounds| {
+        rounds_hook.data.as_ref().and_then(|rounds| {
             rounds
                 .iter()
                 .find(|r| r.round_details.round_num == current_round_num - 1)
@@ -433,20 +431,13 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     // On true initial load (no data at all), the parent component handles it.
 
     // Get the data we need
-    let prices = round_prices_hook
-        .prices
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let prices = round_prices_hook.data.as_ref().cloned().unwrap_or_default();
 
     let user_values = props.user_values.clone().unwrap_or_default();
     let spaces = props.spaces.clone().unwrap_or_default();
-    let eligibility = eligibility_hook.eligibility;
-    let user_bid_space_ids = user_bids_hook
-        .bid_space_ids
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let eligibility = eligibility_hook.data;
+    let user_bid_space_ids =
+        user_bids_hook.data.as_ref().cloned().unwrap_or_default();
 
     // Calculate current activity: sum of points for spaces where user is
     // high bidder or has placed a bid in this round
@@ -460,7 +451,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                     prices
                         .iter()
                         .find(|p| p.space_id == space.space_id)
-                        .map(|p| &p.winning_username == username)
+                        .map(|p| &p.winner.username == username)
                 })
                 .unwrap_or(false);
             let has_bid = user_bid_space_ids.contains(&space.space_id);

@@ -75,7 +75,7 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                                 <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
                             </div>
                         }
-                    } else if let Some(invites) = issued_invites_hook.invites.as_ref() {
+                    } else if let Some(invites) = issued_invites_hook.data.as_ref() {
                         if invites.is_empty() {
                             html! {
                                 <div class="text-center py-8">

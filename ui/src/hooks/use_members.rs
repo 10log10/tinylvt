@@ -2,97 +2,44 @@ use payloads::{CommunityId, responses};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
-use crate::{State, get_api_client};
+use crate::{
+    State, get_api_client,
+    hooks::{FetchHookReturn, use_fetch_with_cache},
+};
 
-/// Hook return type for members data
-pub struct MembersHookReturn {
-    pub members: Option<Vec<responses::CommunityMember>>,
-    pub is_loading: bool,
-    pub error: Option<String>,
-    #[allow(dead_code)]
-    pub refetch: Callback<()>,
-}
-
-impl MembersHookReturn {
-    /// Returns true if this is the initial load (no data, no error, loading)
-    #[allow(dead_code)]
-    pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && self.members.is_none() && self.error.is_none()
-    }
-}
-
-/// Hook to manage members data with lazy loading and global state caching
+/// Hook to manage members data with global state caching.
+/// Always refetches on mount to ensure fresh data.
 #[hook]
-pub fn use_members(community_id: CommunityId) -> MembersHookReturn {
+pub fn use_members(
+    community_id: CommunityId,
+) -> FetchHookReturn<Vec<responses::CommunityMember>> {
     let (state, dispatch) = use_store::<State>();
-    let is_loading = use_state(|| false);
-    let error = use_state(|| None::<String>);
 
-    let refetch = {
-        let dispatch = dispatch.clone();
-        let is_loading = is_loading.clone();
-        let error = error.clone();
+    let get_cached_state = state.clone();
+    let fetch_dispatch = dispatch.clone();
 
-        use_callback(community_id, move |community_id, _| {
-            let dispatch = dispatch.clone();
-            let is_loading = is_loading.clone();
-            let error = error.clone();
-
-            yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error.set(None);
-
+    use_fetch_with_cache(
+        community_id,
+        move || {
+            get_cached_state
+                .get_members_for_community(community_id)
+                .cloned()
+        },
+        // Always refetch on mount to ensure fresh data
+        || true,
+        move || {
+            let dispatch = fetch_dispatch.clone();
+            async move {
                 let api_client = get_api_client();
-                match api_client.get_members(&community_id).await {
-                    Ok(members) => {
-                        dispatch.reduce_mut(|state| {
-                            state.set_members_for_community(
-                                community_id,
-                                members,
-                            );
-                        });
-                        error.set(None);
-                    }
-                    Err(e) => {
-                        error.set(Some(e.to_string()));
-                    }
-                }
-
-                is_loading.set(false);
-            });
-        })
-    };
-
-    // Auto-load members if not already loaded and user is authenticated
-    {
-        let refetch = refetch.clone();
-        let state = state.clone();
-        let is_loading = is_loading.clone();
-
-        use_effect_with(
-            (state.auth_state.clone(), community_id),
-            move |(_, community_id)| {
-                if state.is_authenticated()
-                    && !state.has_members_loaded_for_community(*community_id)
-                    && !*is_loading
-                {
-                    refetch.emit(*community_id);
-                }
-            },
-        );
-    }
-
-    // Consider it "loading" if actively loading OR if we're in initial state
-    // (no data, no error yet)
-    let members = state.get_members_for_community(community_id).cloned();
-    let current_error = (*error).clone();
-    let effective_is_loading =
-        *is_loading || (members.is_none() && current_error.is_none());
-
-    MembersHookReturn {
-        members,
-        is_loading: effective_is_loading,
-        error: current_error,
-        refetch: Callback::from(move |_| refetch.emit(community_id)),
-    }
+                let members = api_client
+                    .get_members(&community_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                dispatch.reduce_mut(|s| {
+                    s.set_members_for_community(community_id, members.clone());
+                });
+                Ok(members)
+            }
+        },
+    )
 }

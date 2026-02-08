@@ -1,6 +1,6 @@
 use crate::components::{ConfirmationModal, RequireAuth};
 use crate::get_api_client;
-use crate::hooks::{FetchState, use_communities, use_logout};
+use crate::hooks::{use_communities, use_logout};
 use payloads::Role;
 use payloads::responses::UserProfile;
 use yew::prelude::*;
@@ -36,8 +36,8 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
 
     // Extract leader communities from the hook data
     let leader_communities: Option<Vec<String>> =
-        match &communities_hook.communities {
-            FetchState::Fetched(communities) => {
+        match communities_hook.data.as_ref() {
+            Some(communities) => {
                 let leaders: Vec<String> = communities
                     .iter()
                     .filter(|c| c.user_role == Role::Leader)
@@ -45,7 +45,7 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                     .collect();
                 Some(leaders)
             }
-            _ => None,
+            None => None,
         };
 
     let username = profile.username.clone();
