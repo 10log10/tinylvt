@@ -1,6 +1,11 @@
 -- Reverses the currency migration by removing all currency-related columns,
 -- tables, and types
 
+-- Drop indexes
+DROP INDEX idx_journal_lines_account_id;
+
+DROP INDEX idx_accounts_owner;
+
 -- Drop tables in dependency order
 DROP TABLE journal_lines;
 
