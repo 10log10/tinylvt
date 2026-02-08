@@ -129,6 +129,8 @@ CREATE TABLE accounts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     community_id    UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
     owner_type      ACCOUNT_OWNER_TYPE NOT NULL,
+    -- Usually this cascade is blocked by the ON DELETE RESTRICT in
+    -- journal_lines if the user has transaction history.
     owner_id        UUID REFERENCES users (id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL,
     -- Materialized balance kept in sync by application
@@ -145,6 +147,10 @@ CREATE TABLE accounts (
     CHECK ((owner_type = 'member_main' AND owner_id IS NOT NULL) OR
            (owner_type = 'community_treasury' AND owner_id IS NULL))
 );
+
+-- Efficient and unique account lookups by owner
+CREATE UNIQUE INDEX idx_accounts_owner
+ON accounts (community_id, owner_type, owner_id);
 
 -- Journal entry types
 --
@@ -227,6 +233,9 @@ CREATE TABLE journal_lines (
     account_id        UUID NOT NULL REFERENCES accounts (id) ON DELETE RESTRICT,
     amount            NUMERIC(20, 6) NOT NULL
 );
+
+-- Efficient transaction history queries by account
+CREATE INDEX idx_journal_lines_account_id ON journal_lines (account_id);
 
 -- Application ensures sum of journal lines for each entry_id is 0
 
