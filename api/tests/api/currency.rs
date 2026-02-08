@@ -1522,3 +1522,307 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// Currency Mode Creation Tests
+// ============================================================================
+// These tests verify that communities can be created with each currency mode
+// and that the database constraints are satisfied.
+
+#[tokio::test]
+async fn create_community_points_allocation_mode() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    let body = requests::CreateCommunity {
+        name: "Points Allocation Community".to_string(),
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::PointsAllocation(
+                Box::new(payloads::PointsAllocationConfig {
+                    allowance_amount: Decimal::new(100, 0),
+                    allowance_period: jiff::Span::new().weeks(1),
+                    allowance_start: app.time_source.now(),
+                }),
+            ),
+            name: "points".to_string(),
+            symbol: "P".to_string(),
+            minor_units: 0,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Verify the community was created with correct settings
+    let communities = app.client.get_communities().await?;
+    let community = communities.iter().find(|c| c.id == community_id).unwrap();
+
+    assert!(matches!(
+        community.currency.mode_config,
+        payloads::CurrencyModeConfig::PointsAllocation(_)
+    ));
+    assert_eq!(community.currency.name, "points");
+    assert_eq!(community.currency.symbol, "P");
+
+    // Verify treasury operations work in this mode
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: payloads::TreasuryRecipient::SingleMember(
+                alice.user.user_id,
+            ),
+            amount_per_recipient: Decimal::new(50, 0),
+            note: Some("Test grant".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    let info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(info.balance, Decimal::new(50, 0));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_community_distributed_clearing_mode() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    let body = requests::CreateCommunity {
+        name: "Distributed Clearing Community".to_string(),
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::DistributedClearing(
+                payloads::IOUConfig {
+                    default_credit_limit: Some(Decimal::new(500, 0)),
+                    debts_callable: true,
+                },
+            ),
+            name: "hours".to_string(),
+            symbol: "h".to_string(),
+            minor_units: 1,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Verify the community was created with correct settings
+    let communities = app.client.get_communities().await?;
+    let community = communities.iter().find(|c| c.id == community_id).unwrap();
+
+    if let payloads::CurrencyModeConfig::DistributedClearing(cfg) =
+        &community.currency.mode_config
+    {
+        assert_eq!(cfg.default_credit_limit, Some(Decimal::new(500, 0)));
+        assert!(cfg.debts_callable);
+    } else {
+        panic!("Expected DistributedClearing config");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    let body = requests::CreateCommunity {
+        name: "Deferred Payment Community".to_string(),
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::DeferredPayment(
+                payloads::IOUConfig {
+                    default_credit_limit: Some(Decimal::new(1000, 0)),
+                    debts_callable: true,
+                },
+            ),
+            name: "credits".to_string(),
+            symbol: "C".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: false,
+            new_members_default_active: true,
+        },
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Verify the community was created with correct settings
+    let communities = app.client.get_communities().await?;
+    let community = communities.iter().find(|c| c.id == community_id).unwrap();
+
+    if let payloads::CurrencyModeConfig::DeferredPayment(cfg) =
+        &community.currency.mode_config
+    {
+        assert_eq!(cfg.default_credit_limit, Some(Decimal::new(1000, 0)));
+        assert!(cfg.debts_callable);
+    } else {
+        panic!("Expected DeferredPayment config");
+    }
+    assert!(!community.currency.balances_visible_to_members);
+
+    // Add Bob to community
+    app.create_bob_user().await?;
+    app.login_alice().await?;
+    app.invite_bob().await?;
+    app.login_bob().await?;
+    // Accept invite manually since accept_invite() asserts community name
+    let invites = app.client.get_received_invites().await?;
+    app.client.accept_invite(&invites[0].id).await?;
+
+    // Get user IDs
+    app.login_alice().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // In deferred_payment mode, members can transfer within their credit limit
+    // Bob transfers to Alice (creates debt for Bob, credit for Alice)
+    app.login_bob().await?;
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to_user_id: alice.user.user_id,
+            amount: Decimal::new(50, 0),
+            note: Some("Test transfer".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Verify Bob has negative balance (owes)
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(bob_info.balance, Decimal::new(-50, 0));
+
+    // Verify Alice has positive balance
+    app.login_alice().await?;
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(alice_info.balance, Decimal::new(50, 0));
+
+    // Alice transfers back to Bob, settling the debt
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to_user_id: bob.user.user_id,
+            amount: Decimal::new(50, 0),
+            note: Some("Paying Bob back".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Both should now be at zero
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(alice_info.balance, Decimal::ZERO);
+
+    let bob_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: Some(bob.user.user_id),
+        })
+        .await?;
+    assert_eq!(bob_info.balance, Decimal::ZERO);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_community_prepaid_credits_mode() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    let body = requests::CreateCommunity {
+        name: "Prepaid Credits Community".to_string(),
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::PrepaidCredits(
+                payloads::PrepaidCreditsConfig {
+                    debts_callable: false,
+                },
+            ),
+            name: "tokens".to_string(),
+            symbol: "T".to_string(),
+            minor_units: 0,
+            balances_visible_to_members: false,
+            new_members_default_active: true,
+        },
+    };
+    let community_id = app.client.create_community(&body).await?;
+
+    // Verify the community was created with correct settings
+    let communities = app.client.get_communities().await?;
+    let community = communities.iter().find(|c| c.id == community_id).unwrap();
+
+    if let payloads::CurrencyModeConfig::PrepaidCredits(cfg) =
+        &community.currency.mode_config
+    {
+        assert!(!cfg.debts_callable);
+    } else {
+        panic!("Expected PrepaidCredits config");
+    }
+
+    // In prepaid mode, credit_limit is always 0, so members can't go negative
+    // Verify member starts with zero balance and zero credit
+    let info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(info.balance, Decimal::ZERO);
+    assert_eq!(info.credit_limit, Some(Decimal::ZERO));
+    assert_eq!(info.available_credit, Some(Decimal::ZERO));
+
+    // Alice purchases credits (treasury credits her account)
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: payloads::TreasuryRecipient::SingleMember(
+                alice.user.user_id,
+            ),
+            amount_per_recipient: Decimal::new(100, 0),
+            note: Some("Credit purchase".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Verify Alice now has balance
+    let info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(info.balance, Decimal::new(100, 0));
+    assert_eq!(info.available_credit, Some(Decimal::new(100, 0)));
+
+    Ok(())
+}
