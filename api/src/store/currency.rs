@@ -1812,11 +1812,12 @@ pub async fn reset_all_balances(
         FROM auctions auc
         JOIN sites s ON auc.site_id = s.id
         WHERE s.community_id = $1
-          AND auc.start_at <= NOW()
+          AND auc.start_at <= $2
           AND auc.end_at IS NULL
         "#,
     )
     .bind(community_id)
+    .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1892,6 +1893,10 @@ pub async fn reset_all_balances(
 ///
 /// If target_user_id is None, returns info for the actor.
 /// If target_user_id is Some, requires coleader+ permissions.
+///
+/// Since this returns credit limits and locked balances in addition to the
+/// user's current balance, it is not used for providing members visibility into
+/// each other's balances. That functionality is provided by store::get_members.
 pub async fn get_member_currency_info_with_permissions(
     actor: &super::ValidatedMember,
     target_user_id: Option<&UserId>,
