@@ -70,6 +70,8 @@ COPY test-helpers ./test-helpers
 COPY email-hash ./email-hash
 COPY ui-tests ./ui-tests
 COPY dev-server ./dev-server
+COPY markdown-html ./markdown-html
+COPY docs ./docs
 
 # Build-time arguments: BACKEND_URL and SUPPORT_EMAIL embedded in WASM bundle
 ARG BACKEND_URL

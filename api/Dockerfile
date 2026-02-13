@@ -20,6 +20,7 @@ COPY ui ./ui
 COPY email-hash ./email-hash
 COPY ui-tests ./ui-tests
 COPY dev-server ./dev-server
+COPY markdown-html ./markdown-html
 
 # Build the api binary in release mode
 # The sqlx::migrate!() macro will embed migrations at compile time
