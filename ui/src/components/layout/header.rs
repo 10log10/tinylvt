@@ -52,18 +52,22 @@ pub struct NavigationMenuProps {
     pub authenticated: bool,
 }
 
+const NAV_LINK_CLASSES: &str = "text-sm text-neutral-600 dark:text-neutral-400 \
+    hover:text-neutral-900 dark:hover:text-white";
+
 #[function_component]
 fn NavigationMenu(props: &NavigationMenuProps) -> Html {
-    if props.authenticated {
-        html! {
-            <nav class="flex gap-4 sm:gap-6">
-                <Link<Route> to={Route::Communities} classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
+    html! {
+        <nav class="flex gap-4 sm:gap-6">
+            <Link<Route> to={Route::Docs} classes={NAV_LINK_CLASSES}>
+                {"Docs"}
+            </Link<Route>>
+            if props.authenticated {
+                <Link<Route> to={Route::Communities} classes={NAV_LINK_CLASSES}>
                     {"Communities"}
                 </Link<Route>>
-            </nav>
-        }
-    } else {
-        html! { <></> }
+            }
+        </nav>
     }
 }
 

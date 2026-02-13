@@ -21,7 +21,7 @@ use pages::{
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
     HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
     OrphanedAccountsPage, ProfilePage, ResetPasswordPage, SiteAuctionsPage,
-    SiteDetailPage, SiteSettingsPage, VerifyEmailPage,
+    SiteDetailPage, SiteSettingsPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -72,6 +72,14 @@ pub enum Route {
     VerifyEmail,
     #[at("/help")]
     Help,
+    #[at("/docs")]
+    Docs,
+    #[at("/docs/currency")]
+    DocsCurrency,
+    #[at("/docs/setup")]
+    DocsSetup,
+    #[at("/docs/auctions")]
+    DocsAuctions,
     #[at("/profile")]
     Profile,
     #[at("/forgot_password")]
@@ -124,6 +132,10 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::Help => html! { <HelpPage /> },
+        Route::Docs => html! { <docs::DocsPage /> },
+        Route::DocsCurrency => html! { <docs::CurrencyPage /> },
+        Route::DocsSetup => html! { <docs::SetupPage /> },
+        Route::DocsAuctions => html! { <docs::AuctionsPage /> },
         Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },

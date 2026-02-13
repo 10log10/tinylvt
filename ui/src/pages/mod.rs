@@ -11,6 +11,7 @@ pub mod community_treasury;
 pub mod create_auction;
 pub mod create_community;
 pub mod create_site;
+pub mod docs;
 pub mod forgot_password;
 pub mod help;
 pub mod logged_in_home;

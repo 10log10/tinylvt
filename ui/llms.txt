@@ -1,0 +1,27 @@
+# TinyLVT
+
+> Auction-based allocation for shared spaces using land value taxation principles.
+
+TinyLVT helps communities allocate shared spaces fairly through simultaneous
+ascending auctions. It supports multiple currency modes for different ownership
+models, from internal points to true common ownership with rent redistribution.
+
+## Documentation
+
+Raw markdown files (internal links point to rendered UI, not raw files):
+
+- /docs-source/README.md
+- /docs-source/getting-started.md
+- /docs-source/currency.md
+- /docs-source/setup.md
+- /docs-source/auctions.md
+
+## Key Concepts
+
+- **Simultaneous Ascending Auctions** - All spaces auctioned together with
+  rising prices, used for high-stakes allocations like wireless spectrum
+- **Proxy Bidding** - Enter maximum values upfront, system bids automatically
+- **Currency Modes** - Points Allowance, Distributed Clearing, Deferred Payment,
+  or Prepaid Credits (cannot be changed after community creation)
+- **Distributed Clearing** - True common ownership where auction proceeds are
+  split equally among all active members

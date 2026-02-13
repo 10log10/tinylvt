@@ -1,5 +1,14 @@
 [workspace]
-members= ["api", "payloads", "ui", "email-hash", "test-helpers", "ui-tests", "dev-server"]
+members = [
+    "api",
+    "payloads",
+    "ui",
+    "email-hash",
+    "test-helpers",
+    "ui-tests",
+    "dev-server",
+    "markdown-html"
+]
 resolver = "3"
 
 [workspace.dependencies]
