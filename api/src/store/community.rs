@@ -528,22 +528,6 @@ pub async fn get_members(
     .await
 }
 
-// Helper function to check if actor can remove a member with the target role
-fn can_remove_role(actor_role: &Role, target_role: &Role) -> bool {
-    match actor_role {
-        // Leader can remove anyone but themselves
-        Role::Leader => !target_role.is_leader(),
-        // Coleader can remove member or moderator
-        Role::Coleader => {
-            matches!(target_role, Role::Member | Role::Moderator)
-        }
-        // Moderator can only remove member
-        Role::Moderator => matches!(target_role, Role::Member),
-        // Member cannot remove anyone
-        Role::Member => false,
-    }
-}
-
 pub async fn remove_member(
     actor: &ValidatedMember,
     member_user_id: &UserId,
@@ -568,7 +552,7 @@ pub async fn remove_member(
     let mut tx = pool.begin().await?;
 
     // Cannot remove higher role
-    if !can_remove_role(&actor.0.role, &target_member.0.role) {
+    if !actor.0.role.can_remove_role(&target_member.0.role) {
         return Err(StoreError::CannotRemoveHigherRole);
     }
 
@@ -594,6 +578,64 @@ pub async fn remove_member(
     }
 
     tx.commit().await?;
+    Ok(())
+}
+
+pub async fn change_member_role(
+    actor: &ValidatedMember,
+    member_user_id: &UserId,
+    new_role: Role,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Cannot change own role
+    if member_user_id == &actor.0.user_id {
+        return Err(StoreError::CannotChangeSelfRole);
+    }
+
+    // Cannot promote to leader
+    if new_role.is_leader() {
+        return Err(StoreError::CannotPromoteToLeader);
+    }
+
+    // Minimum permission: must be coleader+
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    // Get target member to validate they exist and check their role
+    let target_member =
+        get_validated_member(member_user_id, &actor.0.community_id, pool)
+            .await?;
+
+    // Check role change is allowed
+    if !actor
+        .0
+        .role
+        .can_change_role(&target_member.0.role, &new_role)
+    {
+        return Err(StoreError::CannotChangeRole);
+    }
+
+    // Atomic update with race condition protection
+    let rows_updated = sqlx::query(
+        "UPDATE community_members
+         SET role = $1, updated_at = $2
+         WHERE community_id = $3 AND user_id = $4 AND role != 'leader'",
+    )
+    .bind(new_role)
+    .bind(time_source.now().to_sqlx())
+    .bind(actor.0.community_id)
+    .bind(member_user_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if rows_updated == 0 {
+        // Target was promoted to leader (race condition) or doesn't exist
+        return Err(StoreError::CannotChangeRole);
+    }
+
     Ok(())
 }
 
@@ -682,7 +724,7 @@ pub async fn update_member_active_status(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Check permissions
-    if !actor.0.role.is_ge_moderator() {
+    if !actor.0.role.can_change_active_status() {
         return Err(StoreError::RequiresModeratorPermissions);
     }
 

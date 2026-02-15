@@ -1273,7 +1273,7 @@ pub async fn update_credit_limit_override(
     pool: &PgPool,
 ) -> Result<Account, StoreError> {
     // Check permissions
-    if !actor.0.role.is_ge_moderator() {
+    if !actor.0.role.can_edit_credit_limit() {
         return Err(StoreError::RequiresModeratorPermissions);
     }
 

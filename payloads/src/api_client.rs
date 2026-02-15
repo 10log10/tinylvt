@@ -269,6 +269,14 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn change_member_role(
+        &self,
+        details: &requests::ChangeMemberRole,
+    ) -> Result<(), ClientError> {
+        let response = self.post("change_member_role", &details).await?;
+        ok_empty(response).await
+    }
+
     pub async fn leave_community(
         &self,
         details: &requests::LeaveCommunity,

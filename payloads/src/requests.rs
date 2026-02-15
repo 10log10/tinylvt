@@ -60,6 +60,13 @@ pub struct RemoveMember {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ChangeMemberRole {
+    pub community_id: CommunityId,
+    pub member_user_id: crate::UserId,
+    pub new_role: crate::Role,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LeaveCommunity {
     pub community_id: CommunityId,
 }

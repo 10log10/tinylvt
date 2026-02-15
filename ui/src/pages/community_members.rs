@@ -2,9 +2,9 @@ use payloads::{CommunityId, Role, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveStatusToggle, ActiveTab, CommunityPageWrapper, CommunityTabHeader,
-    EditCreditLimitModal, MenuItem, OverflowMenu, RemoveMemberModal,
-    can_remove_role,
+    ActiveStatusToggle, ActiveTab, ChangeRoleModal, CommunityPageWrapper,
+    CommunityTabHeader, EditCreditLimitModal, MenuItem, OverflowMenu,
+    RemoveMemberModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
 use crate::hooks::use_members;
@@ -163,9 +163,10 @@ fn MemberRow(props: &MemberRowProps) -> Html {
     // Modal states
     let show_edit_modal = use_state(|| false);
     let show_remove_modal = use_state(|| false);
+    let show_change_role_modal = use_state(|| false);
 
     // Check if credit limits are supported and user can edit them
-    let can_edit_credit_limit = community.user_role.is_ge_coleader()
+    let can_edit_credit_limit = community.user_role.can_edit_credit_limit()
         && matches!(
             community.community.currency.mode_config,
             payloads::CurrencyModeConfig::DistributedClearing(_)
@@ -173,7 +174,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
         );
 
     // Check if user can edit active status
-    let can_edit_active_status = community.user_role.is_ge_moderator()
+    let can_edit_active_status = community.user_role.can_change_active_status()
         && matches!(
             community.community.currency.mode_config,
             payloads::CurrencyModeConfig::PointsAllocation(_)
@@ -181,8 +182,14 @@ fn MemberRow(props: &MemberRowProps) -> Html {
         );
 
     // Check if user can remove this member
-    let can_remove = community.user_role.is_ge_moderator()
-        && can_remove_role(&community.user_role, &member.role);
+    let can_remove = community.user_role.can_remove_role(&member.role);
+
+    // Check if user can change this member's role (any valid change exists)
+    let can_change_role = [Role::Member, Role::Moderator, Role::Coleader]
+        .iter()
+        .any(|new_role| {
+            community.user_role.can_change_role(&member.role, new_role)
+        });
 
     // Build overflow menu items
     let menu_items = {
@@ -193,6 +200,17 @@ fn MemberRow(props: &MemberRowProps) -> Html {
             items.push(MenuItem {
                 label: "Edit Credit Limit".into(),
                 on_click: Callback::from(move |_| show_edit_modal.set(true)),
+                danger: false,
+            });
+        }
+
+        if can_change_role {
+            let show_change_role_modal = show_change_role_modal.clone();
+            items.push(MenuItem {
+                label: "Change Role".into(),
+                on_click: Callback::from(move |_| {
+                    show_change_role_modal.set(true)
+                }),
                 danger: false,
             });
         }
@@ -235,6 +253,22 @@ fn MemberRow(props: &MemberRowProps) -> Html {
         let on_update = props.on_update.clone();
         Callback::from(move |_: ()| {
             show_remove_modal.set(false);
+            on_update.emit(());
+        })
+    };
+
+    let on_change_role_modal_close = {
+        let show_change_role_modal = show_change_role_modal.clone();
+        Callback::from(move |_: ()| {
+            show_change_role_modal.set(false);
+        })
+    };
+
+    let on_change_role_success = {
+        let show_change_role_modal = show_change_role_modal.clone();
+        let on_update = props.on_update.clone();
+        Callback::from(move |_: ()| {
+            show_change_role_modal.set(false);
             on_update.emit(());
         })
     };
@@ -316,6 +350,21 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                         member={member.clone()}
                         on_success={on_remove_success}
                         on_close={on_remove_modal_close}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+
+            // Change role modal
+            {if *show_change_role_modal {
+                html! {
+                    <ChangeRoleModal
+                        community_id={community.id}
+                        member={member.clone()}
+                        actor_role={community.user_role}
+                        on_success={on_change_role_success}
+                        on_close={on_change_role_modal_close}
                     />
                 }
             } else {

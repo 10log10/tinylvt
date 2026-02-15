@@ -20,6 +20,20 @@ pub enum Role {
     Leader,
 }
 
+impl std::str::FromStr for Role {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Member" => Ok(Role::Member),
+            "Moderator" => Ok(Role::Moderator),
+            "Coleader" => Ok(Role::Coleader),
+            "Leader" => Ok(Role::Leader),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Role {
     pub fn is_ge_moderator(&self) -> bool {
         matches!(self, Self::Moderator | Self::Coleader | Self::Leader)
@@ -31,6 +45,64 @@ impl Role {
 
     pub fn is_leader(&self) -> bool {
         matches!(self, Self::Leader)
+    }
+
+    /// Check if actor can remove target based on role hierarchy.
+    ///
+    /// Permission rules:
+    /// - Leader can remove anyone except themselves
+    /// - Coleader can remove members or moderators
+    /// - Moderator can only remove members
+    /// - Member cannot remove anyone
+    pub fn can_remove_role(&self, target_role: &Role) -> bool {
+        match self {
+            Role::Leader => !target_role.is_leader(),
+            Role::Coleader => {
+                matches!(target_role, Role::Member | Role::Moderator)
+            }
+            Role::Moderator => matches!(target_role, Role::Member),
+            Role::Member => false,
+        }
+    }
+
+    /// Check if actor can change target's role to new_role.
+    ///
+    /// Permission rules:
+    /// - Leader can change anyone (except leader) to any role (except leader)
+    /// - Coleader can promote members/moderators to moderator or coleader
+    /// - Coleader can demote moderators to member
+    /// - Coleader cannot demote other coleaders
+    /// - Moderator and Member cannot change roles
+    /// - No one can change leader's role or promote to leader
+    pub fn can_change_role(&self, target_role: &Role, new_role: &Role) -> bool {
+        // Cannot change leader's role, promote to leader, or change to same
+        // role
+        if target_role.is_leader()
+            || new_role.is_leader()
+            || target_role == new_role
+        {
+            return false;
+        }
+
+        match self {
+            Role::Leader => true,
+            Role::Coleader => {
+                // Coleader cannot demote other coleaders, but can promote new
+                // coleaders
+                !target_role.is_ge_coleader()
+            }
+            Role::Moderator | Role::Member => false,
+        }
+    }
+
+    /// Moderators can change per-member attributes like active status and
+    /// credit limits.
+    pub fn can_edit_credit_limit(&self) -> bool {
+        self.is_ge_moderator()
+    }
+
+    pub fn can_change_active_status(&self) -> bool {
+        self.is_ge_moderator()
     }
 }
 

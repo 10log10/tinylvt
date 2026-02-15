@@ -507,6 +507,12 @@ pub enum StoreError {
     CannotRemoveSelf,
     #[error("Cannot remove user with higher role")]
     CannotRemoveHigherRole,
+    #[error("Cannot change role of this user")]
+    CannotChangeRole,
+    #[error("Cannot change own role")]
+    CannotChangeSelfRole,
+    #[error("Cannot promote to leader")]
+    CannotPromoteToLeader,
     #[error(
         "Cannot leave community as leader (must transfer leadership first)"
     )]

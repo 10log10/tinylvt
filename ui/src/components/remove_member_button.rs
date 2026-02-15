@@ -1,4 +1,4 @@
-use payloads::{CommunityId, Role, requests, responses};
+use payloads::{CommunityId, requests, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
@@ -132,15 +132,5 @@ pub fn RemoveMemberModal(props: &Props) -> Html {
                 </div>
             </div>
         </div>
-    }
-}
-
-/// Check if actor can remove target based on role hierarchy
-pub fn can_remove_role(actor_role: &Role, target_role: &Role) -> bool {
-    match actor_role {
-        Role::Leader => !target_role.is_leader(),
-        Role::Coleader => matches!(target_role, Role::Member | Role::Moderator),
-        Role::Moderator => matches!(target_role, Role::Member),
-        Role::Member => false,
     }
 }

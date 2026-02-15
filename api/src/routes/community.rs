@@ -251,6 +251,31 @@ pub async fn remove_member(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Change a member's role (coleader+ only)
+#[tracing::instrument(skip(user, pool, time_source), ret)]
+#[post("/change_member_role")]
+pub async fn change_member_role(
+    user: Identity,
+    details: web::Json<requests::ChangeMemberRole>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    store::change_member_role(
+        &validated_member,
+        &details.member_user_id,
+        details.new_role,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
 /// Leave a community voluntarily
 #[tracing::instrument(skip(user, pool), ret)]
 #[post("/leave_community")]
