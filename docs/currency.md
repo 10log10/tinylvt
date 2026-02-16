@@ -107,17 +107,21 @@ and bid for their preferred locations. No credit risk for the marina.
 The currency modes exist on a spectrum:
 
 **Most equal (common ownership):**
-- *Distributed Clearing* — Auction proceeds go directly to members. Everyone
-  shares equally in the resource value, whether they use it or not.
 - *Points Allowance* — Equal points means equal access over time, no money
   involved.
+- *Distributed Clearing* — Auction proceeds go directly to members. Everyone
+  shares equally in the resource value, whether they use it or not.
+
+**Medium equal (leadership-controlled funds)**
+- *Deferred Payment* / *Prepaid Credits* - Treasury funds managed by the
+  community leadership. Member benefit depends on how the funds are spent.
 
 **Least equal (landlord model):**
-- *Deferred Payment* / *Prepaid Credits* with single active member — All
-  proceeds go to one person (the "landlord"). Useful when someone owns the
-  resource and wants market-based pricing.
+- *Deferred Payment* / *Prepaid Credits* — All proceeds go to one person (the
+  "landlord"). Useful when someone owns the resource and wants market-based
+  pricing.
 
-Most communities fall somewhere in between. A housing co-op might use
+Communities pick the model that matches their goals. A housing co-op might use
 Distributed Clearing for true shared ownership. A commercial coworking space
 might use Prepaid Credits with revenue going to cover operating costs.
 
