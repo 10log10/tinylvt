@@ -3,9 +3,7 @@ members = [
     "api",
     "payloads",
     "ui",
-    "email-hash",
     "test-helpers",
-    "ui-tests",
     "dev-server",
     "markdown-html"
 ]

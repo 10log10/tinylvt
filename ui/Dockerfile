@@ -67,8 +67,6 @@ COPY ui ./ui
 COPY payloads ./payloads
 COPY api ./api
 COPY test-helpers ./test-helpers
-COPY email-hash ./email-hash
-COPY ui-tests ./ui-tests
 COPY dev-server ./dev-server
 COPY markdown-html ./markdown-html
 COPY docs ./docs

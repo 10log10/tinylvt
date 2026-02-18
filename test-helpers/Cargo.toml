@@ -1,9 +1,8 @@
 # Crate for starting the api with an isolated database instance and populating
 # it with test data.
 #
-# This crate is used both by the api's integration tests at api/tests/api,
-# browser automation tests in ui-tests, and the dev-server crate (which
-# disables the time mocking).
+# This crate is used both by the api's integration tests at api/tests/api
+# and the dev-server crate (which disables the time mocking).
 
 [package]
 name = "test-helpers"

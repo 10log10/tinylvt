@@ -3,7 +3,6 @@
 //! This module provides realistic test data that can be used across:
 //! - Development server (dev-server)
 //! - API integration tests
-//! - Browser automation tests (ui-tests)
 //! - Any other testing scenarios
 //!
 //! The data is designed to represent real-world usage patterns with:
