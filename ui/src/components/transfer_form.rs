@@ -6,8 +6,84 @@ use std::str::FromStr;
 use uuid::Uuid;
 use yew::prelude::*;
 
+use crate::components::user_identity_display::format_user_name_unambiguous;
 use crate::get_api_client;
 use crate::hooks::use_members;
+
+// ============================================================================
+// MemberSelect component - reusable member selection dropdown
+// ============================================================================
+
+// Note that after user interaction, the prior select value will remain visible,
+// even if we try to clear the selected state.
+
+#[derive(Properties, PartialEq)]
+pub struct MemberSelectProps {
+    pub community_id: CommunityId,
+    pub selected: Option<UserId>,
+    pub on_change: Callback<Option<UserId>>,
+    #[prop_or_default]
+    pub disabled: bool,
+    #[prop_or("Select a member...".to_string())]
+    pub placeholder: String,
+}
+
+#[function_component]
+pub fn MemberSelect(props: &MemberSelectProps) -> Html {
+    let members = use_members(props.community_id);
+
+    let on_change = {
+        let on_change = props.on_change.clone();
+        Callback::from(move |e: Event| {
+            let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+            let value = select.value();
+            if value.is_empty() || value == "none" {
+                on_change.emit(None);
+            } else if let Ok(user_id) = Uuid::parse_str(&value) {
+                on_change.emit(Some(UserId(user_id)));
+            }
+        })
+    };
+
+    if members.is_initial_loading() {
+        html! {
+            <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse" />
+        }
+    } else if let Some(member_list) = members.data.as_ref() {
+        html! {
+            <select
+                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 \
+                       rounded bg-white dark:bg-neutral-800 \
+                       text-neutral-900 dark:text-neutral-100"
+                value={props.selected.as_ref().map(|id| id.0.to_string())
+                    .unwrap_or_else(|| "none".to_string())}
+                onchange={on_change}
+                disabled={props.disabled}
+            >
+                <option value="none" selected={props.selected.is_none()}>
+                    {&props.placeholder}
+                </option>
+                {for member_list.iter().map(|member| {
+                    html! {
+                        <option value={member.user.user_id.0.to_string()}>
+                            {format_user_name_unambiguous(&member.user)}
+                        </option>
+                    }
+                })}
+            </select>
+        }
+    } else {
+        html! {
+            <div class="text-red-600 dark:text-red-400 text-sm">
+                {"Error loading members"}
+            </div>
+        }
+    }
+}
+
+// ============================================================================
+// TransferForm component
+// ============================================================================
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -19,8 +95,6 @@ pub struct Props {
 
 #[function_component]
 pub fn TransferForm(props: &Props) -> Html {
-    let members = use_members(props.community_id);
-
     // Form state
     let selected_recipient = use_state(|| None::<UserId>);
     let amount_input = use_state(String::new);
@@ -97,14 +171,8 @@ pub fn TransferForm(props: &Props) -> Html {
         let success_message = success_message.clone();
         let error_message = error_message.clone();
 
-        Callback::from(move |e: Event| {
-            let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-            let value = select.value();
-            if value.is_empty() || value == "none" {
-                selected_recipient.set(None);
-            } else if let Ok(user_id) = Uuid::parse_str(&value) {
-                selected_recipient.set(Some(UserId(user_id)));
-            }
+        Callback::from(move |user_id: Option<UserId>| {
+            selected_recipient.set(user_id);
             success_message.set(None);
             error_message.set(None);
         })
@@ -269,43 +337,12 @@ pub fn TransferForm(props: &Props) -> Html {
                 <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
                     {"Recipient"}
                 </label>
-                {
-                    if members.is_initial_loading() {
-                        html! {
-                            <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                        }
-                    } else if let Some(member_list) = members.data.as_ref() {
-                        html! {
-                            <select
-                                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                                value={selected_recipient.as_ref().map(|id| id.0.to_string()).unwrap_or_else(|| "none".to_string())}
-                                onchange={on_recipient_change}
-                                disabled={*is_submitting}
-                            >
-                                <option value="none" selected={selected_recipient.is_none()}>{"Select a member..."}</option>
-                                {
-                                    member_list.iter().map(|member| {
-                                        let display_name = member.user.display_name.as_ref()
-                                            .unwrap_or(&member.user.username);
-                                        html! {
-                                            <option
-                                                value={member.user.user_id.0.to_string()}
-                                            >
-                                                {display_name}
-                                            </option>
-                                        }
-                                    }).collect::<Html>()
-                                }
-                            </select>
-                        }
-                    } else {
-                        html! {
-                            <div class="text-red-600 dark:text-red-400 text-sm">
-                                {"Error loading members"}
-                            </div>
-                        }
-                    }
-                }
+                <MemberSelect
+                    community_id={props.community_id}
+                    selected={*selected_recipient}
+                    on_change={on_recipient_change}
+                    disabled={*is_submitting}
+                />
             </div>
 
             // Amount input

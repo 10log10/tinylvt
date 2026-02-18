@@ -32,6 +32,7 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
     let confirm_password_ref = use_node_ref();
     let error_message = use_state(|| None::<String>);
     let is_loading = use_state(|| false);
+    let username_error = use_state(|| None::<String>);
 
     // Shared login callback that handles the login API call and state management
     let perform_login = {
@@ -77,6 +78,24 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
 
                 is_loading.set(false);
             });
+        })
+    };
+
+    let on_username_change = {
+        let username_error = username_error.clone();
+        let mode = props.mode;
+        Callback::from(move |e: Event| {
+            // Only validate in CreateAccount mode
+            if mode != AuthMode::CreateAccount {
+                return;
+            }
+            let target = e.target_dyn_into::<HtmlInputElement>();
+            if let Some(input) = target {
+                let username = input.value();
+                let validation = requests::validate_username(&username);
+                username_error
+                    .set(validation.error_message().map(String::from));
+            }
         })
     };
 
@@ -247,6 +266,7 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         name="username"
                         autocomplete="username"
                         required={true}
+                        onchange={on_username_change.clone()}
                         class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                rounded-md shadow-sm bg-white dark:bg-neutral-700
                                text-neutral-900 dark:text-neutral-100
@@ -254,6 +274,13 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                                dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
                         placeholder="Enter your username"
                     />
+                    if props.mode == AuthMode::CreateAccount {
+                        if let Some(error) = &*username_error {
+                            <p class="mt-1 text-sm text-red-600 dark:text-red-400">
+                                {error}
+                            </p>
+                        }
+                    }
                 </div>
 
                 <div>

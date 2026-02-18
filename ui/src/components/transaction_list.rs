@@ -7,19 +7,11 @@ use yew::prelude::*;
 
 use crate::components::user_identity_display::render_user_name;
 
-#[derive(Properties)]
+#[derive(Properties, PartialEq)]
 pub struct Props {
     pub transactions: Vec<MemberTransaction>,
     pub currency: CurrencySettings,
     pub target_account: AccountOwner,
-}
-
-impl PartialEq for Props {
-    fn eq(&self, other: &Self) -> bool {
-        self.currency == other.currency
-            && self.target_account == other.target_account
-            && self.transactions.len() == other.transactions.len()
-    }
 }
 
 #[function_component]
@@ -188,18 +180,11 @@ fn determine_counterparty(
     }
 }
 
-#[derive(Properties)]
+#[derive(Properties, PartialEq)]
 struct TransactionRowProps {
     pub transaction: MemberTransaction,
     pub currency: CurrencySettings,
     pub target_account: AccountOwner,
-}
-
-impl PartialEq for TransactionRowProps {
-    fn eq(&self, other: &Self) -> bool {
-        self.currency == other.currency
-            && self.target_account == other.target_account
-    }
 }
 
 #[function_component]
@@ -323,17 +308,16 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
                             <div class="mt-2 space-y-1 text-xs">
                                 {
                                     txn.lines.iter().map(|line| {
-                                        let party_name = match &line.party {
+                                        let party_display = match &line.party {
                                             TransactionParty::Member(identity) => {
-                                                identity.display_name.as_ref()
-                                                    .unwrap_or(&identity.username).clone()
+                                                render_user_name(identity)
                                             }
-                                            TransactionParty::Treasury => "Treasury".to_string(),
+                                            TransactionParty::Treasury => html! { "Treasury" },
                                         };
 
                                         html! {
                                             <div class="flex justify-between text-neutral-600 dark:text-neutral-400">
-                                                <span>{party_name}</span>
+                                                <span>{party_display}</span>
                                                 <span>
                                                     {if line.amount > rust_decimal::Decimal::ZERO { "+" } else { "" }}
                                                     {props.currency.format_amount(line.amount.abs())}

@@ -15,8 +15,10 @@ pub async fn create_user(
     password_hash: &str,
     time_source: &TimeSource,
 ) -> Result<User, StoreError> {
-    if username.len() > payloads::requests::USERNAME_MAX_LEN {
-        return Err(StoreError::FieldTooLong);
+    // Validate username format
+    let validation = payloads::requests::validate_username(username);
+    if let Some(error_message) = validation.error_message() {
+        return Err(StoreError::InvalidUsername(error_message.to_string()));
     }
     if email.len() > payloads::requests::EMAIL_MAX_LEN {
         return Err(StoreError::FieldTooLong);

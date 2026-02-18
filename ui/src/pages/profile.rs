@@ -1,9 +1,12 @@
 use crate::components::{ConfirmationModal, RequireAuth};
 use crate::get_api_client;
 use crate::hooks::{use_communities, use_logout};
-use payloads::Role;
+use crate::{AuthState, State};
 use payloads::responses::UserProfile;
+use payloads::{Role, requests};
+use web_sys::HtmlInputElement;
 use yew::prelude::*;
+use yewdux::prelude::*;
 
 #[function_component]
 pub fn ProfilePage() -> Html {
@@ -25,11 +28,18 @@ struct ProfilePageInnerProps {
 fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
     let profile = &props.profile;
     let logout = use_logout();
+    let (_state, dispatch) = use_store::<State>();
 
     // Modal and deletion state
     let show_delete_modal = use_state(|| false);
     let is_deleting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
+
+    // Display name editing state
+    let is_editing_display_name = use_state(|| false);
+    let display_name_input = use_node_ref();
+    let display_name_error = use_state(|| None::<String>);
+    let is_saving_display_name = use_state(|| false);
 
     // Use communities hook to get cached communities
     let communities_hook = use_communities();
@@ -95,6 +105,85 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
         })
     };
 
+    let on_edit_display_name = {
+        let is_editing_display_name = is_editing_display_name.clone();
+        let display_name_error = display_name_error.clone();
+        Callback::from(move |_: MouseEvent| {
+            display_name_error.set(None);
+            is_editing_display_name.set(true);
+        })
+    };
+
+    let on_cancel_edit = {
+        let is_editing_display_name = is_editing_display_name.clone();
+        let display_name_error = display_name_error.clone();
+        Callback::from(move |_: MouseEvent| {
+            display_name_error.set(None);
+            is_editing_display_name.set(false);
+        })
+    };
+
+    let on_save_display_name = {
+        let display_name_input = display_name_input.clone();
+        let is_editing_display_name = is_editing_display_name.clone();
+        let display_name_error = display_name_error.clone();
+        let is_saving_display_name = is_saving_display_name.clone();
+        let dispatch = dispatch.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let input = display_name_input.cast::<HtmlInputElement>();
+            let Some(input) = input else { return };
+
+            let value = input.value().trim().to_string();
+            let display_name =
+                if value.is_empty() { None } else { Some(value) };
+
+            // Validate length
+            if let Some(ref name) = display_name
+                && name.len() > requests::DISPLAY_NAME_MAX_LEN
+            {
+                display_name_error.set(Some(format!(
+                    "Display name must be at most {} characters",
+                    requests::DISPLAY_NAME_MAX_LEN
+                )));
+                return;
+            }
+
+            let is_editing_display_name = is_editing_display_name.clone();
+            let display_name_error = display_name_error.clone();
+            let is_saving_display_name = is_saving_display_name.clone();
+            let dispatch = dispatch.clone();
+
+            is_saving_display_name.set(true);
+            display_name_error.set(None);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = get_api_client();
+                let request = requests::UpdateProfile {
+                    display_name: display_name.clone(),
+                };
+
+                match client.update_profile(&request).await {
+                    Ok(_) => {
+                        // Update auth state with new display name
+                        dispatch.reduce_mut(|state| {
+                            if let AuthState::LoggedIn(ref mut profile) =
+                                state.auth_state
+                            {
+                                profile.display_name = display_name;
+                            }
+                        });
+                        is_editing_display_name.set(false);
+                    }
+                    Err(e) => {
+                        display_name_error.set(Some(e.to_string()));
+                    }
+                }
+                is_saving_display_name.set(false);
+            });
+        })
+    };
+
     html! {
         <div class="max-w-2xl mx-auto py-8 px-4">
             <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-8">
@@ -126,12 +215,72 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                             }}
                         </span>
                     </div>
-                    if let Some(display_name) = &profile.display_name {
-                        <div class="flex">
-                            <span class="w-32 text-neutral-500 dark:text-neutral-400">{"Display Name"}</span>
-                            <span class="text-neutral-900 dark:text-neutral-100">{display_name}</span>
+                    <div class="flex items-start">
+                        <span class="w-32 text-neutral-500 dark:text-neutral-400 pt-1">
+                            {"Display Name"}
+                        </span>
+                        <div class="flex-1">
+                            if *is_editing_display_name {
+                                <div class="space-y-2">
+                                    <input
+                                        ref={display_name_input.clone()}
+                                        type="text"
+                                        value={profile.display_name.clone().unwrap_or_default()}
+                                        disabled={*is_saving_display_name}
+                                        class="w-full px-2 py-1 text-sm border border-neutral-300
+                                               dark:border-neutral-600 rounded bg-white dark:bg-neutral-700
+                                               text-neutral-900 dark:text-neutral-100
+                                               focus:outline-none focus:ring-1 focus:ring-neutral-500
+                                               disabled:opacity-50"
+                                        placeholder="Enter display name (optional)"
+                                    />
+                                    if let Some(error) = &*display_name_error {
+                                        <p class="text-sm text-red-600 dark:text-red-400">
+                                            {error}
+                                        </p>
+                                    }
+                                    <div class="flex gap-2">
+                                        <button
+                                            onclick={on_save_display_name.clone()}
+                                            disabled={*is_saving_display_name}
+                                            class="px-3 py-1 text-xs font-medium text-white
+                                                   bg-neutral-900 dark:bg-neutral-100
+                                                   dark:text-neutral-900 rounded
+                                                   hover:bg-neutral-800 dark:hover:bg-neutral-200
+                                                   disabled:opacity-50 transition-colors"
+                                        >
+                                            {if *is_saving_display_name { "Saving..." } else { "Save" }}
+                                        </button>
+                                        <button
+                                            onclick={on_cancel_edit.clone()}
+                                            disabled={*is_saving_display_name}
+                                            class="px-3 py-1 text-xs font-medium
+                                                   text-neutral-700 dark:text-neutral-300
+                                                   bg-neutral-100 dark:bg-neutral-700 rounded
+                                                   hover:bg-neutral-200 dark:hover:bg-neutral-600
+                                                   disabled:opacity-50 transition-colors"
+                                        >
+                                            {"Cancel"}
+                                        </button>
+                                    </div>
+                                </div>
+                            } else {
+                                <div class="flex items-center gap-2">
+                                    <span class="text-neutral-900 dark:text-neutral-100">
+                                        {profile.display_name.as_deref().unwrap_or("Not set")}
+                                    </span>
+                                    <button
+                                        onclick={on_edit_display_name.clone()}
+                                        class="text-xs text-neutral-500 hover:text-neutral-700
+                                               dark:text-neutral-400 dark:hover:text-neutral-200
+                                               underline transition-colors"
+                                    >
+                                        {"Edit"}
+                                    </button>
+                                </div>
+                            }
                         </div>
-                    }
+                    </div>
                 </div>
             </div>
 

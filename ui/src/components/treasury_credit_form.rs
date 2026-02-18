@@ -7,8 +7,8 @@ use std::str::FromStr;
 use uuid::Uuid;
 use yew::prelude::*;
 
+use crate::components::transfer_form::MemberSelect;
 use crate::get_api_client;
-use crate::hooks::use_members;
 
 #[derive(PartialEq, Clone, Copy)]
 enum RecipientType {
@@ -25,8 +25,6 @@ pub struct Props {
 
 #[function_component]
 pub fn TreasuryCreditForm(props: &Props) -> Html {
-    let members = use_members(props.community_id);
-
     // Determine default recipient type based on currency mode
     // Default to AllActiveMembers unless it's prepaid or deferred payment
     let currency_mode = props.community.community.currency.mode_config.mode();
@@ -113,14 +111,8 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
         let success_message = success_message.clone();
         let error_message = error_message.clone();
 
-        Callback::from(move |e: Event| {
-            let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-            let value = select.value();
-            if value.is_empty() || value == "none" {
-                selected_member.set(None);
-            } else if let Ok(user_id) = Uuid::parse_str(&value) {
-                selected_member.set(Some(UserId(user_id)));
-            }
+        Callback::from(move |user_id: Option<UserId>| {
+            selected_member.set(user_id);
             success_message.set(None);
             error_message.set(None);
         })
@@ -336,43 +328,12 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
                             <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
                                 {"Member"}
                             </label>
-                            {
-                                if members.is_loading {
-                                    html! {
-                                        <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                    }
-                                } else if let Some(member_list) = members.data.as_ref() {
-                                    html! {
-                                        <select
-                                            class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                                            value={selected_member.as_ref().map(|id| id.0.to_string()).unwrap_or_else(|| "none".to_string())}
-                                            onchange={on_member_change}
-                                            disabled={*is_submitting}
-                                        >
-                                            <option value="none" selected={selected_member.is_none()}>{"Select a member..."}</option>
-                                            {
-                                                member_list.iter().map(|member| {
-                                                    let display_name = member.user.display_name.as_ref()
-                                                        .unwrap_or(&member.user.username);
-                                                    html! {
-                                                        <option
-                                                            value={member.user.user_id.0.to_string()}
-                                                        >
-                                                            {display_name}
-                                                        </option>
-                                                    }
-                                                }).collect::<Html>()
-                                            }
-                                        </select>
-                                    }
-                                } else {
-                                    html! {
-                                        <div class="text-red-600 dark:text-red-400 text-sm">
-                                            {"Error loading members"}
-                                        </div>
-                                    }
-                                }
-                            }
+                            <MemberSelect
+                                community_id={props.community_id}
+                                selected={*selected_member}
+                                on_change={on_member_change.clone()}
+                                disabled={*is_submitting}
+                            />
                         </div>
                     }
                 } else {

@@ -1,6 +1,7 @@
 use payloads::{CommunityId, requests, responses};
 use yew::prelude::*;
 
+use crate::components::user_identity_display::render_user_name;
 use crate::get_api_client;
 
 #[derive(Properties, PartialEq)]
@@ -90,7 +91,7 @@ pub fn RemoveMemberModal(props: &Props) -> Html {
                 <p class="mb-4 text-neutral-700 dark:text-neutral-300">
                     {"Remove "}
                     <span class="font-medium">
-                        {&props.member.user.username}
+                        {render_user_name(&props.member.user)}
                     </span>
                     {" from the community? Their account balance will be \
                       preserved and they can rejoin later."}

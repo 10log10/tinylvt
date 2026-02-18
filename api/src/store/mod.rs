@@ -483,6 +483,8 @@ pub struct AuditLog {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("Invalid username: {0}")]
+    InvalidUsername(String),
     #[error("Email not yet verified")]
     UnverifiedEmail,
     #[error("Moderator permissions required")]

@@ -197,14 +197,14 @@ pub struct MemberCreditLimitOverride {
 }
 
 /// Represents a participant in a transaction (member or treasury)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionParty {
     Member(UserIdentity),
     Treasury,
 }
 
 /// A line in a transaction showing who sent/received currency
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionLine {
     pub party: TransactionParty,
     /// Positive = received, Negative = sent
@@ -212,7 +212,7 @@ pub struct TransactionLine {
 }
 
 /// Transaction history entry for display to members
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemberTransaction {
     pub entry_type: crate::EntryType,
     pub auction_id: Option<crate::AuctionId>,

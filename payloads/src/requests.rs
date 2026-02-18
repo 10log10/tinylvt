@@ -3,8 +3,72 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub const EMAIL_MAX_LEN: usize = 255;
-pub const USERNAME_MAX_LEN: usize = 50;
+pub const USERNAME_MIN_LEN: usize = 3;
+pub const USERNAME_MAX_LEN: usize = 30;
 pub const DISPLAY_NAME_MAX_LEN: usize = 255;
+
+/// Validation result for usernames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UsernameValidation {
+    Valid,
+    TooShort,
+    TooLong,
+    InvalidCharacters,
+    MustStartWithLetter,
+}
+
+impl UsernameValidation {
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    pub fn error_message(&self) -> Option<&'static str> {
+        match self {
+            Self::Valid => None,
+            Self::TooShort => Some("Username must be at least 3 characters"),
+            Self::TooLong => Some("Username must be at most 30 characters"),
+            Self::InvalidCharacters => Some(
+                "Username can only contain letters, numbers, and underscores",
+            ),
+            Self::MustStartWithLetter => {
+                Some("Username must start with a letter")
+            }
+        }
+    }
+}
+
+/// Validate a username.
+///
+/// Rules:
+/// - 3-30 characters
+/// - ASCII letters, numbers, and underscores only
+/// - Must start with a letter
+pub fn validate_username(username: &str) -> UsernameValidation {
+    if username.len() < USERNAME_MIN_LEN {
+        return UsernameValidation::TooShort;
+    }
+    if username.len() > USERNAME_MAX_LEN {
+        return UsernameValidation::TooLong;
+    }
+
+    let mut chars = username.chars();
+
+    // First character must be a letter
+    if let Some(first) = chars.next()
+        && !first.is_ascii_alphabetic()
+    {
+        return UsernameValidation::MustStartWithLetter;
+    }
+
+    // Rest must be alphanumeric or underscore
+    for c in chars {
+        if !c.is_ascii_alphanumeric() && c != '_' {
+            return UsernameValidation::InvalidCharacters;
+        }
+    }
+
+    UsernameValidation::Valid
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginCredentials {

@@ -1,4 +1,5 @@
 use crate::components::RequireAuth;
+use crate::components::user_identity_display::format_user_name;
 use crate::{Route, get_api_client};
 use payloads::requests;
 use payloads::responses::UserProfile;
@@ -71,7 +72,7 @@ fn LoggedInHomePageInner(props: &LoggedInHomePageInnerProps) -> Html {
         <div class="space-y-8">
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">
-                    {format!("Welcome back, {}!", profile.username)}
+                    {format!("Welcome back, {}!", format_user_name(profile))}
                 </h1>
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
                     {"You're successfully logged in to TinyLVT"}

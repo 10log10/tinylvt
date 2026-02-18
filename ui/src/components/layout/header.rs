@@ -1,5 +1,6 @@
 use crate::{
-    AuthState, Route, State, components::DarkModeToggle, hooks::use_logout,
+    AuthState, Route, State, components::DarkModeToggle,
+    components::user_identity_display::render_user_name, hooks::use_logout,
 };
 use payloads::responses;
 use yew::prelude::*;
@@ -22,7 +23,7 @@ fn AuthenticatedUserInfo(props: &AuthenticatedUserInfoProps) -> Html {
         <div class="flex items-center gap-2 sm:gap-4">
             <Link<Route> to={Route::Profile}
                 classes="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors">
-                {format!("{}", props.profile.username)}
+                {render_user_name(&props.profile)}
             </Link<Route>>
             <button
                 onclick={logout_handler}

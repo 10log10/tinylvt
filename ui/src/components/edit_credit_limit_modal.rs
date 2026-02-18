@@ -6,6 +6,7 @@ use std::str::FromStr;
 use yew::prelude::*;
 
 use crate::components::Modal;
+use crate::components::user_identity_display::render_user_name;
 use crate::get_api_client;
 use crate::hooks::{FetchState, use_member_credit_limit_override};
 
@@ -144,11 +145,7 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
         && validation_error.is_none()
         && !*is_submitting;
 
-    let member_display_name = props
-        .member
-        .display_name
-        .as_ref()
-        .unwrap_or(&props.member.username);
+    let member_display = render_user_name(&props.member);
 
     let currency = props.currency.clone();
     let on_close = props.on_close.clone();
@@ -178,7 +175,7 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
                         <p class="text-sm text-neutral-600 \
                                   dark:text-neutral-400 mb-4">
                             {"Editing credit limit for "}
-                            <span class="font-medium">{member_display_name}</span>
+                            <span class="font-medium">{member_display.clone()}</span>
                         </p>
 
                         if let Some(msg) = &*error_message {
