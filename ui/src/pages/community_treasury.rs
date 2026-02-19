@@ -2,8 +2,8 @@ use payloads::{AccountOwner, CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveTab, CommunityPageWrapper, CommunityTabHeader, RequireAuth,
-    ResetBalancesButton, TransactionList, TreasuryCreditForm,
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, PaginationControls,
+    RequireAuth, ResetBalancesButton, TransactionList, TreasuryCreditForm,
 };
 use crate::hooks::{use_treasury_account, use_treasury_transactions};
 
@@ -64,12 +64,16 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
         };
     }
 
+    // Pagination state
+    let offset = use_state(|| 0i64);
+    let limit = 20i64;
+
     // Fetch treasury account info
     let treasury_account = use_treasury_account(props.community_id);
 
-    // Fetch treasury transactions (20 per page, offset 0 for now)
+    // Fetch treasury transactions
     let treasury_transactions =
-        use_treasury_transactions(props.community_id, 20, 0);
+        use_treasury_transactions(props.community_id, limit, *offset);
 
     html! {
         <div class="min-h-screen bg-neutral-50 dark:bg-neutral-900">
@@ -177,9 +181,11 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                             on_success={{
                                 let treasury_account = treasury_account.refetch.clone();
                                 let treasury_transactions = treasury_transactions.refetch.clone();
+                                let offset_handle = offset.clone();
                                 Callback::from(move |_| {
                                     treasury_account.emit(());
                                     treasury_transactions.emit(());
+                                    offset_handle.set(0);
                                 })
                             }}
                         />
@@ -198,9 +204,11 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                             on_success={{
                                 let treasury_account = treasury_account.refetch.clone();
                                 let treasury_transactions = treasury_transactions.refetch.clone();
+                                let offset_handle = offset.clone();
                                 Callback::from(move |_| {
                                     treasury_account.emit(());
                                     treasury_transactions.emit(());
+                                    offset_handle.set(0);
                                 })
                             }}
                         />
@@ -228,12 +236,26 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                     </div>
                                 }
                             } else if let Some(txns) = treasury_transactions.data.as_ref() {
+                                let offset_handle = offset.clone();
+                                let on_offset_change = Callback::from(move |new_offset: i64| {
+                                    offset_handle.set(new_offset);
+                                });
+
                                 html! {
-                                    <TransactionList
-                                        transactions={txns.clone()}
-                                        currency={props.community.community.currency.clone()}
-                                        target_account={AccountOwner::Treasury}
-                                    />
+                                    <>
+                                        <TransactionList
+                                            transactions={txns.clone()}
+                                            currency={props.community.community.currency.clone()}
+                                            target_account={AccountOwner::Treasury}
+                                        />
+                                        <PaginationControls
+                                            offset={*offset}
+                                            limit={limit}
+                                            current_count={txns.len()}
+                                            on_offset_change={on_offset_change}
+                                            is_loading={treasury_transactions.is_loading}
+                                        />
+                                    </>
                                 }
                             } else {
                                 html! {}

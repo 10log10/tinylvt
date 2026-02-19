@@ -5,8 +5,8 @@ use payloads::{
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveTab, CommunityPageWrapper, CommunityTabHeader, RequireAuth,
-    TransactionList, TransferForm,
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, PaginationControls,
+    RequireAuth, TransactionList, TransferForm,
 };
 use crate::hooks::{use_member_currency_info, use_member_transactions};
 
@@ -52,11 +52,16 @@ struct ContentProps {
 fn CommunityCurrencyContent(props: &ContentProps) -> Html {
     let target_user_id = props.user_profile.user_id;
 
+    // Pagination state
+    let offset = use_state(|| 0i64);
+    let limit = 20i64;
+
     // Fetch own currency info (member_user_id = None means current user)
     let currency_info = use_member_currency_info(props.community_id, None);
 
-    // Fetch transactions (20 per page, offset 0 for now)
-    let transactions = use_member_transactions(props.community_id, None, 20, 0);
+    // Fetch transactions
+    let transactions =
+        use_member_transactions(props.community_id, None, limit, *offset);
 
     // Check if credit limits are supported for this currency mode
     let supports_credit_limits = matches!(
@@ -183,6 +188,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             if let Some(info) = currency_info.data.as_ref() {
                                 let refetch_currency = currency_info.refetch.clone();
                                 let refetch_txns = transactions.refetch.clone();
+                                let offset_handle = offset.clone();
 
                                 html! {
                                     <TransferForm
@@ -192,6 +198,7 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                         on_success={Callback::from(move |_| {
                                             refetch_currency.emit(());
                                             refetch_txns.emit(());
+                                            offset_handle.set(0);
                                         })}
                                     />
                                 }
@@ -227,12 +234,26 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                     </div>
                                 }
                             } else if let Some(txns) = transactions.data.as_ref() {
+                                let offset_handle = offset.clone();
+                                let on_offset_change = Callback::from(move |new_offset: i64| {
+                                    offset_handle.set(new_offset);
+                                });
+
                                 html! {
-                                    <TransactionList
-                                        transactions={txns.clone()}
-                                        currency={props.community.community.currency.clone()}
-                                        target_account={AccountOwner::Member(target_user_id)}
-                                    />
+                                    <>
+                                        <TransactionList
+                                            transactions={txns.clone()}
+                                            currency={props.community.community.currency.clone()}
+                                            target_account={AccountOwner::Member(target_user_id)}
+                                        />
+                                        <PaginationControls
+                                            offset={*offset}
+                                            limit={limit}
+                                            current_count={txns.len()}
+                                            on_offset_change={on_offset_change}
+                                            is_loading={transactions.is_loading}
+                                        />
+                                    </>
                                 }
                             } else {
                                 html! {}
