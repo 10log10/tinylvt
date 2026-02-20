@@ -191,7 +191,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             </div>
 
             // Filters and Sort
-            <div class="flex gap-4 items-center flex-wrap">
+            <div class="flex gap-2 sm:gap-4 items-center flex-wrap">
                 <span class="text-sm font-medium text-neutral-700 \
                              dark:text-neutral-300">
                     {"Sort by:"}
@@ -481,7 +481,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
             rounded-lg p-4 bg-white dark:bg-neutral-800{}",
             if props.is_deleted { " opacity-75" } else { "" }
         )}>
-            <div class="grid grid-cols-6 gap-4 items-center">
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-4 items-center">
                 <div>
                     <div class="font-medium text-neutral-900 dark:text-white">
                         {&props.space.space_details.name}
@@ -508,7 +508,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     </div>
                 </div>
 
-                <div>
+                <div class="text-right md:text-left">
                     <div class="text-xs text-neutral-500 \
                                 dark:text-neutral-400">
                         {"Price"}

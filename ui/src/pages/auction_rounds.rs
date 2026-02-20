@@ -273,7 +273,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
     html! {
         <div class="border border-neutral-200 dark:border-neutral-700 \
                     rounded-lg p-6 hover:shadow-md transition-shadow">
-            <div class="grid grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 <div>
                     <h3 class="text-lg font-semibold text-neutral-900 \
                                dark:text-neutral-100 mb-4">
