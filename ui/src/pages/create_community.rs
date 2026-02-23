@@ -59,6 +59,7 @@ fn CreateCommunityPageInner() -> Html {
 
             let community_request = requests::CreateCommunity {
                 name,
+                description: None,
                 currency: (*currency).clone(),
             };
 

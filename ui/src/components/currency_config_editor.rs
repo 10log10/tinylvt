@@ -180,7 +180,7 @@ fn render_currency_name_input(props: &Props) -> Html {
                 onchange={on_change}
                 disabled={props.disabled}
                 placeholder="dollars"
-                class="w-full border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
+                class="w-full max-w-xs border border-neutral-300 dark:border-neutral-600 rounded px-3 py-2 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
             />
             <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
                 {"The name of your community's currency (e.g., dollars, credits, points)"}

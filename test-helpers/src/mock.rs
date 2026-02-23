@@ -77,6 +77,7 @@ impl DevDataset {
         app.login_bob().await?;
         let bob_community_body = requests::CreateCommunity {
             name: "Tech Startup Collective".into(),
+            description: None,
             currency: payloads::CurrencySettings {
                 mode_config: crate::default_currency_config(),
                 name: "dollars".into(),
@@ -565,6 +566,7 @@ async fn create_bob_community(app: &TestApp) -> Result<CommunityId> {
 
     let bob_community_body = requests::CreateCommunity {
         name: "Tech Startup Collective".into(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: crate::default_currency_config(),
             name: "dollars".into(),

@@ -1,5 +1,5 @@
 use payloads::{
-    AuctionParams, Role, Site, SiteId, requests::UpdateSite,
+    AuctionParams, Role, Site, SiteId, SiteImageId, requests::UpdateSite,
     responses::Site as SiteResponse,
 };
 use wasm_bindgen::JsCast;
@@ -11,9 +11,10 @@ use crate::{
     Route,
     components::{
         AuctionParamsEditor, AuctionParamsViewer, ConfirmationModal,
-        SitePageWrapper, SiteTabHeader, SiteWithRole,
-        site_tab_header::ActiveTab,
+        MarkdownEditor, MarkdownText, SiteImageSelector, SitePageWrapper,
+        SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
     },
+    get_api_client,
     hooks::{use_auctions, use_site, use_sites},
 };
 
@@ -28,7 +29,7 @@ pub fn SiteSettingsPage(props: &Props) -> Html {
         html! {
             <div>
                 <SiteTabHeader site={site_with_role.site.clone()} active_tab={ActiveTab::Settings} />
-                <div class="py-6">
+                <div class="py-2 md:py-6">
                     <SiteSettingsForm
                         site={site_with_role.site}
                         user_role={site_with_role.user_role}
@@ -66,7 +67,6 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         .to_string();
 
     let name_ref = use_node_ref();
-    let description_ref = use_node_ref();
     let timezone_ref = use_node_ref();
     let use_timezone_ref = use_node_ref();
 
@@ -91,6 +91,19 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let is_soft_deleting = use_state(|| false);
     let soft_delete_error_message = use_state(|| None::<String>);
 
+    // State for site image (tracks selected image ID during editing)
+    let selected_image_id = use_state(|| props.site.site_details.site_image_id);
+
+    // State for description (tracks edits during editing)
+    let description = use_state(|| {
+        props
+            .site
+            .site_details
+            .description
+            .clone()
+            .unwrap_or_default()
+    });
+
     let can_edit = props.user_role.is_ge_coleader();
 
     let on_auction_params_change = {
@@ -100,9 +113,24 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         })
     };
 
+    // Handle image change - update local state
+    let on_image_change = {
+        let selected_image_id = selected_image_id.clone();
+        Callback::from(move |new_image_id: Option<SiteImageId>| {
+            selected_image_id.set(new_image_id);
+        })
+    };
+
+    // Handle description change from InlineMarkdownEditor
+    let on_description_change = {
+        let description = description.clone();
+        Callback::from(move |new_description: String| {
+            description.set(new_description);
+        })
+    };
+
     let on_update = {
         let name_ref = name_ref.clone();
-        let description_ref = description_ref.clone();
         let timezone_ref = timezone_ref.clone();
         let use_timezone_ref = use_timezone_ref.clone();
         let error_message = error_message.clone();
@@ -111,6 +139,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         let is_editing = is_editing.clone();
         let site = props.site.clone();
         let auction_params = auction_params.clone();
+        let selected_image_id = selected_image_id.clone();
+        let description = description.clone();
         let refetch_site = site_hook.refetch.clone();
 
         Callback::from(move |e: SubmitEvent| {
@@ -124,16 +154,6 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 return;
             }
 
-            let description_input =
-                description_ref.cast::<HtmlInputElement>().unwrap();
-            let description_value = description_input.value();
-            let description = description_value.trim();
-            let description = if description.is_empty() {
-                None
-            } else {
-                Some(description.to_string())
-            };
-
             let use_timezone_checkbox =
                 use_timezone_ref.cast::<HtmlInputElement>().unwrap();
             let timezone = if use_timezone_checkbox.checked() {
@@ -144,11 +164,16 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 None
             };
 
-            // Create updated site object
+            // Create updated site object with description from state
+            let desc_value = (*description).clone();
             let updated_site = Site {
                 community_id: site.site_details.community_id,
                 name,
-                description,
+                description: if desc_value.trim().is_empty() {
+                    None
+                } else {
+                    Some(desc_value)
+                },
                 default_auction_params: (*auction_params).clone(),
                 // Keep existing values for MVP fields
                 possession_period: site.site_details.possession_period,
@@ -159,7 +184,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 open_hours: site.site_details.open_hours.clone(),
                 auto_schedule: site.site_details.auto_schedule,
                 timezone,
-                site_image_id: site.site_details.site_image_id,
+                site_image_id: *selected_image_id,
             };
 
             let error_message = error_message.clone();
@@ -375,6 +400,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let on_cancel_edit = {
         let is_editing = is_editing.clone();
         let auction_params = auction_params.clone();
+        let selected_image_id = selected_image_id.clone();
+        let description = description.clone();
         let error_message = error_message.clone();
         let success_message = success_message.clone();
         let site = props.site.clone();
@@ -382,6 +409,9 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
             // Reset to original values
             auction_params
                 .set(site.site_details.default_auction_params.clone());
+            selected_image_id.set(site.site_details.site_image_id);
+            description
+                .set(site.site_details.description.clone().unwrap_or_default());
             error_message.set(None);
             success_message.set(None);
             is_editing.set(false);
@@ -392,13 +422,13 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         let navigator = navigator.clone();
         let site_id = props.site.site_id;
         Callback::from(move |_| {
-            navigator.push(&Route::SiteAuctions { id: site_id });
+            navigator.push(&Route::SiteOverview { id: site_id });
         })
     };
 
     html! {
-        <div class="max-w-4xl mx-auto py-8 px-4">
-            <div class="bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-md">
+        <div class="py-4 md:py-8">
+            <div class="bg-white dark:bg-neutral-800 p-4 md:p-8 rounded-lg shadow-md">
                 <div class="mb-8">
                     <div class="flex justify-between items-start mb-2">
                         <div>
@@ -413,7 +443,42 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                                 }}
                             </p>
                         </div>
-                        {if !*is_editing && can_edit {
+                        {if *is_editing {
+                            html! {
+                                <div class="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onclick={on_cancel_edit.clone()}
+                                        disabled={*is_loading}
+                                        class="py-2 px-4 border border-neutral-300
+                                               dark:border-neutral-600 rounded-md shadow-sm
+                                               text-sm font-medium text-neutral-700
+                                               dark:text-neutral-300 bg-white dark:bg-neutral-700
+                                               hover:bg-neutral-50 dark:hover:bg-neutral-600
+                                               focus:outline-none focus:ring-2 focus:ring-offset-2
+                                               focus:ring-neutral-500 disabled:opacity-50
+                                               disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        {"Cancel"}
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        form="site-settings-form"
+                                        disabled={*is_loading}
+                                        class="py-2 px-4 border border-transparent rounded-md
+                                               shadow-sm text-sm font-medium text-white
+                                               bg-neutral-900 hover:bg-neutral-800
+                                               dark:bg-neutral-100 dark:text-neutral-900
+                                               dark:hover:bg-neutral-200 focus:outline-none
+                                               focus:ring-2 focus:ring-offset-2
+                                               focus:ring-neutral-500 disabled:opacity-50
+                                               disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        {if *is_loading { "Saving..." } else { "Save" }}
+                                    </button>
+                                </div>
+                            }
+                        } else if can_edit {
                             html! {
                                 <button
                                     onclick={on_edit}
@@ -434,7 +499,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                 </div>
 
                 if *is_editing {
-                    <form onsubmit={on_update} class="space-y-8">
+                    <form id="site-settings-form" onsubmit={on_update} class="space-y-8">
                     if let Some(error) = &*error_message {
                         <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                             <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
@@ -484,25 +549,30 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         </div>
 
                         <div>
-                            <label for="site-description" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                            <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
                                 {"Description"}
                             </label>
-                            <input
-                                ref={description_ref}
-                                type="text"
-                                id="site-description"
-                                name="description"
-                                value={props.site.site_details.description.clone().unwrap_or_default()}
+                            <MarkdownEditor
+                                text={(*description).clone()}
+                                on_change={on_description_change.clone()}
+                                community_id={props.site.site_details.community_id}
                                 disabled={*is_loading}
-                                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
-                                       text-neutral-900 dark:text-neutral-100
-                                       focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
-                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400
-                                       disabled:opacity-50 disabled:cursor-not-allowed"
-                                placeholder="Optional description"
                             />
                         </div>
+                    </div>
+
+                    // Site Image Section
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+                            {"Site Image"}
+                        </h3>
+
+                        <SiteImageSelector
+                            community_id={props.site.site_details.community_id}
+                            current_image_id={*selected_image_id}
+                            on_change={on_image_change.clone()}
+                            disabled={*is_loading}
+                        />
                     </div>
 
                     // Timezone Section
@@ -574,96 +644,77 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         />
                     </div>
 
-                        <div class="flex space-x-3 pt-6 border-t border-neutral-200 dark:border-neutral-700">
-                            <button
-                                type="button"
-                                onclick={on_cancel_edit}
-                                disabled={*is_loading}
-                                class="flex-1 py-2 px-4 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                       bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                       transition-colors duration-200"
-                            >
-                                {"Cancel"}
-                            </button>
+                        // Delete/Restore actions at bottom
+                        {if can_edit {
+                            let is_deleted = props.site.deleted_at.is_some();
 
-                            {if can_edit {
-                                let is_deleted = props.site.deleted_at.is_some();
-
-                                if is_deleted {
-                                    // Show both Restore and Permanently Delete buttons
-                                    html! {
-                                        <>
-                                            <button
-                                                type="button"
-                                                onclick={on_restore.clone()}
-                                                disabled={*is_loading}
-                                                class="py-2 px-4 border border-green-300 dark:border-green-600
-                                                       rounded-md shadow-sm text-sm font-medium text-green-700 dark:text-green-300
-                                                       bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30
-                                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500
-                                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                                       transition-colors duration-200"
-                                            >
-                                                {"Restore Site"}
-                                            </button>
+                            html! {
+                                <div class="flex gap-3 pt-6 border-t border-neutral-200
+                                            dark:border-neutral-700">
+                                    {if is_deleted {
+                                        // Show both Restore and Permanently Delete buttons
+                                        html! {
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onclick={on_restore.clone()}
+                                                    disabled={*is_loading}
+                                                    class="py-2 px-4 border border-green-300
+                                                           dark:border-green-600 rounded-md shadow-sm
+                                                           text-sm font-medium text-green-700
+                                                           dark:text-green-300 bg-green-50
+                                                           dark:bg-green-900/20 hover:bg-green-100
+                                                           dark:hover:bg-green-900/30 focus:outline-none
+                                                           focus:ring-2 focus:ring-offset-2
+                                                           focus:ring-green-500 disabled:opacity-50
+                                                           disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    {"Restore Site"}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onclick={on_delete}
+                                                    disabled={*is_loading}
+                                                    class="py-2 px-4 border border-red-300
+                                                           dark:border-red-600 rounded-md shadow-sm
+                                                           text-sm font-medium text-red-700
+                                                           dark:text-red-300 bg-red-50
+                                                           dark:bg-red-900/20 hover:bg-red-100
+                                                           dark:hover:bg-red-900/30 focus:outline-none
+                                                           focus:ring-2 focus:ring-offset-2
+                                                           focus:ring-red-500 disabled:opacity-50
+                                                           disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    {"Permanently Delete Site"}
+                                                </button>
+                                            </>
+                                        }
+                                    } else {
+                                        // Show only Delete Site button
+                                        html! {
                                             <button
                                                 type="button"
                                                 onclick={on_delete}
                                                 disabled={*is_loading}
-                                                class="py-2 px-4 border border-red-300 dark:border-red-600
-                                                       rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
-                                                       bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
-                                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
-                                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                                       transition-colors duration-200"
+                                                class="py-2 px-4 border border-red-300
+                                                       dark:border-red-600 rounded-md shadow-sm
+                                                       text-sm font-medium text-red-700
+                                                       dark:text-red-300 bg-red-50
+                                                       dark:bg-red-900/20 hover:bg-red-100
+                                                       dark:hover:bg-red-900/30 focus:outline-none
+                                                       focus:ring-2 focus:ring-offset-2
+                                                       focus:ring-red-500 disabled:opacity-50
+                                                       disabled:cursor-not-allowed transition-colors"
                                             >
-                                                {"Permanently Delete Site"}
+                                                {"Delete Site"}
                                             </button>
-                                        </>
-                                    }
-                                } else {
-                                    // Show only Delete Site button
-                                    html! {
-                                        <button
-                                            type="button"
-                                            onclick={on_delete}
-                                            disabled={*is_loading}
-                                            class="py-2 px-4 border border-red-300 dark:border-red-600
-                                                   rounded-md shadow-sm text-sm font-medium text-red-700 dark:text-red-300
-                                                   bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30
-                                                   focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
-                                                   disabled:opacity-50 disabled:cursor-not-allowed
-                                                   transition-colors duration-200"
-                                        >
-                                            {"Delete Site"}
-                                        </button>
-                                    }
-                                }
-                            } else {
-                                html! {}
-                            }}
-
-                            <button
-                                type="submit"
-                                disabled={*is_loading}
-                                class="flex-1 flex justify-center py-2 px-4 border border-transparent
-                                       rounded-md shadow-sm text-sm font-medium text-white
-                                       bg-neutral-900 hover:bg-neutral-800
-                                       dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200
-                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                       transition-colors duration-200"
-                            >
-                                if *is_loading {
-                                    {"Updating Site..."}
-                                } else {
-                                    {"Save Changes"}
-                                }
-                            </button>
-                        </div>
+                                        }
+                                    }}
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </form>
                 } else {
                     // View mode
@@ -693,10 +744,53 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                                 <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
                                     {"Description"}
                                 </label>
-                                <p class="text-neutral-900 dark:text-neutral-100">
-                                    {props.site.site_details.description.as_deref().unwrap_or("No description")}
-                                </p>
+                                {if let Some(desc) = &props.site.site_details.description {
+                                    html! {
+                                        <div class="max-h-48 overflow-y-auto border
+                                                    border-neutral-200 dark:border-neutral-700
+                                                    rounded-md p-3">
+                                            <div class="prose prose-sm dark:prose-invert max-w-none">
+                                                <MarkdownText text={desc.clone()} />
+                                            </div>
+                                        </div>
+                                    }
+                                } else {
+                                    html! {
+                                        <p class="text-neutral-500 dark:text-neutral-400 italic">
+                                            {"No description"}
+                                        </p>
+                                    }
+                                }}
                             </div>
+                        </div>
+
+                        // Site Image Section (view mode)
+                        <div class="space-y-4">
+                            <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+                                {"Site Image"}
+                            </h3>
+
+                            {match props.site.site_details.site_image_id {
+                                Some(image_id) => {
+                                    let src = get_api_client().site_image_url(&image_id);
+                                    html! {
+                                        <div class="w-32 h-20 rounded-md overflow-hidden
+                                                    bg-neutral-100 dark:bg-neutral-700">
+                                            <img
+                                                {src}
+                                                alt="Site image"
+                                                class="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    }
+                                }
+                                None => html! {
+                                    <p class="text-neutral-500
+                                              dark:text-neutral-400 text-sm">
+                                        {"No site image set"}
+                                    </p>
+                                }
+                            }}
                         </div>
 
                         // Timezone Section

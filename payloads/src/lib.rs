@@ -5,6 +5,18 @@ use rust_decimal::Decimal;
 #[cfg(feature = "use-sqlx")]
 use sqlx::{FromRow, Type};
 
+/// Maximum allowed size for site images (1MB)
+pub const MAX_IMAGE_SIZE: usize = 1_048_576;
+
+/// Maximum allowed length for site descriptions (10,000 characters)
+pub const MAX_SITE_DESCRIPTION_LENGTH: usize = 10_000;
+
+/// Maximum allowed length for community descriptions (10,000 characters)
+pub const MAX_COMMUNITY_DESCRIPTION_LENGTH: usize = 10_000;
+
+/// Maximum allowed length for space descriptions (500 characters)
+pub const MAX_SPACE_DESCRIPTION_LENGTH: usize = 500;
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
 )]

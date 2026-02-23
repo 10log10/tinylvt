@@ -9,10 +9,13 @@ pub struct ConfirmationModalProps {
     pub message: AttrValue,
     /// Confirm button text (e.g., "Delete Account")
     pub confirm_text: AttrValue,
-    /// The value user must type to confirm (e.g., username or community name)
-    pub confirmation_value: AttrValue,
+    /// The value user must type to confirm. If None, no typed confirmation is
+    /// required.
+    #[prop_or_default]
+    pub confirmation_value: Option<AttrValue>,
     /// Label for what the user is typing (e.g., "your username")
-    pub confirmation_label: AttrValue,
+    #[prop_or_default]
+    pub confirmation_label: Option<AttrValue>,
     /// Called when user confirms the action
     pub on_confirm: Callback<()>,
     /// Called when user cancels or clicks backdrop
@@ -33,7 +36,11 @@ pub fn ConfirmationModal(props: &ConfirmationModalProps) -> Html {
     let confirmation_input = use_state(String::new);
     let backdrop_ref = use_node_ref();
 
-    let can_confirm = *confirmation_input == props.confirmation_value.as_str();
+    // If no confirmation value is required, always allow confirm
+    let can_confirm = match &props.confirmation_value {
+        Some(value) => *confirmation_input == value.as_str(),
+        None => true,
+    };
 
     let on_backdrop_click = {
         let on_close = props.on_close.clone();
@@ -102,27 +109,44 @@ pub fn ConfirmationModal(props: &ConfirmationModalProps) -> Html {
                         {&props.message}
                     </p>
 
-                    <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                        {"Please type "}
-                        <span class="font-mono font-semibold text-neutral-900 dark:text-neutral-100">
-                            {&props.confirmation_value}
-                        </span>
-                        {" to confirm."}
-                    </p>
+                    {if let Some(confirmation_value) = &props.confirmation_value {
+                        let label = props.confirmation_label.as_deref()
+                            .unwrap_or("the value");
+                        html! {
+                            <>
+                                <p class="text-sm text-neutral-600 \
+                                          dark:text-neutral-400">
+                                    {"Please type "}
+                                    <span class="font-mono font-semibold \
+                                                 text-neutral-900 \
+                                                 dark:text-neutral-100">
+                                        {confirmation_value}
+                                    </span>
+                                    {" to confirm."}
+                                </p>
 
-                    <input
-                        type="text"
-                        value={(*confirmation_input).clone()}
-                        oninput={on_input}
-                        placeholder={format!("Enter {}", props.confirmation_label)}
-                        disabled={props.is_loading}
-                        class="w-full px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600
-                               rounded-md bg-white dark:bg-neutral-700
-                               text-neutral-900 dark:text-neutral-100
-                               placeholder-neutral-400 dark:placeholder-neutral-500
-                               focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500
-                               disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
+                                <input
+                                    type="text"
+                                    value={(*confirmation_input).clone()}
+                                    oninput={on_input}
+                                    placeholder={format!("Enter {}", label)}
+                                    disabled={props.is_loading}
+                                    class="w-full px-3 py-2 text-sm border \
+                                           border-neutral-300 dark:border-neutral-600
+                                           rounded-md bg-white dark:bg-neutral-700
+                                           text-neutral-900 dark:text-neutral-100
+                                           placeholder-neutral-400 \
+                                           dark:placeholder-neutral-500
+                                           focus:outline-none focus:ring-2 \
+                                           focus:ring-red-500 focus:border-red-500
+                                           disabled:opacity-50 \
+                                           disabled:cursor-not-allowed"
+                                />
+                            </>
+                        }
+                    } else {
+                        html! {}
+                    }}
 
                     if let Some(error) = &props.error_message {
                         <div class="text-sm text-red-600 dark:text-red-400">

@@ -88,6 +88,7 @@ pub const COMMUNITY_NAME_MAX_LEN: usize = 255;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateCommunity {
     pub name: String,
+    pub description: Option<String>,
     pub currency: CurrencySettings,
 }
 
@@ -95,6 +96,13 @@ pub struct CreateCommunity {
 pub struct UpdateCurrencyConfig {
     pub community_id: CommunityId,
     pub currency: CurrencySettings,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateCommunityDetails {
+    pub community_id: CommunityId,
+    pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,7 +156,7 @@ pub struct ResolveOrphanedBalance {
     pub idempotency_key: crate::IdempotencyKey,
 }
 
-/// Details about a community member for a community one is a part of.
+/// Update site settings.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateSite {
     pub site_id: crate::SiteId,
@@ -213,11 +221,11 @@ pub struct CreateSiteImage {
     pub image_data: Vec<u8>,
 }
 
+/// Update a site image's metadata. Image data is immutable after creation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateSiteImage {
     pub id: crate::SiteImageId,
     pub name: Option<String>,
-    pub image_data: Option<Vec<u8>>,
 }
 
 // Currency operations

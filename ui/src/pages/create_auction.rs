@@ -229,7 +229,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     let on_cancel = {
         let navigator = navigator.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::SiteAuctions { id: site_id });
+            navigator.push(&Route::SiteOverview { id: site_id });
         })
     };
 

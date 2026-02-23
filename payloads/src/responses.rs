@@ -23,6 +23,8 @@ pub struct UserIdentity {
 pub struct Community {
     pub id: CommunityId,
     pub name: String,
+    pub description: Option<String>,
+    pub community_image_id: Option<crate::SiteImageId>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub currency: crate::CurrencySettings,
@@ -168,13 +170,27 @@ pub struct SuccessMessage {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
 pub struct SiteImage {
     pub id: crate::SiteImageId,
     pub community_id: crate::CommunityId,
     pub name: String,
     pub image_data: Vec<u8>,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub created_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub updated_at: Timestamp,
+}
+
+/// Lightweight site image info without the actual image data.
+/// Used for listing images where the actual data is fetched via URL.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct SiteImageInfo {
+    pub id: crate::SiteImageId,
+    pub community_id: crate::CommunityId,
+    pub name: String,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub created_at: Timestamp,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]

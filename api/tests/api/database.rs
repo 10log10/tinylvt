@@ -52,6 +52,7 @@ async fn test_populate() -> Result<(), StoreError> {
     let community = store::create_community(
         &payloads::requests::CreateCommunity {
             name: "Test Community".to_string(),
+            description: None,
             currency: payloads::CurrencySettings {
                 mode_config: test_helpers::default_currency_config(),
                 name: "dollars".to_string(),

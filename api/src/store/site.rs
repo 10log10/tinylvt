@@ -17,6 +17,17 @@ pub async fn create_site(
             required: PermissionLevel::Coleader,
         });
     }
+
+    // Validate description length
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::SiteDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
+        });
+    }
+
     let mut tx = pool.begin().await?;
 
     let open_hours_id = match &details.open_hours {
@@ -210,6 +221,16 @@ pub async fn update_site(
     }
 
     let details = &update_site.site_details;
+
+    // Validate description length
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::SiteDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
+        });
+    }
 
     let existing_site =
         sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
@@ -458,6 +479,13 @@ pub async fn create_site_image(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<payloads::SiteImageId, StoreError> {
+    // Validate image size
+    if details.image_data.len() > payloads::MAX_IMAGE_SIZE {
+        return Err(StoreError::ImageTooLarge {
+            size: details.image_data.len(),
+        });
+    }
+
     // Validate user is a member of the community
     let actor =
         get_validated_member(user_id, &details.community_id, pool).await?;
@@ -505,6 +533,7 @@ pub async fn get_site_image(
     Ok(site_image)
 }
 
+/// Updates site image metadata. Image data is immutable after creation.
 pub async fn update_site_image(
     details: &payloads::requests::UpdateSiteImage,
     user_id: &UserId,
@@ -532,19 +561,17 @@ pub async fn update_site_image(
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
-    // Update the site image
+    // Update the site image (only name can be changed)
     let updated_site_image =
         sqlx::query_as::<_, payloads::responses::SiteImage>(
             "UPDATE site_images
-         SET name = COALESCE($2, name),
-             image_data = COALESCE($3, image_data),
-             updated_at = $4
-         WHERE id = $1
-         RETURNING *",
+             SET name = COALESCE($2, name),
+                 updated_at = $3
+             WHERE id = $1
+             RETURNING *",
         )
         .bind(details.id)
         .bind(&details.name)
-        .bind(&details.image_data)
         .bind(time_source.now().to_sqlx())
         .fetch_one(pool)
         .await?;
@@ -591,12 +618,13 @@ pub async fn list_site_images(
     community_id: &payloads::CommunityId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<payloads::responses::SiteImage>, StoreError> {
+) -> Result<Vec<payloads::responses::SiteImageInfo>, StoreError> {
     // Validate user is a member of the community
     let _ = get_validated_member(user_id, community_id, pool).await?;
 
-    let site_images = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "SELECT * FROM site_images WHERE community_id = $1 ORDER BY name",
+    let site_images = sqlx::query_as::<_, payloads::responses::SiteImageInfo>(
+        "SELECT id, community_id, name, created_at, updated_at
+         FROM site_images WHERE community_id = $1 ORDER BY name",
     )
     .bind(community_id)
     .fetch_all(pool)

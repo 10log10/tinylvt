@@ -1,11 +1,14 @@
-use payloads::{SiteId, Space};
+use payloads::{CommunityId, SiteId, SiteImageId, Space};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
+use super::SiteImageSelector;
+
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub site_id: SiteId,
+    pub community_id: CommunityId,
     pub on_close: Callback<()>,
     pub on_space_created: Callback<()>,
 }
@@ -21,6 +24,9 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
     let error = use_state(|| None::<String>);
     let success = use_state(|| false);
     let created_space_name = use_state(|| None::<String>);
+
+    // Image selection state
+    let selected_image_id = use_state(|| None::<SiteImageId>);
 
     let backdrop_ref = use_node_ref();
 
@@ -40,14 +46,24 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         })
     };
 
+    // Handle image change
+    let on_image_change = {
+        let selected_image_id = selected_image_id.clone();
+        Callback::from(move |new_image_id: Option<SiteImageId>| {
+            selected_image_id.set(new_image_id);
+        })
+    };
+
     let on_reset_form = {
         let success = success.clone();
         let error = error.clone();
         let created_space_name = created_space_name.clone();
+        let selected_image_id = selected_image_id.clone();
         Callback::from(move |_| {
             success.set(false);
             error.set(None);
             created_space_name.set(None);
+            selected_image_id.set(None);
         })
     };
 
@@ -62,6 +78,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         let created_space_name = created_space_name.clone();
         let on_space_created = props.on_space_created.clone();
         let site_id = props.site_id;
+        let selected_image_id = selected_image_id.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -110,7 +127,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                 description,
                 eligibility_points,
                 is_available,
-                site_image_id: None,
+                site_image_id: *selected_image_id,
             };
 
             let is_loading = is_loading.clone();
@@ -306,6 +323,19 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                         <label class="ml-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
                             {"Available"}
                         </label>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                            {"Image"}
+                        </label>
+                        <SiteImageSelector
+                            community_id={props.community_id}
+                            current_image_id={*selected_image_id}
+                            on_change={on_image_change.clone()}
+                            disabled={*is_loading}
+                            compact=true
+                        />
                     </div>
 
                     <div class="flex gap-3 pt-4">

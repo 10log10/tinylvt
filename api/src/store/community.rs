@@ -20,6 +20,14 @@ pub async fn create_community(
     if details.name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
         return Err(StoreError::FieldTooLong);
     }
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::CommunityDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH,
+        });
+    }
     let mut tx = pool.begin().await?;
 
     // Validate and convert currency config enum to database columns
@@ -39,6 +47,7 @@ pub async fn create_community(
     let db_community = sqlx::query_as::<_, DbCommunity>(
         "INSERT INTO communities (
             name,
+            description,
             new_members_default_active,
             currency_mode,
             default_credit_limit,
@@ -52,9 +61,11 @@ pub async fn create_community(
             allowance_start,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING *;",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+        RETURNING *;",
     )
     .bind(&details.name)
+    .bind(&details.description)
     .bind(currency_db.new_members_default_active)
     .bind(currency_db.mode)
     .bind(currency_db.default_credit_limit)
@@ -873,4 +884,43 @@ pub async fn delete_community(
     cleanup_unused_auction_params(pool).await;
 
     Ok(())
+}
+
+/// Update community name and description (coleader+ only).
+pub async fn update_community_details(
+    actor: &ValidatedMember,
+    details: &requests::UpdateCommunityDetails,
+    pool: &PgPool,
+) -> Result<Community, StoreError> {
+    if !actor.0.role.is_ge_coleader() {
+        return Err(StoreError::RequiresColeaderPermissions);
+    }
+
+    if details.name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
+        return Err(StoreError::FieldTooLong);
+    }
+
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::CommunityDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH,
+        });
+    }
+
+    let db_community = sqlx::query_as::<_, DbCommunity>(
+        "UPDATE communities
+         SET name = $1, description = $2
+         WHERE id = $3
+         RETURNING *",
+    )
+    .bind(&details.name)
+    .bind(&details.description)
+    .bind(details.community_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(StoreError::CommunityNotFound)?;
+
+    db_community.try_into()
 }

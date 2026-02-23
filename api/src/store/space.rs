@@ -52,6 +52,16 @@ async fn create_space_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> Result<Space, StoreError> {
+    // Validate description length
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::SpaceDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
+        });
+    }
+
     let space = sqlx::query_as::<_, Space>(
         "INSERT INTO spaces (
             site_id,
@@ -157,6 +167,16 @@ async fn update_space_tx(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<payloads::responses::UpdateSpaceResult, StoreError> {
+    // Validate description length
+    if let Some(desc) = &details.description
+        && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH
+    {
+        return Err(StoreError::SpaceDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
+        });
+    }
+
     let (old_space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
             .await?;

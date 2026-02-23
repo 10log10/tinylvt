@@ -990,6 +990,7 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
     // Create community with DistributedClearing mode
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DistributedClearing(
                 payloads::IOUConfig {
@@ -1106,6 +1107,7 @@ async fn update_currency_config_fields() -> anyhow::Result<()> {
     // Create community with specific IOU config
     let body = requests::CreateCommunity {
         name: "Test community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DistributedClearing(
                 payloads::IOUConfig {
@@ -1536,6 +1538,7 @@ async fn create_community_points_allocation_mode() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: "Points Allocation Community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::PointsAllocation(
                 Box::new(payloads::PointsAllocationConfig {
@@ -1599,6 +1602,7 @@ async fn create_community_distributed_clearing_mode() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: "Distributed Clearing Community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DistributedClearing(
                 payloads::IOUConfig {
@@ -1638,6 +1642,7 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: "Deferred Payment Community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::DeferredPayment(
                 payloads::IOUConfig {
@@ -1757,6 +1762,7 @@ async fn create_community_prepaid_credits_mode() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: "Prepaid Credits Community".to_string(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: payloads::CurrencyModeConfig::PrepaidCredits(
                 payloads::PrepaidCreditsConfig {

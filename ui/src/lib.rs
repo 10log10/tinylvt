@@ -16,12 +16,13 @@ use contexts::ToastProvider;
 use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
-    CommunityCurrencyPage, CommunityDetailPage, CommunityInvitesPage,
-    CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
-    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
-    HelpPage, LoggedInHomePage, LoggedOutHomePage, LoginPage, NotFoundPage,
-    OrphanedAccountsPage, ProfilePage, ResetPasswordPage, SiteAuctionsPage,
-    SiteDetailPage, SiteSettingsPage, VerifyEmailPage, docs,
+    CommunityCurrencyPage, CommunityDetailPage, CommunityImagesPage,
+    CommunityInvitesPage, CommunityMembersPage, CommunitySettingsPage,
+    CommunityTreasuryPage, CreateAuctionPage, CreateCommunityPage,
+    CreateSitePage, ForgotPasswordPage, HelpPage, LoggedInHomePage,
+    LoggedOutHomePage, LoginPage, NotFoundPage, OrphanedAccountsPage,
+    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteOverviewPage,
+    SiteSettingsPage, SiteSpacesPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -104,11 +105,15 @@ pub enum Route {
     CommunityTreasury { id: CommunityId },
     #[at("/communities/:id/orphaned_accounts")]
     OrphanedAccounts { id: CommunityId },
+    #[at("/communities/:id/images")]
+    CommunityImages { id: CommunityId },
     #[at("/communities/:id/settings")]
     CommunitySettings { id: CommunityId },
     #[at("/communities/:id/sites/new")]
     CreateSite { id: CommunityId },
     #[at("/sites/:id")]
+    SiteOverview { id: SiteId },
+    #[at("/sites/:id/auctions")]
     SiteAuctions { id: SiteId },
     #[at("/sites/:id/spaces")]
     SiteSpaces { id: SiteId },
@@ -162,14 +167,20 @@ fn switch(routes: Route) -> Html {
         Route::OrphanedAccounts { id } => {
             html! { <OrphanedAccountsPage community_id={id} /> }
         }
+        Route::CommunityImages { id } => {
+            html! { <CommunityImagesPage community_id={id} /> }
+        }
         Route::CommunitySettings { id } => {
             html! { <CommunitySettingsPage community_id={id} /> }
         }
         Route::CreateSite { id } => {
             html! { <CreateSitePage community_id={id} /> }
         }
+        Route::SiteOverview { id } => {
+            html! { <SiteOverviewPage site_id={id} /> }
+        }
         Route::SiteSpaces { id } => {
-            html! { <SiteDetailPage site_id={id} /> }
+            html! { <SiteSpacesPage site_id={id} /> }
         }
         Route::SiteAuctions { id } => {
             html! { <SiteAuctionsPage site_id={id} /> }

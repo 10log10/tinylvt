@@ -292,6 +292,7 @@ impl TestApp {
     pub async fn create_test_community(&self) -> anyhow::Result<CommunityId> {
         let body = requests::CreateCommunity {
             name: "Test community".into(),
+            description: None,
             currency: payloads::CurrencySettings {
                 mode_config: default_currency_config(),
                 name: "dollars".into(),
@@ -742,9 +743,6 @@ fn site_image_details_a_update(
     payloads::requests::UpdateSiteImage {
         id,
         name: Some("test image updated".into()),
-        image_data: Some(vec![
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00,
-        ]), // Updated PNG
     }
 }
 
@@ -752,13 +750,13 @@ fn site_image_details_a_update_expected(
     id: payloads::SiteImageId,
     community_id: CommunityId,
 ) -> payloads::responses::SiteImage {
+    // Image data is immutable, so it stays the same as the original
+    let original = site_image_details_a(community_id);
     payloads::responses::SiteImage {
         id,
         community_id,
         name: "test image updated".into(),
-        image_data: vec![
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00,
-        ],
+        image_data: original.image_data,
         created_at: jiff::Timestamp::now(), // This will be overridden in the test
         updated_at: jiff::Timestamp::now(), // This will be overridden in the test
     }

@@ -307,3 +307,20 @@ pub async fn delete_community(
     store::delete_community(&community_id, &validated_member, &pool).await?;
     Ok(HttpResponse::Ok().finish())
 }
+
+/// Update community name and description (coleader+ only)
+#[tracing::instrument(skip(user, pool), ret)]
+#[post("/update_community_details")]
+pub async fn update_community_details(
+    user: Identity,
+    details: web::Json<requests::UpdateCommunityDetails>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+    let community =
+        store::update_community_details(&validated_member, &details, &pool)
+            .await?;
+    Ok(HttpResponse::Ok().json(community))
+}

@@ -420,6 +420,8 @@ pub struct AuditLogId(pub Uuid);
 struct DbCommunity {
     id: CommunityId,
     name: String,
+    description: Option<String>,
+    community_image_id: Option<SiteImageId>,
     new_members_default_active: bool,
     #[sqlx(try_from = "SqlxTs")]
     created_at: Timestamp,
@@ -462,6 +464,8 @@ impl TryFrom<DbCommunity> for Community {
         Ok(Community {
             id: db.id,
             name: db.name,
+            description: db.description,
+            community_image_id: db.community_image_id,
             created_at: db.created_at,
             updated_at: db.updated_at,
             currency,
@@ -557,6 +561,20 @@ pub enum StoreError {
     SpaceNotFound,
     #[error("Site image not found")]
     SiteImageNotFound,
+    #[error("Image too large. Maximum size is 1MB, received {size} bytes")]
+    ImageTooLarge { size: usize },
+    #[error(
+        "Site description too long. Maximum is {max} characters, received {size}"
+    )]
+    SiteDescriptionTooLong { size: usize, max: usize },
+    #[error(
+        "Space description too long. Maximum is {max} characters, received {size}"
+    )]
+    SpaceDescriptionTooLong { size: usize, max: usize },
+    #[error(
+        "Community description too long. Maximum is {max} characters, received {size}"
+    )]
+    CommunityDescriptionTooLong { size: usize, max: usize },
     #[error("Community invite not found")]
     CommunityInviteNotFound,
     #[error("Open hours not found")]

@@ -165,6 +165,15 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    /// Update community name and description (coleader+ only).
+    pub async fn update_community_details(
+        &self,
+        details: &requests::UpdateCommunityDetails,
+    ) -> Result<responses::Community, ClientError> {
+        let response = self.post("update_community_details", &details).await?;
+        ok_body(response).await
+    }
+
     /// Get the communities for the currently logged in user.
     pub async fn get_communities(
         &self,
@@ -692,12 +701,20 @@ impl APIClient {
         ok_body(response).await
     }
 
+    /// Fetches full image data including metadata. Primarily for tests.
+    /// For displaying images in the UI, use `site_image_url()` instead.
     pub async fn get_site_image(
         &self,
         site_image_id: &SiteImageId,
     ) -> Result<responses::SiteImage, ClientError> {
         let response = self.post("get_site_image", site_image_id).await?;
         ok_body(response).await
+    }
+
+    /// Returns the URL for fetching raw image bytes.
+    /// Use this for `<img src>` attributes in the UI.
+    pub fn site_image_url(&self, site_image_id: &SiteImageId) -> String {
+        format!("{}/api/images/{}", self.address, site_image_id.0)
     }
 
     pub async fn update_site_image(
@@ -719,7 +736,7 @@ impl APIClient {
     pub async fn list_site_images(
         &self,
         community_id: &CommunityId,
-    ) -> Result<Vec<responses::SiteImage>, ClientError> {
+    ) -> Result<Vec<responses::SiteImageInfo>, ClientError> {
         let response = self.post("list_site_images", community_id).await?;
         ok_body(response).await
     }

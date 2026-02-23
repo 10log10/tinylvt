@@ -1,5 +1,5 @@
 use actix_identity::Identity;
-use actix_web::{HttpResponse, post, web};
+use actix_web::{HttpResponse, get, post, web};
 use sqlx::PgPool;
 
 use crate::store;
@@ -140,6 +140,27 @@ pub async fn get_site_image(
     let site_image =
         store::get_site_image(&site_image_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(site_image))
+}
+
+/// Returns raw image bytes for use in <img src> tags.
+/// Requires authentication via session cookie.
+#[tracing::instrument(skip(user, pool), ret)]
+#[get("/images/{id}")]
+pub async fn get_site_image_bytes(
+    user: Identity,
+    path: web::Path<payloads::SiteImageId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let site_image_id = path.into_inner();
+    let site_image =
+        store::get_site_image(&site_image_id, &user_id, &pool).await?;
+    Ok(HttpResponse::Ok()
+        .content_type("image/jpeg")
+        // Private caching ensures membership check happens per-user (CDNs won't
+        // cache, but browsers will). Image data is immutable once created.
+        .insert_header(("Cache-Control", "private, max-age=604800, immutable"))
+        .body(site_image.image_data))
 }
 
 #[tracing::instrument(skip(user, pool, time_source), ret)]

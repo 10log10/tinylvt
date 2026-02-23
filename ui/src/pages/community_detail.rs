@@ -2,11 +2,11 @@ use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::hooks::use_sites;
-use crate::{
-    Route,
-    components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader},
+use crate::components::{
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, MarkdownText,
 };
+use crate::hooks::use_sites;
+use crate::{Route, get_api_client};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -21,6 +21,19 @@ pub fn CommunityDetailPage(props: &Props) -> Html {
                 <CommunityTabHeader community={community.clone()} active_tab={ActiveTab::Sites} />
                 <div class="py-6">
                     <SitesTab community_id={community.id} />
+
+                    // Community description (if present)
+                    {if let Some(desc) = &community.community.description {
+                        html! {
+                            <div class="mt-8 bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700">
+                                <div class="prose prose-sm dark:prose-invert max-w-none">
+                                    <MarkdownText text={desc.clone()} />
+                                </div>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
             </div>
         }
@@ -67,6 +80,8 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                 .iter()
                 .filter(|site| *show_deleted || site.deleted_at.is_none())
                 .collect();
+            let any_site_has_image =
+                sites.iter().any(|s| s.site_details.site_image_id.is_some());
 
             html! {
                 <div>
@@ -134,11 +149,16 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                                     "bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md border border-neutral-200 dark:border-neutral-700 relative"
                                 };
 
+                                // Build image URL if image exists
+                                let image_url = site.site_details.site_image_id.map(|id| {
+                                    get_api_client().site_image_url(&id)
+                                });
+
                                 html! {
                                     <div key={site.site_id.to_string()} class={card_class}>
                                         {if is_deleted {
                                             html! {
-                                                <div class="absolute top-2 right-2">
+                                                <div class="absolute top-2 right-2 z-10">
                                                     <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800">
                                                         {"Deleted"}
                                                     </span>
@@ -147,16 +167,48 @@ fn SitesTab(props: &SitesTabProps) -> Html {
                                         } else {
                                             html! {}
                                         }}
+
+                                        // Only show image section if any site has an image
+                                        {if any_site_has_image {
+                                            html! {
+                                                <div class="aspect-video w-full overflow-hidden
+                                                            rounded-t-lg -mx-6 -mt-6 mb-4"
+                                                     style="width: calc(100% + 3rem);">
+                                                    {if let Some(src) = &image_url {
+                                                        html! {
+                                                            <img
+                                                                src={src.clone()}
+                                                                alt={format!("{} image", site.site_details.name)}
+                                                                class="w-full h-full object-cover"
+                                                            />
+                                                        }
+                                                    } else {
+                                                        html! {
+                                                            <div class="w-full h-full bg-neutral-100
+                                                                        dark:bg-neutral-700" />
+                                                        }
+                                                    }}
+                                                </div>
+                                            }
+                                        } else {
+                                            html! {}
+                                        }}
+
                                         <div class="space-y-4">
                                             <div>
                                                 <h3 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
                                                     {&site.site_details.name}
                                                 </h3>
-                                                <div class="h-12">
+                                                <div class="h-16">
                                                     {if let Some(description) = &site.site_details.description {
+                                                        // Show only the first line, but allow wrapping
+                                                        let first_line = description
+                                                            .lines()
+                                                            .next()
+                                                            .unwrap_or("");
                                                         html! {
                                                             <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-1 line-clamp-3">
-                                                                {description}
+                                                                {first_line}
                                                             </p>
                                                         }
                                                     } else {
@@ -171,7 +223,7 @@ fn SitesTab(props: &SitesTabProps) -> Html {
 
                                             <div class="pt-2">
                                                 <Link<Route>
-                                                    to={Route::SiteAuctions { id: site.site_id }}
+                                                    to={Route::SiteOverview { id: site.site_id }}
                                                     classes="w-full block text-center bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-900 dark:text-neutral-100 px-4 py-2 rounded-md text-sm font-medium transition-colors"
                                                 >
                                                     {"View Site"}

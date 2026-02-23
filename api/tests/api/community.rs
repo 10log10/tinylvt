@@ -20,6 +20,7 @@ async fn long_community_name_rejected() -> anyhow::Result<()> {
 
     let body = requests::CreateCommunity {
         name: (0..300).map(|_| "X").collect::<String>(),
+        description: None,
         currency: payloads::CurrencySettings {
             mode_config: test_helpers::default_currency_config(),
             name: "dollars".to_string(),
