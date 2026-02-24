@@ -1,6 +1,5 @@
 use crate::Route;
 use crate::State;
-use std::collections::HashMap;
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
@@ -14,9 +13,7 @@ pub fn LoggedOutHomePage() -> Html {
         let navigator = navigator.clone();
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
-            let mut query = HashMap::new();
-            query.insert("signup".to_string(), "true".to_string());
-            navigator.push_with_query(&Route::Login, &query).unwrap();
+            navigator.push(&Route::Docs);
         })
     };
 
@@ -56,16 +53,6 @@ pub fn LoggedOutHomePage() -> Html {
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
                     {"Space is the most common thing in need of sharing: rooms in a home, desks in a workspace, stalls in a market, land."}
                 </p>
-                <div class="mt-8 p-4 bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg">
-                    <a
-                        href="https://github.com/10log10/tinylvt/blob/main/scenarios/1-student-desks.md"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-lg font-medium text-neutral-900 dark:text-neutral-100 hover:underline"
-                    >
-                        {"See a detailed scenario: TinyLVT for desk assignment →"}
-                    </a>
-                </div>
             </div>
 
             <div class="max-w-2xl mx-auto">

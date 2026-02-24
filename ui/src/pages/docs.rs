@@ -97,3 +97,14 @@ pub fn SetupPage() -> Html {
         </DocsLayout>
     }
 }
+
+#[function_component]
+pub fn DeskAllocationPage() -> Html {
+    html! {
+        <DocsLayout>
+            <div class="max-w-4xl mx-auto px-4 py-8">
+                <MarkdownContent html={markdown_html!(file: "docs/desk-allocation.md")} />
+            </div>
+        </DocsLayout>
+    }
+}

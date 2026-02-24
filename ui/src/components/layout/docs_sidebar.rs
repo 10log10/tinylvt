@@ -27,6 +27,10 @@ pub const DOC_NAV_ITEMS: &[DocNavItem] = &[
         title: "Auctions",
         route: Route::DocsAuctions,
     },
+    DocNavItem {
+        title: "Desk Allocation",
+        route: Route::DocsDeskAllocation,
+    },
 ];
 
 #[derive(Properties, PartialEq)]

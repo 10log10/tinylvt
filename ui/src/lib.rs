@@ -81,6 +81,8 @@ pub enum Route {
     DocsSetup,
     #[at("/docs/auctions")]
     DocsAuctions,
+    #[at("/docs/desk-allocation")]
+    DocsDeskAllocation,
     #[at("/profile")]
     Profile,
     #[at("/forgot_password")]
@@ -141,6 +143,7 @@ fn switch(routes: Route) -> Html {
         Route::DocsCurrency => html! { <docs::CurrencyPage /> },
         Route::DocsSetup => html! { <docs::SetupPage /> },
         Route::DocsAuctions => html! { <docs::AuctionsPage /> },
+        Route::DocsDeskAllocation => html! { <docs::DeskAllocationPage /> },
         Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },
