@@ -1,16 +1,16 @@
+use crate::hooks::use_push_route;
 use crate::{Route, State};
 use yew::prelude::*;
-use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[hook]
 pub fn use_logout() -> Callback<()> {
     let (_, dispatch) = use_store::<State>();
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
 
     Callback::from(move |()| {
         let dispatch = dispatch.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
 
         yew::platform::spawn_local(async move {
             let api_client = crate::get_api_client();
@@ -20,7 +20,7 @@ pub fn use_logout() -> Callback<()> {
                 state.logout();
             });
 
-            navigator.push(&Route::Landing);
+            push_route.emit(Route::Landing);
         });
     })
 }

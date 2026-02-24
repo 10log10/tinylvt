@@ -1,5 +1,6 @@
 use crate::components::RequireAuth;
 use crate::components::user_identity_display::format_user_name;
+use crate::hooks::use_push_route;
 use crate::{Route, get_api_client};
 use payloads::requests;
 use payloads::responses::UserProfile;
@@ -25,14 +26,14 @@ struct LoggedInHomePageInnerProps {
 #[function_component]
 fn LoggedInHomePageInner(props: &LoggedInHomePageInnerProps) -> Html {
     let profile = &props.profile;
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let resend_loading = use_state(|| false);
     let resend_success = use_state(|| false);
 
     let on_view_communities = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::Communities);
+            push_route.emit(Route::Communities);
         })
     };
 

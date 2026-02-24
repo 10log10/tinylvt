@@ -1,11 +1,10 @@
 use payloads::{CurrencyModeConfig, CurrencySettings, IOUConfig, requests};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 use crate::Route;
 use crate::components::{CurrencyConfigEditor, RequireAuth};
-use crate::hooks::use_communities;
+use crate::hooks::{use_communities, use_push_route};
 
 #[function_component]
 pub fn CreateCommunityPage() -> Html {
@@ -18,7 +17,7 @@ pub fn CreateCommunityPage() -> Html {
 
 #[function_component]
 fn CreateCommunityPageInner() -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let communities_hook = use_communities();
 
     let name_ref = use_node_ref();
@@ -42,7 +41,7 @@ fn CreateCommunityPageInner() -> Html {
         let name_ref = name_ref.clone();
         let error_message = error_message.clone();
         let is_loading = is_loading.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let currency = currency.clone();
 
         Callback::from(move |e: SubmitEvent| {
@@ -65,7 +64,7 @@ fn CreateCommunityPageInner() -> Html {
 
             let error_message = error_message.clone();
             let is_loading = is_loading.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let refetch_communities = communities_hook.refetch.clone();
 
             yew::platform::spawn_local(async move {
@@ -78,7 +77,7 @@ fn CreateCommunityPageInner() -> Html {
                         // Refresh communities in global state
                         refetch_communities.emit(());
                         // Navigate back to communities page
-                        navigator.push(&Route::Communities);
+                        push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -91,9 +90,9 @@ fn CreateCommunityPageInner() -> Html {
     };
 
     let on_cancel = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::Communities);
+            push_route.emit(Route::Communities);
         })
     };
 

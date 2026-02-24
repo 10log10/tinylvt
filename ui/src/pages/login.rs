@@ -1,15 +1,15 @@
 use payloads::responses;
 use yew::prelude::*;
-use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 use crate::Route;
 use crate::components::{AuthForm, login_form::AuthMode};
+use crate::hooks::use_push_route;
 use crate::state::State;
 
 #[function_component]
 pub fn LoginPage() -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let (state, _) = use_store::<State>();
 
     // Check for signup query parameter synchronously
@@ -27,23 +27,23 @@ pub fn LoginPage() -> Html {
 
     // Redirect to home if already logged in
     {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let is_authenticated = state.is_authenticated();
 
         use_effect_with(is_authenticated, move |is_auth| {
             if *is_auth {
-                navigator.push(&Route::Home);
+                push_route.emit(Route::Home);
             }
         });
     }
 
     let on_auth_success = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
 
         Callback::from(move |_profile: responses::UserProfile| {
             // Both login and account creation now navigate to home
             // since we auto-login users after successful account creation
-            navigator.push(&Route::Home);
+            push_route.emit(Route::Home);
         })
     };
 

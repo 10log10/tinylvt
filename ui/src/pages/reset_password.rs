@@ -1,7 +1,7 @@
+use crate::hooks::use_push_route;
 use crate::{Route, get_api_client};
 use payloads::requests;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 #[function_component]
 pub fn ResetPasswordPage() -> Html {
@@ -11,7 +11,7 @@ pub fn ResetPasswordPage() -> Html {
     let success = use_state(|| false);
     let loading = use_state(|| false);
     let token = use_state(String::new);
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
 
     // Extract token from query string on mount
     {
@@ -137,7 +137,7 @@ pub fn ResetPasswordPage() -> Html {
                                 {"Your password has been updated. You can now log in with your new password."}
                             </p>
                             <button
-                                onclick={Callback::from(move |_| navigator.push(&Route::Login))}
+                                onclick={push_route.reform(|_| Route::Login)}
                                 class="bg-neutral-900 dark:bg-white text-white dark:text-neutral-900
                                        px-6 py-2 rounded-md hover:bg-neutral-800 dark:hover:bg-neutral-100
                                        font-medium"

@@ -1,9 +1,10 @@
 use crate::Route;
 use crate::components::layout::DocsLayout;
+use crate::hooks::use_push_route;
 use markdown_html::markdown_html;
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
-use yew_router::prelude::*;
+use yew_router::Routable;
 
 /// Wrapper that intercepts clicks on internal links and routes them
 /// through yew_router instead of triggering full page loads.
@@ -14,10 +15,10 @@ struct MarkdownContentProps {
 
 #[function_component]
 fn MarkdownContent(props: &MarkdownContentProps) -> Html {
-    let navigator = use_navigator().expect("Must be used within a Router");
+    let push_route = use_push_route();
 
     let onclick = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |e: MouseEvent| {
             // Check if the click target is an anchor tag
             let target = e
@@ -38,11 +39,7 @@ fn MarkdownContent(props: &MarkdownContentProps) -> Html {
                 && let Some(route) = Route::recognize(&href)
             {
                 e.prevent_default();
-                navigator.push(&route);
-                // Scroll to top after navigation
-                if let Some(window) = web_sys::window() {
-                    window.scroll_to_with_x_and_y(0.0, 0.0);
-                }
+                push_route.emit(route);
             }
         })
     };

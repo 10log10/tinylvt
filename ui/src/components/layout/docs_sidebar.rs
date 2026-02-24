@@ -1,6 +1,6 @@
 use crate::Route;
+use crate::hooks::use_push_route;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 /// A navigation item in the docs sidebar.
 #[derive(Clone, PartialEq)]
@@ -52,7 +52,7 @@ const LINK_ACTIVE_CLASSES: &str = "text-neutral-900 dark:text-white \
 
 #[function_component]
 pub fn DocsSidebar(props: &DocsSidebarProps) -> Html {
-    let navigator = use_navigator().expect("Must be used within a Router");
+    let push_route = use_push_route();
 
     html! {
         <nav class="py-4">
@@ -71,15 +71,11 @@ pub fn DocsSidebar(props: &DocsSidebarProps) -> Html {
                     );
 
                     let on_click = {
-                        let navigator = navigator.clone();
+                        let push_route = push_route.clone();
                         let route = item.route.clone();
                         let on_navigate = props.on_navigate.clone();
                         Callback::from(move |_: MouseEvent| {
-                            navigator.push(&route);
-                            // Scroll to top after navigation
-                            if let Some(window) = web_sys::window() {
-                                window.scroll_to_with_x_and_y(0.0, 0.0);
-                            }
+                            push_route.emit(route.clone());
                             if let Some(ref cb) = on_navigate {
                                 cb.emit(());
                             }

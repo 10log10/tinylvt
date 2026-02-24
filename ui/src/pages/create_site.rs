@@ -5,9 +5,12 @@ use payloads::{
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
-use yew_router::prelude::*;
 
-use crate::{Route, components::CommunityPageWrapper, hooks::use_sites};
+use crate::{
+    Route,
+    components::CommunityPageWrapper,
+    hooks::{use_push_route, use_sites},
+};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -35,7 +38,7 @@ pub struct CreateSiteFormProps {
 
 #[function_component]
 pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let sites_hook = use_sites(props.community.id);
     let community_id = props.community.id;
 
@@ -61,7 +64,7 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
         let use_timezone_ref = use_timezone_ref.clone();
         let error_message = error_message.clone();
         let is_loading = is_loading.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let refetch_sites = sites_hook.refetch.clone();
 
         Callback::from(move |e: SubmitEvent| {
@@ -124,7 +127,7 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
 
             let error_message = error_message.clone();
             let is_loading = is_loading.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let refetch_sites = refetch_sites.clone();
 
             yew::platform::spawn_local(async move {
@@ -137,7 +140,7 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                         // Refresh sites in global state
                         refetch_sites.emit(());
                         // Navigate to site detail page
-                        navigator.push(&Route::SiteSpaces { id: site_id });
+                        push_route.emit(Route::SiteSpaces { id: site_id });
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -159,9 +162,9 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
     };
 
     let on_cancel = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::CommunityDetail { id: community_id });
+            push_route.emit(Route::CommunityDetail { id: community_id });
         })
     };
 

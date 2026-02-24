@@ -3,12 +3,11 @@ use payloads::{Auction, AuctionParams, SiteId};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 use crate::{
     Route,
     components::{AuctionParamsEditor, SitePageWrapper, SiteWithRole},
-    hooks::use_auctions,
+    hooks::{use_auctions, use_push_route},
 };
 
 #[derive(Properties, PartialEq)]
@@ -37,7 +36,7 @@ pub struct CreateAuctionFormProps {
 
 #[function_component]
 pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let auctions_hook = use_auctions(props.site_with_role.site.site_id);
     let site_id = props.site_with_role.site.site_id;
     let site_details = &props.site_with_role.site.site_details;
@@ -89,7 +88,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
         let auction_params = auction_params.clone();
         let error_message = error_message.clone();
         let is_loading = is_loading.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let refetch_auctions = auctions_hook.refetch.clone();
         let site_timezone = site_details.timezone.clone();
 
@@ -201,7 +200,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
 
             let error_message = error_message.clone();
             let is_loading = is_loading.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let refetch_auctions = refetch_auctions.clone();
 
             yew::platform::spawn_local(async move {
@@ -214,7 +213,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                         // Refresh auctions in global state
                         refetch_auctions.emit(());
                         // Navigate to auctions page
-                        navigator.push(&Route::SiteAuctions { id: site_id });
+                        push_route.emit(Route::SiteAuctions { id: site_id });
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -227,9 +226,9 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     };
 
     let on_cancel = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::SiteOverview { id: site_id });
+            push_route.emit(Route::SiteOverview { id: site_id });
         })
     };
 

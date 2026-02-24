@@ -1,19 +1,19 @@
 use crate::Route;
 use crate::State;
+use crate::hooks::use_push_route;
 use yew::prelude::*;
-use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let (state, _dispatch) = use_store::<State>();
 
     let on_get_started = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
-            navigator.push(&Route::Docs);
+            push_route.emit(Route::Docs);
         })
     };
 

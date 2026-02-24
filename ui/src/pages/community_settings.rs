@@ -1,13 +1,12 @@
 use payloads::{CommunityId, requests, responses::CommunityWithRole};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, ConfirmationModal,
     CurrencyConfigEditor, LeaveCommunityButton, MarkdownEditor, MarkdownText,
 };
-use crate::hooks::use_communities;
+use crate::hooks::{use_communities, use_push_route};
 use crate::{Route, get_api_client};
 
 #[derive(Properties, PartialEq)]
@@ -45,7 +44,7 @@ struct ContentProps {
 
 #[function_component]
 fn CommunitySettingsContent(props: &ContentProps) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let communities_hook = use_communities();
 
     // Permission flags
@@ -281,14 +280,14 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
     let on_delete = {
         let is_deleting = is_deleting.clone();
         let delete_error = delete_error.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let community_id = props.community_id;
         let refetch_communities = communities_hook.refetch.clone();
 
         Callback::from(move |()| {
             let is_deleting = is_deleting.clone();
             let delete_error = delete_error.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let refetch_communities = refetch_communities.clone();
 
             is_deleting.set(true);
@@ -299,7 +298,7 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
                 match client.delete_community(&community_id).await {
                     Ok(_) => {
                         refetch_communities.emit(());
-                        navigator.push(&Route::Communities);
+                        push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         delete_error.set(Some(e.to_string()));

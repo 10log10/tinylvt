@@ -1,13 +1,13 @@
 use payloads::requests;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 use crate::Route;
 use crate::contexts::use_toast;
+use crate::hooks::use_push_route;
 
 #[function_component]
 pub fn VerifyEmailPage() -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let toast = use_toast();
 
     let is_verifying = use_state(|| true);
@@ -19,14 +19,14 @@ pub fn VerifyEmailPage() -> Html {
         let is_verifying = is_verifying.clone();
         let error_message = error_message.clone();
         let success = success.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let toast = toast.clone();
 
         use_effect_with((), move |_| {
             let is_verifying = is_verifying.clone();
             let error_message = error_message.clone();
             let success = success.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let toast = toast.clone();
 
             yew::platform::spawn_local(async move {
@@ -71,7 +71,7 @@ pub fn VerifyEmailPage() -> Html {
 
                         // Redirect to home - it will show login form if not
                         // authenticated
-                        navigator.push(&Route::Home);
+                        push_route.emit(Route::Home);
                     }
                     Err(e) => {
                         is_verifying.set(false);
@@ -137,9 +137,7 @@ pub fn VerifyEmailPage() -> Html {
                             </p>
                         </div>
                         <button
-                            onclick={Callback::from(move |_| {
-                                navigator.push(&Route::Login);
-                            })}
+                            onclick={push_route.reform(|_| Route::Login)}
                             class="w-full flex justify-center py-2 px-4 \
                                    border border-transparent rounded-md \
                                    shadow-sm text-sm font-medium text-white \

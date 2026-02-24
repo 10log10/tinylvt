@@ -3,7 +3,7 @@ use yew_router::prelude::*;
 
 use crate::Route;
 use crate::components::RequireAuth;
-use crate::hooks::use_communities;
+use crate::hooks::{use_communities, use_push_route};
 
 #[function_component]
 pub fn CommunitiesPage() -> Html {
@@ -16,13 +16,13 @@ pub fn CommunitiesPage() -> Html {
 
 #[function_component]
 fn CommunitiesPageInner() -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let communities_hook = use_communities();
 
     let on_create_community = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         Callback::from(move |_| {
-            navigator.push(&Route::CreateCommunity);
+            push_route.emit(Route::CreateCommunity);
         })
     };
 

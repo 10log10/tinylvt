@@ -1,10 +1,10 @@
 use payloads::InviteId;
 use yew::prelude::*;
-use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 use crate::components::AuthForm;
 use crate::contexts::use_toast;
+use crate::hooks::use_push_route;
 use crate::{AuthState, Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -14,7 +14,7 @@ pub struct AcceptInvitePageProps {
 
 #[function_component]
 pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let (state, dispatch) = use_store::<State>();
     let toast = use_toast();
 
@@ -59,14 +59,14 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
     let accept_invite = {
         let is_accepting = is_accepting.clone();
         let error_message = error_message.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let toast = toast.clone();
         let dispatch = dispatch.clone();
 
         move || {
             let is_accepting = is_accepting.clone();
             let error_message = error_message.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let toast = toast.clone();
             let dispatch = dispatch.clone();
 
@@ -85,7 +85,7 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                         });
 
                         // Navigate to communities page
-                        navigator.push(&Route::Communities);
+                        push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
@@ -198,7 +198,7 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
 
                             <button
                                 onclick={Callback::from(move |_| {
-                                    navigator.push(&Route::Communities);
+                                    push_route.emit(Route::Communities);
                                 })}
                                 class="w-full flex justify-center py-2 px-4 border border-neutral-300 dark:border-neutral-600
                                        rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300

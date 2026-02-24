@@ -1,10 +1,10 @@
 use payloads::{CommunityId, Role, requests};
 use yew::prelude::*;
-use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 use crate::State;
 use crate::components::ConfirmationModal;
+use crate::hooks::use_push_route;
 use crate::{Route, get_api_client};
 
 #[derive(Properties, PartialEq)]
@@ -16,7 +16,7 @@ pub struct Props {
 
 #[function_component]
 pub fn LeaveCommunityButton(props: &Props) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let (_state, dispatch) = use_store::<State>();
     let is_submitting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
@@ -45,13 +45,13 @@ pub fn LeaveCommunityButton(props: &Props) -> Html {
         let community_id = props.community_id;
         let is_submitting = is_submitting.clone();
         let error_message = error_message.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let dispatch = dispatch.clone();
 
         Callback::from(move |_| {
             let is_submitting = is_submitting.clone();
             let error_message = error_message.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let dispatch = dispatch.clone();
 
             yew::platform::spawn_local(async move {
@@ -65,7 +65,7 @@ pub fn LeaveCommunityButton(props: &Props) -> Html {
                         // Clear cached communities so they'll be refetched
                         dispatch.reduce_mut(|s| s.clear_communities());
                         // Navigate to home page after leaving
-                        navigator.push(&Route::Home);
+                        push_route.emit(Route::Home);
                     }
                     Err(e) => {
                         error_message.set(Some(format!(

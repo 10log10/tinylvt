@@ -5,7 +5,6 @@ use payloads::{
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
-use yew_router::prelude::*;
 
 use crate::{
     Route,
@@ -15,7 +14,7 @@ use crate::{
         SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
     },
     get_api_client,
-    hooks::{use_auctions, use_site, use_sites},
+    hooks::{use_auctions, use_push_route, use_site, use_sites},
 };
 
 #[derive(Properties, PartialEq)]
@@ -55,7 +54,7 @@ pub struct SiteSettingsFormProps {
 
 #[function_component]
 pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
-    let navigator = use_navigator().unwrap();
+    let push_route = use_push_route();
     let site_hook = use_site(props.site.site_id);
     let auctions_hook = use_auctions(props.site.site_id);
     let sites_hook = use_sites(props.site.site_details.community_id);
@@ -312,7 +311,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     let on_hard_delete = {
         let delete_error_message = delete_error_message.clone();
         let is_deleting = is_deleting.clone();
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let site_id = props.site.site_id;
         let community_id = props.site.site_details.community_id;
         let refetch_sites = sites_hook.refetch.clone();
@@ -320,7 +319,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         Callback::from(move |_| {
             let delete_error_message = delete_error_message.clone();
             let is_deleting = is_deleting.clone();
-            let navigator = navigator.clone();
+            let push_route = push_route.clone();
             let refetch_sites = refetch_sites.clone();
 
             yew::platform::spawn_local(async move {
@@ -332,8 +331,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                     Ok(_) => {
                         // Refetch community sites to update UI state
                         refetch_sites.emit(());
-                        navigator
-                            .push(&Route::CommunityDetail { id: community_id });
+                        push_route
+                            .emit(Route::CommunityDetail { id: community_id });
                     }
                     Err(e) => {
                         delete_error_message.set(Some(e.to_string()));
@@ -419,10 +418,10 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
     };
 
     let on_back = {
-        let navigator = navigator.clone();
+        let push_route = push_route.clone();
         let site_id = props.site.site_id;
         Callback::from(move |_| {
-            navigator.push(&Route::SiteOverview { id: site_id });
+            push_route.emit(Route::SiteOverview { id: site_id });
         })
     };
 
