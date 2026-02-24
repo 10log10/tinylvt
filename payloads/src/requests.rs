@@ -14,7 +14,6 @@ pub enum UsernameValidation {
     TooShort,
     TooLong,
     InvalidCharacters,
-    MustStartWithLetter,
 }
 
 impl UsernameValidation {
@@ -30,9 +29,6 @@ impl UsernameValidation {
             Self::InvalidCharacters => Some(
                 "Username can only contain letters, numbers, and underscores",
             ),
-            Self::MustStartWithLetter => {
-                Some("Username must start with a letter")
-            }
         }
     }
 }
@@ -51,17 +47,8 @@ pub fn validate_username(username: &str) -> UsernameValidation {
         return UsernameValidation::TooLong;
     }
 
-    let mut chars = username.chars();
-
-    // First character must be a letter
-    if let Some(first) = chars.next()
-        && !first.is_ascii_alphabetic()
-    {
-        return UsernameValidation::MustStartWithLetter;
-    }
-
     // Rest must be alphanumeric or underscore
-    for c in chars {
+    for c in username.chars() {
         if !c.is_ascii_alphanumeric() && c != '_' {
             return UsernameValidation::InvalidCharacters;
         }
