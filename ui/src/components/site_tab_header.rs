@@ -3,6 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
+use crate::hooks::use_title;
 use crate::{Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -19,9 +20,26 @@ pub enum ActiveTab {
     Settings,
 }
 
+impl ActiveTab {
+    fn label(&self) -> &'static str {
+        match self {
+            ActiveTab::Overview => "Overview",
+            ActiveTab::Auctions => "Auctions",
+            ActiveTab::Spaces => "Spaces",
+            ActiveTab::Settings => "Settings",
+        }
+    }
+}
+
 #[function_component]
 pub fn SiteTabHeader(props: &Props) -> Html {
     let (state, _) = use_store::<State>();
+
+    use_title(&format!(
+        "{} - {} - TinyLVT",
+        props.site.site_details.name,
+        props.active_tab.label()
+    ));
 
     // Get the community information for the back link
     let community =

@@ -7,7 +7,7 @@ use yew::prelude::*;
 use crate::{
     Route,
     components::{AuctionParamsEditor, SitePageWrapper, SiteWithRole},
-    hooks::{use_auctions, use_push_route},
+    hooks::{use_auctions, use_push_route, use_title},
 };
 
 #[derive(Properties, PartialEq)]
@@ -36,6 +36,10 @@ pub struct CreateAuctionFormProps {
 
 #[function_component]
 pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
+    use_title(&format!(
+        "{} - Create Auction - TinyLVT",
+        props.site_with_role.site.site_details.name
+    ));
     let push_route = use_push_route();
     let auctions_hook = use_auctions(props.site_with_role.site.site_id);
     let site_id = props.site_with_role.site.site_id;

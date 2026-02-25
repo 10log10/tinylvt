@@ -4,7 +4,7 @@ use yewdux::prelude::*;
 
 use crate::components::AuthForm;
 use crate::contexts::use_toast;
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 use crate::{AuthState, Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -14,6 +14,7 @@ pub struct AcceptInvitePageProps {
 
 #[function_component]
 pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
+    use_title("Accept Invite - TinyLVT");
     let push_route = use_push_route();
     let (state, dispatch) = use_store::<State>();
     let toast = use_toast();

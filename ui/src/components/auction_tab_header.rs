@@ -3,6 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
+use crate::hooks::use_title;
 use crate::{Route, State};
 
 #[derive(Properties, PartialEq)]
@@ -17,15 +18,30 @@ pub enum ActiveTab {
     Rounds,
 }
 
+impl ActiveTab {
+    fn label(&self) -> &'static str {
+        match self {
+            ActiveTab::Current => "Current",
+            ActiveTab::Rounds => "Rounds",
+        }
+    }
+}
+
 #[function_component]
 pub fn AuctionTabHeader(props: &Props) -> Html {
     let (state, _) = use_store::<State>();
 
-    // Get the site information for the back link
+    // Get the site information for the back link and title
     let site_id = props.auction.auction_details.site_id;
     let site = state.get_site(site_id);
     let site_name =
         site.map(|s| s.site_details.name.as_str()).unwrap_or("Site");
+
+    use_title(&format!(
+        "{} Auction - {} - TinyLVT",
+        site_name,
+        props.active_tab.label()
+    ));
 
     html! {
         <div class="space-y-8">

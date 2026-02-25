@@ -56,7 +56,7 @@ fn MarkdownContent(props: &MarkdownContentProps) -> Html {
 #[function_component]
 pub fn DocsPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Getting Started">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/getting-started.md")} />
             </div>
@@ -67,7 +67,7 @@ pub fn DocsPage() -> Html {
 #[function_component]
 pub fn CurrencyPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Currency Modes">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/currency.md")} />
             </div>
@@ -78,7 +78,7 @@ pub fn CurrencyPage() -> Html {
 #[function_component]
 pub fn AuctionsPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Auctions">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/auctions.md")} />
             </div>
@@ -89,7 +89,7 @@ pub fn AuctionsPage() -> Html {
 #[function_component]
 pub fn SetupPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Community Setup">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/setup.md")} />
             </div>
@@ -100,7 +100,7 @@ pub fn SetupPage() -> Html {
 #[function_component]
 pub fn DeskAllocationPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Desk Allocation">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/desk-allocation.md")} />
             </div>
@@ -111,7 +111,7 @@ pub fn DeskAllocationPage() -> Html {
 #[function_component]
 pub fn RentSplittingPage() -> Html {
     html! {
-        <DocsLayout>
+        <DocsLayout title="Rent Splitting">
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/rent-splitting.md")} />
             </div>

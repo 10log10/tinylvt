@@ -9,7 +9,7 @@ use yew::prelude::*;
 use crate::{
     Route,
     components::CommunityPageWrapper,
-    hooks::{use_push_route, use_sites},
+    hooks::{use_push_route, use_sites, use_title},
 };
 
 #[derive(Properties, PartialEq)]
@@ -38,6 +38,7 @@ pub struct CreateSiteFormProps {
 
 #[function_component]
 pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
+    use_title(&format!("{} - Create Site - TinyLVT", props.community.name));
     let push_route = use_push_route();
     let sites_hook = use_sites(props.community.id);
     let community_id = props.community.id;

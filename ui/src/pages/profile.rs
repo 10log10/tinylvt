@@ -1,6 +1,6 @@
 use crate::components::{ConfirmationModal, RequireAuth};
 use crate::get_api_client;
-use crate::hooks::{use_communities, use_logout};
+use crate::hooks::{use_communities, use_logout, use_title};
 use crate::{AuthState, State};
 use payloads::responses::UserProfile;
 use payloads::{Role, requests};
@@ -10,6 +10,7 @@ use yewdux::prelude::*;
 
 #[function_component]
 pub fn ProfilePage() -> Html {
+    use_title("Profile - TinyLVT");
     let render_content = Callback::from(|profile: UserProfile| {
         html! { <ProfilePageInner {profile} /> }
     });

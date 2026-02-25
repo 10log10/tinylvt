@@ -1,10 +1,11 @@
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 use crate::{Route, get_api_client};
 use payloads::requests;
 use yew::prelude::*;
 
 #[function_component]
 pub fn ResetPasswordPage() -> Html {
+    use_title("Reset Password - TinyLVT");
     let password = use_state(String::new);
     let confirm_password = use_state(String::new);
     let error = use_state(|| None::<String>);

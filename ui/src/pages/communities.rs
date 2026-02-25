@@ -3,10 +3,11 @@ use yew_router::prelude::*;
 
 use crate::Route;
 use crate::components::RequireAuth;
-use crate::hooks::{use_communities, use_push_route};
+use crate::hooks::{use_communities, use_push_route, use_title};
 
 #[function_component]
 pub fn CommunitiesPage() -> Html {
+    use_title("Communities - TinyLVT");
     html! {
         <RequireAuth>
             <CommunitiesPageInner />

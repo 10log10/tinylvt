@@ -1,5 +1,6 @@
 use super::docs_sidebar::DocsSidebar;
 use crate::Route;
+use crate::hooks::use_title;
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -7,11 +8,14 @@ use yew_router::prelude::*;
 #[derive(Properties, PartialEq)]
 pub struct DocsLayoutProps {
     pub children: Children,
+    pub title: AttrValue,
 }
 
 #[function_component]
 pub fn DocsLayout(props: &DocsLayoutProps) -> Html {
     let route = use_route::<Route>().unwrap_or(Route::Docs);
+
+    use_title(&format!("{} - TinyLVT", props.title));
 
     let drawer_open = use_state(|| false);
 

@@ -3,10 +3,11 @@ use yew::prelude::*;
 
 use crate::Route;
 use crate::contexts::use_toast;
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 
 #[function_component]
 pub fn VerifyEmailPage() -> Html {
+    use_title("Verify Email - TinyLVT");
     let push_route = use_push_route();
     let toast = use_toast();
 

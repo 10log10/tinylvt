@@ -1,9 +1,11 @@
+use crate::hooks::use_title;
 use yew::prelude::*;
 
 const SUPPORT_EMAIL: Option<&str> = option_env!("SUPPORT_EMAIL");
 
 #[function_component]
 pub fn HelpPage() -> Html {
+    use_title("Help - TinyLVT");
     html! {
         <div class="max-w-4xl mx-auto px-4 py-8">
             <h1 class="text-3xl font-bold text-neutral-900 dark:text-white mb-8">

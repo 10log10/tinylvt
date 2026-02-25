@@ -1,9 +1,11 @@
 use crate::get_api_client;
+use crate::hooks::use_title;
 use payloads::requests;
 use yew::prelude::*;
 
 #[function_component]
 pub fn ForgotPasswordPage() -> Html {
+    use_title("Forgot Password - TinyLVT");
     let email = use_state(String::new);
     let error = use_state(|| None::<String>);
     let success = use_state(|| false);

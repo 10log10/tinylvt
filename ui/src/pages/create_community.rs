@@ -4,10 +4,11 @@ use yew::prelude::*;
 
 use crate::Route;
 use crate::components::{CurrencyConfigEditor, RequireAuth};
-use crate::hooks::{use_communities, use_push_route};
+use crate::hooks::{use_communities, use_push_route, use_title};
 
 #[function_component]
 pub fn CreateCommunityPage() -> Html {
+    use_title("Create Community - TinyLVT");
     html! {
         <RequireAuth>
             <CreateCommunityPageInner />

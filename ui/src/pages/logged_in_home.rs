@@ -1,6 +1,6 @@
 use crate::components::RequireAuth;
 use crate::components::user_identity_display::format_user_name;
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 use crate::{Route, get_api_client};
 use payloads::requests;
 use payloads::responses::UserProfile;
@@ -9,6 +9,7 @@ use yew_router::prelude::*;
 
 #[function_component]
 pub fn LoggedInHomePage() -> Html {
+    use_title("Home - TinyLVT");
     let render_content = Callback::from(|profile: UserProfile| {
         html! { <LoggedInHomePageInner {profile} /> }
     });

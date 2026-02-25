@@ -1,7 +1,9 @@
+use crate::hooks::use_title;
 use yew::prelude::*;
 
 #[function_component]
 pub fn NotFoundPage() -> Html {
+    use_title("Not Found - TinyLVT");
     html! {
         <div class="text-center">
             <h1 class="text-4xl font-bold text-neutral-900 dark:text-white">{"404"}</h1>

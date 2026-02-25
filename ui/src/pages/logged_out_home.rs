@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use crate::Route;
 use crate::State;
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
+    use_title("TinyLVT");
     let push_route = use_push_route();
     let navigator = use_navigator().unwrap();
     let (state, _dispatch) = use_store::<State>();

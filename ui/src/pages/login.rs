@@ -4,11 +4,12 @@ use yewdux::prelude::*;
 
 use crate::Route;
 use crate::components::{AuthForm, login_form::AuthMode};
-use crate::hooks::use_push_route;
+use crate::hooks::{use_push_route, use_title};
 use crate::state::State;
 
 #[function_component]
 pub fn LoginPage() -> Html {
+    use_title("Log In - TinyLVT");
     let push_route = use_push_route();
     let (state, _) = use_store::<State>();
 

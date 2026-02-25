@@ -3,6 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
+use crate::hooks::use_title;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -82,8 +83,29 @@ fn get_tab_configs() -> [TabConfig; 8] {
     ]
 }
 
+impl ActiveTab {
+    fn label(&self) -> &'static str {
+        match self {
+            ActiveTab::Sites => "Sites",
+            ActiveTab::Members => "Members",
+            ActiveTab::Invites => "Invites",
+            ActiveTab::Currency => "Currency",
+            ActiveTab::Treasury => "Treasury",
+            ActiveTab::Images => "Images",
+            ActiveTab::OrphanedAccounts => "Orphaned Accounts",
+            ActiveTab::Settings => "Settings",
+        }
+    }
+}
+
 #[function_component]
 pub fn CommunityTabHeader(props: &Props) -> Html {
+    use_title(&format!(
+        "{} - {} - TinyLVT",
+        props.community.name,
+        props.active_tab.label()
+    ));
+
     html! {
         <div class="space-y-8">
             // Back Navigation
