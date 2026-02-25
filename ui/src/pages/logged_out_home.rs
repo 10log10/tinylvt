@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use crate::Route;
 use crate::State;
 use crate::hooks::use_push_route;
 use yew::prelude::*;
+use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[function_component]
 pub fn LoggedOutHomePage() -> Html {
     let push_route = use_push_route();
+    let navigator = use_navigator().unwrap();
     let (state, _dispatch) = use_store::<State>();
 
     let on_get_started = {
@@ -14,6 +18,16 @@ pub fn LoggedOutHomePage() -> Html {
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
             push_route.emit(Route::Docs);
+        })
+    };
+
+    let on_sign_up = {
+        let navigator = navigator.clone();
+        Callback::from(move |e: MouseEvent| {
+            e.prevent_default();
+            let mut query = HashMap::new();
+            query.insert("signup".to_string(), "true".to_string());
+            let _ = navigator.push_with_query(&Route::Login, &query);
         })
     };
 
@@ -79,12 +93,18 @@ pub fn LoggedOutHomePage() -> Html {
                 </ul>
             </div>
 
-            <div class="py-8">
+            <div class="py-8 flex flex-col sm:flex-row gap-4 justify-center">
                 <button
                     onclick={on_get_started}
                     class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors"
                 >
                     {"Get Started"}
+                </button>
+                <button
+                    onclick={on_sign_up}
+                    class="inline-block px-8 py-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-2 border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded transition-colors"
+                >
+                    {"Sign Up"}
                 </button>
             </div>
 

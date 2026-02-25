@@ -143,9 +143,13 @@ pub fn markdown_html(input: TokenStream) -> TokenStream {
 }
 
 fn markdown_to_html(markdown: &str) -> String {
+    // ENABLE_HEADING_ATTRIBUTES allows {#id} and {.class} syntax on headings.
+    // This is safe because this macro only processes trusted content at compile
+    // time. User-supplied markdown uses a separate runtime renderer.
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_SMART_PUNCTUATION;
+        | Options::ENABLE_SMART_PUNCTUATION
+        | Options::ENABLE_HEADING_ATTRIBUTES;
 
     let parser = Parser::new_ext(markdown, options);
     let mut html_output = String::new();

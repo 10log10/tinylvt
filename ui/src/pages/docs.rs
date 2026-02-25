@@ -33,9 +33,11 @@ fn MarkdownContent(props: &MarkdownContentProps) -> Html {
                 }
             });
 
-            // Try to recognize as an internal route
+            // Try to recognize as an internal route (only relative paths)
+            // Route::recognize will match external domains to 404
             if let Some(anchor) = anchor
                 && let Some(href) = anchor.get_attribute("href")
+                && href.starts_with('/')
                 && let Some(route) = Route::recognize(&href)
             {
                 e.prevent_default();
@@ -101,6 +103,17 @@ pub fn DeskAllocationPage() -> Html {
         <DocsLayout>
             <div class="max-w-4xl mx-auto px-4 py-8">
                 <MarkdownContent html={markdown_html!(file: "docs/desk-allocation.md")} />
+            </div>
+        </DocsLayout>
+    }
+}
+
+#[function_component]
+pub fn RentSplittingPage() -> Html {
+    html! {
+        <DocsLayout>
+            <div class="max-w-4xl mx-auto px-4 py-8">
+                <MarkdownContent html={markdown_html!(file: "docs/rent-splitting.md")} />
             </div>
         </DocsLayout>
     }

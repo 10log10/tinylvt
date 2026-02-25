@@ -61,7 +61,7 @@ pub(crate) fn get_api_client() -> APIClient {
     }
 }
 
-#[derive(Clone, Routable, PartialEq)]
+#[derive(Clone, Routable, PartialEq, Debug)]
 pub enum Route {
     #[at("/")]
     Landing,
@@ -83,6 +83,8 @@ pub enum Route {
     DocsAuctions,
     #[at("/docs/desk-allocation")]
     DocsDeskAllocation,
+    #[at("/docs/rent-splitting")]
+    DocsRentSplitting,
     #[at("/profile")]
     Profile,
     #[at("/forgot_password")]
@@ -144,6 +146,7 @@ fn switch(routes: Route) -> Html {
         Route::DocsSetup => html! { <docs::SetupPage /> },
         Route::DocsAuctions => html! { <docs::AuctionsPage /> },
         Route::DocsDeskAllocation => html! { <docs::DeskAllocationPage /> },
+        Route::DocsRentSplitting => html! { <docs::RentSplittingPage /> },
         Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },

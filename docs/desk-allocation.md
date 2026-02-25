@@ -24,7 +24,7 @@ desks.
 
 ### Creating the Community
 
-1. Go to [tinylvt.com](https://tinylvt.com) and create an account
+1. Go to [tinylvt.com](/) and create an account
 2. Verify your email address
 3. Go to Communities and click "Create Community"
 4. Enter your community name (e.g., "Economics Department")
