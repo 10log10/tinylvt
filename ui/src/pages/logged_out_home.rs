@@ -39,7 +39,7 @@ pub fn LoggedOutHomePage() -> Html {
                     {"TinyLVT"}
                 </h1>
                 <p class="text-xl text-neutral-900 dark:text-neutral-100 mb-8">
-                    {"A structured way to share things"}
+                    {"Fair space allocation through land value taxation"}
                 </p>
             </div>
 
