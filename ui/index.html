@@ -28,9 +28,31 @@
         <link data-trunk rel="copy-file" href="assets/auction-page-dark.jpg"/>
         <link data-trunk rel="copy-dir" href="../docs" data-target-path="docs-source"/>
         <link data-trunk rel="copy-file" href="llms.txt"/>
+        <style>
+            #app-loading {
+                position: absolute;
+                left: -10000px;
+                top: auto;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+            }
+        </style>
     </head>
     <body>
         <!-- Trunk will inject the WASM app and hot-reload script here -->
+        <div id="app-loading">
+            <h1>TinyLVT - Fair space allocation through land value taxation</h1>
+            <p>TinyLVT helps communities allocate shared spaces fairly through simultaneous ascending auctions using land value taxation principles.</p>
+            <h2>How it works</h2>
+            <ul>
+                <li>Simultaneous ascending auctions allocate spaces to highest-value uses</li>
+                <li>Proxy bidding lets you enter maximum values upfront</li>
+                <li>Multiple currency modes support different ownership models</li>
+                <li>Pay only the social cost of excluding others from a space</li>
+            </ul>
+            <p>For full documentation, see <a href="/llms.txt">/llms.txt</a></p>
+        </div>
         <noscript>
             <h1>TinyLVT - Fair space allocation through land value taxation</h1>
             <p>TinyLVT helps communities allocate shared spaces fairly through simultaneous ascending auctions using land value taxation principles.</p>
