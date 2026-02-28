@@ -15,6 +15,8 @@ Raw markdown files (internal links point to rendered UI, not raw files):
 - /docs-source/currency.md
 - /docs-source/setup.md
 - /docs-source/auctions.md
+- /docs-source/desk-allocation.md
+- /docs-source/rent-splitting.md
 
 ## Key Concepts
 
