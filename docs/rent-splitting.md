@@ -44,7 +44,7 @@ Everyone shares equally in the total value of the housing.
 4. Go to the site's Settings page and configure auction parameters:
    - **Round duration:** 1–5 minutes
    - **Bid increment:** About 10% of the expected maximum room premium
-     (e.g., $10 if the nicest room might command a $100/month premium)
+     (e.g., $10 if the nicest room might command a $100 premium)
 5. Add spaces for each room:
    - Navigate to the site's Spaces page
    - Click "Add Space" for each room
@@ -143,21 +143,21 @@ Three housemates—Alice, Bob, and Carol—share a house with monthly rent of
 $3,000. They run a 12-month auction for three rooms.
 
 **Auction results:**
-- Master bedroom: Alice wins at $1,200
+- Master bedroom: Alice wins at $3,000
 - Middle room: Bob wins at $600
 - Small room: Carol wins at $0
 
-**Total proceeds:** $1,800, redistributed equally → $600 each
+**Total proceeds:** $3,600, redistributed equally → $1,200 each
 
 **Balances:**
-- Alice: Paid $1,200, received $600 → Balance: -$600
-- Bob: Paid $600, received $600 → Balance: $0
-- Carol: Paid $0, received $600 → Balance: +$600
+- Alice: Paid $3,000, received $1200 → Balance: -$1,800
+- Bob: Paid $600, received $1,200 → Balance: +$600
+- Carol: Paid $0, received $1,200 → Balance: +$1,200
 
 **Monthly rent (base $1,000 - balance / 12 months):**
-- Alice: $1,000 + $50 = $1,050
-- Bob: $1,000 + $0 = $1,000
-- Carol: $1,000 - $50 = $950
+- Alice: $1,000 + $150 = $1,150
+- Bob: $1,000 - $50 = $950
+- Carol: $1,000 - $100 = $900
 
 Everyone pays according to the value of their room, and the total still
 equals $3,000.

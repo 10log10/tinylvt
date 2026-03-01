@@ -27,7 +27,7 @@ desks.
 1. Go to [tinylvt.com](/) and create an account
 2. Verify your email address
 3. Go to Communities and click "Create Community"
-4. Enter your community name (e.g., "Economics Department")
+4. Enter your community name
 5. Select **Points Allowance** as the currency mode
 6. Configure currency settings:
    - **Currency name:** Points
@@ -42,7 +42,7 @@ You'll be the community **Leader** with full administrative access.
 ### Creating the Site and Spaces
 
 1. From your community page, click "Create Site"
-2. Name the site (e.g., "Main Office" or "Graduate Student Area")
+2. Name the site (e.g., "Main Office")
 3. Click "Create Site"
 4. Go to the site's Settings page and configure default auction parameters:
    - **Round duration:** 1 minute
@@ -127,7 +127,7 @@ everything based on your entered values.
 
 ## Example
 
-An economics department has 14 desks and 20 graduate students. Each term:
+A department has 14 desks and 20 graduate students. Each term:
 
 1. The administrator issues P100 to each active student
 2. Students enter values for desks they'd want (considering location,
