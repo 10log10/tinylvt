@@ -8,8 +8,10 @@ http {
     default_type application/octet-stream;
 
     # Add WASM MIME type (critical for browsers to load .wasm files correctly)
+    # Add markdown as text/plain so browsers display instead of download
     types {
         application/wasm wasm;
+        text/plain md;
     }
 
     # Performance optimizations
@@ -43,6 +45,13 @@ http {
         location ~* \.(js|css|wasm)$ {
             expires 1y;
             add_header Cache-Control "public, immutable";
+        }
+
+        # Enable directory listing for docs-source
+        location /docs-source/ {
+            autoindex on;
+            autoindex_exact_size off;
+            autoindex_localtime on;
         }
 
         # SPA routing: all routes serve index.html
