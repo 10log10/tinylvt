@@ -306,7 +306,8 @@ async fn create_ongoing_auction_with_rounds(
 
     // Configuration: how many rounds to process and duration per round
     let round_duration = Span::new().seconds(15);
-    let num_rounds_to_process = -1;
+    let num_rounds_to_process = 20; // start in the past
+    // let num_rounds_to_process = -1; // start in the future
 
     // Save the real current time
     let real_now = Timestamp::now();

@@ -501,7 +501,7 @@ impl TestApp {
 pub fn alice_credentials() -> requests::CreateAccount {
     requests::CreateAccount {
         username: "alice".into(),
-        password: "supersecret".into(),
+        password: "a".into(),
         email: "alice@example.com".into(),
     }
 }

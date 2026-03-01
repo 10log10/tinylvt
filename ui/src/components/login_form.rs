@@ -350,7 +350,7 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
             if props.show_dev_credentials {
                 <div class="mt-6 text-center">
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                        {"Development credentials: alice / supersecret"}
+                        {"Development credentials: alice / a"}
                     </p>
                 </div>
             }
