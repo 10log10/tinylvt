@@ -51,10 +51,10 @@ Everyone shares equally in the total value of the housing.
    - Name each room clearly (e.g., "Master Bedroom", "Back Room - Small")
    - Add descriptions noting features (size, bathroom access, closet, etc.)
 
-**Tip on eligibility points:** If rooms vary significantly in value, set
-eligibility points proportional to expected value. This prevents someone from
-bidding on a cheap room early, then switching to an expensive room late in
-the auction.
+**Tip:** Set all rooms to 1 eligibility point unless they fall into distinct
+categories (e.g., master suites vs. small bedrooms) where you want to prevent
+late switching between categories. For most apartments, uniform eligibility
+allows bidders to naturally shift between rooms as prices rise.
 
 ### Inviting Housemates
 

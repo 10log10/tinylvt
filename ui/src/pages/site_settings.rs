@@ -1,6 +1,6 @@
 use payloads::{
-    AuctionParams, Role, Site, SiteId, SiteImageId, requests::UpdateSite,
-    responses::Site as SiteResponse,
+    AuctionParams, CurrencySettings, Role, Site, SiteId, SiteImageId,
+    requests::UpdateSite, responses::Site as SiteResponse,
 };
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
@@ -30,8 +30,9 @@ pub fn SiteSettingsPage(props: &Props) -> Html {
                 <SiteTabHeader site={site_with_role.site.clone()} active_tab={ActiveTab::Settings} />
                 <div class="py-2 md:py-6">
                     <SiteSettingsForm
-                        site={site_with_role.site}
-                        user_role={site_with_role.user_role}
+                        site={site_with_role.site.clone()}
+                        user_role={site_with_role.user_role()}
+                        currency={site_with_role.community.community.currency.clone()}
                     />
                 </div>
             </div>
@@ -50,6 +51,7 @@ pub fn SiteSettingsPage(props: &Props) -> Html {
 pub struct SiteSettingsFormProps {
     pub site: SiteResponse,
     pub user_role: Role,
+    pub currency: CurrencySettings,
 }
 
 #[function_component]
@@ -639,6 +641,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                         <AuctionParamsEditor
                             auction_params={(*auction_params).clone()}
                             on_change={on_auction_params_change}
+                            currency_name={props.currency.name.clone()}
                             disabled={*is_loading}
                         />
                     </div>
@@ -815,6 +818,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                             </h3>
                             <AuctionParamsViewer
                                 auction_params={props.site.site_details.default_auction_params.clone()}
+                                currency={props.currency.clone()}
                             />
                         </div>
 

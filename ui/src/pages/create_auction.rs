@@ -416,6 +416,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                         <AuctionParamsEditor
                             auction_params={(*auction_params).clone()}
                             on_change={on_auction_params_change}
+                            currency_name={props.site_with_role.community.community.currency.name.clone()}
                             disabled={*is_loading}
                         />
                     </div>

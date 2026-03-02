@@ -85,8 +85,8 @@ pub fn SiteAuctionsPage(props: &Props) -> Html {
                 />
                 <div class="py-6">
                     <AuctionsTab
-                        site={site_with_role.site}
-                        user_role={site_with_role.user_role}
+                        site={site_with_role.site.clone()}
+                        user_role={site_with_role.user_role()}
                     />
                 </div>
             </div>

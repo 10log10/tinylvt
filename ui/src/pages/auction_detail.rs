@@ -1,4 +1,4 @@
-use payloads::{AuctionId, SpaceId};
+use payloads::{CurrencySettings, SpaceId};
 use rust_decimal::Decimal;
 use yew::prelude::*;
 use yewdux::prelude::*;
@@ -6,16 +6,18 @@ use yewdux::prelude::*;
 use crate::{
     State,
     components::{
-        AuctionTabHeader, AuctionToplineInfo, CountdownTimer,
-        ProxyBiddingControls, RequireAuth, RoundIndicator, SpaceListForBidding,
-        UserEligibilityDisplay, auction_tab_header::ActiveTab,
+        AuctionContext, AuctionPageWrapper, AuctionTabHeader,
+        AuctionToplineInfo, CountdownTimer, ProxyBiddingControls,
+        RoundIndicator, SpaceListForBidding, UserEligibilityDisplay,
+        auction_tab_header::ActiveTab,
     },
     hooks::{
-        use_auction_detail, use_auction_rounds, use_current_round,
-        use_exponential_refetch, use_proxy_bidding_settings, use_round_prices,
-        use_spaces, use_user_bids, use_user_eligibility, use_user_space_values,
+        use_auction_rounds, use_current_round, use_exponential_refetch,
+        use_proxy_bidding_settings, use_round_prices, use_spaces,
+        use_user_bids, use_user_eligibility, use_user_space_values,
     },
 };
+use payloads::AuctionId;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -24,71 +26,30 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionDetailPage(props: &Props) -> Html {
-    html! {
-        <RequireAuth>
-            <AuctionDetailPageInner auction_id={props.auction_id} />
-        </RequireAuth>
-    }
-}
-
-#[function_component]
-fn AuctionDetailPageInner(props: &Props) -> Html {
-    let auction_hook = use_auction_detail(props.auction_id);
-    let (state, _) = use_store::<State>();
-
-    // Handle auction loading state (block UI only on initial load)
-    if auction_hook.is_initial_loading() {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"Loading auction..."}
-                </p>
-            </div>
-        };
-    }
-
-    // Handle auction error
-    if let Some(error) = &auction_hook.error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 \
-                        border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">
-                    {format!("Error loading auction: {}", error)}
-                </p>
-            </div>
-        };
-    }
-
-    // Get auction data
-    let Some(auction) = auction_hook.data.as_ref() else {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"No auction found"}
-                </p>
-            </div>
-        };
-    };
-
-    // Get site timezone for timestamp display
-    let site_id = auction.auction_details.site_id;
-    let site = state.get_site(site_id);
-    let site_timezone = site.and_then(|s| s.site_details.timezone.clone());
-
-    html! {
-        <div>
-            <AuctionTabHeader
-                auction={auction.clone()}
-                active_tab={ActiveTab::Current}
-            />
-            <div class="py-6">
-                <AuctionContent
-                    auction={auction.clone()}
-                    site_timezone={site_timezone}
-                    auction_refetch={auction_hook.refetch.clone()}
+    let render_content = Callback::from(|ctx: AuctionContext| {
+        html! {
+            <div>
+                <AuctionTabHeader
+                    auction={ctx.auction.clone()}
+                    active_tab={ActiveTab::Current}
                 />
+                <div class="py-6">
+                    <AuctionContent
+                        auction={ctx.auction.clone()}
+                        site_timezone={ctx.site_timezone().map(String::from)}
+                        currency={ctx.currency().clone()}
+                        auction_refetch={ctx.refetch_auction.clone()}
+                    />
+                </div>
             </div>
-        </div>
+        }
+    });
+
+    html! {
+        <AuctionPageWrapper
+            auction_id={props.auction_id}
+            children={render_content}
+        />
     }
 }
 
@@ -96,6 +57,7 @@ fn AuctionDetailPageInner(props: &Props) -> Html {
 struct AuctionContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
+    currency: CurrencySettings,
     auction_refetch: Callback<()>,
 }
 
@@ -191,6 +153,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                 <AuctionToplineInfo
                     auction={props.auction.clone()}
                     site_timezone={props.site_timezone.clone()}
+                    currency={props.currency.clone()}
                 />
                 <div class="border border-neutral-200 dark:border-neutral-700 \
                             rounded-lg p-8 bg-white dark:bg-neutral-800">
@@ -214,6 +177,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                     user_bid_space_ids={std::collections::HashSet::new()}
                     current_username={Option::<String>::None}
                     bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                    currency={props.currency.clone()}
                     on_bid={Callback::from(|_: SpaceId| {})}
                     on_delete_bid={Callback::from(|_: SpaceId| {})}
                     on_update_value={user_values_hook.update_value.clone()}
@@ -264,6 +228,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                 <AuctionToplineInfo
                     auction={props.auction.clone()}
                     site_timezone={props.site_timezone.clone()}
+                    currency={props.currency.clone()}
                 />
                 <div class="border border-neutral-200 dark:border-neutral-700 \
                             rounded-lg p-8 bg-white dark:bg-neutral-800">
@@ -322,6 +287,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                     user_bid_space_ids={std::collections::HashSet::new()}
                     current_username={Option::<String>::None}
                     bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                    currency={props.currency.clone()}
                     on_bid={on_bid}
                     on_delete_bid={on_delete_bid}
                     on_update_value={user_values_hook.update_value.clone()}
@@ -350,6 +316,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         <AuctionRoundContent
             auction={props.auction.clone()}
             site_timezone={props.site_timezone.clone()}
+            currency={props.currency.clone()}
             current_round={current_round.clone()}
             current_username={current_username}
             spaces={spaces}
@@ -370,6 +337,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
 struct AuctionRoundContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
+    currency: CurrencySettings,
     current_round: payloads::responses::AuctionRound,
     current_username: Option<String>,
     spaces: Option<Vec<payloads::responses::Space>>,
@@ -441,6 +409,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
     // Calculate current activity: sum of points for spaces where user is
     // high bidder or has placed a bid in this round
+    // Note: sum() on empty iterator returns -0.0, so we add 0.0 to normalize
     let current_activity: f64 = spaces
         .iter()
         .filter(|space| {
@@ -458,7 +427,8 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             is_high_bidder || has_bid
         })
         .map(|space| space.space_details.eligibility_points)
-        .sum();
+        .sum::<f64>()
+        + 0.0;
 
     // Callbacks for proxy bidding controls
     let on_proxy_toggle = {
@@ -571,6 +541,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             <AuctionToplineInfo
                 auction={props.auction.clone()}
                 site_timezone={props.site_timezone.clone()}
+                currency={props.currency.clone()}
             />
 
             // Current round indicator
@@ -628,6 +599,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 user_bid_space_ids={user_bid_space_ids}
                 current_username={props.current_username.clone()}
                 bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                currency={props.currency.clone()}
                 on_bid={on_bid}
                 on_delete_bid={on_delete_bid}
                 on_update_value={on_update_value}
@@ -635,6 +607,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 auction_ended={props.auction.end_at.is_some()}
                 auction_started={true}
                 user_eligibility={eligibility}
+                current_activity={current_activity}
             />
         </div>
     }

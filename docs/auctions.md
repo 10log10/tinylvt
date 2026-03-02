@@ -44,10 +44,19 @@ To prevent last-minute bidding that disrupts price discovery, auctions enforce
 - Each space has eligibility points
 - You must bid on enough points each round to maintain eligibility
 - If you stop bidding, your eligibility decreases permanently
-- Early rounds have lower thresholds; later rounds require full participation
 
-This ensures everyone reveals their demand gradually, allowing the market to
-find efficient prices.
+**Default configuration:** Set all spaces to 1 eligibility point and require
+100% eligibility from round 0. This ensures bidders participate every round
+while allowing them to freely move between spaces as prices rise — ideal when
+spaces are substitutes (e.g., different desks in an office).
+
+**When to use varied eligibility points:** If your spaces fall into distinct
+categories with very different values (e.g., large vs. small rooms), you may
+want higher eligibility points on premium spaces and a graduated threshold that
+starts below 100%. This prevents bidders from "parking" on cheap items early
+and then jumping to expensive ones late in the auction. However, this also
+restricts legitimate flexibility, so only use it when category-switching would
+genuinely disrupt price discovery.
 
 ## The Exposure Problem
 

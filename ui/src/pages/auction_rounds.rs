@@ -1,16 +1,16 @@
-use payloads::AuctionId;
+use payloads::{AuctionId, CurrencySettings};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
 use crate::{
     State,
     components::{
-        AuctionTabHeader, RequireAuth, TimestampDisplay,
+        AuctionContext, AuctionPageWrapper, AuctionTabHeader, TimestampDisplay,
         auction_tab_header::ActiveTab,
     },
     hooks::{
-        use_auction_detail, use_auction_round_results, use_auction_rounds,
-        use_auction_user_bids, use_spaces,
+        use_auction_round_results, use_auction_rounds, use_auction_user_bids,
+        use_spaces,
     },
 };
 
@@ -21,77 +21,62 @@ pub struct Props {
 
 #[function_component]
 pub fn AuctionRoundsPage(props: &Props) -> Html {
+    let render_content = Callback::from(|ctx: AuctionContext| {
+        html! {
+            <div>
+                <AuctionTabHeader
+                    auction={ctx.auction.clone()}
+                    active_tab={ActiveTab::Rounds}
+                />
+                <div class="py-6">
+                    <RoundsPageContent
+                        auction={ctx.auction.clone()}
+                        currency={ctx.currency().clone()}
+                    />
+                </div>
+            </div>
+        }
+    });
+
     html! {
-        <RequireAuth>
-            <AuctionRoundsPageInner auction_id={props.auction_id} />
-        </RequireAuth>
+        <AuctionPageWrapper
+            auction_id={props.auction_id}
+            children={render_content}
+        />
     }
 }
 
+#[derive(Properties, PartialEq)]
+struct RoundsPageContentProps {
+    auction: payloads::responses::Auction,
+    currency: CurrencySettings,
+}
+
 #[function_component]
-fn AuctionRoundsPageInner(props: &Props) -> Html {
-    let auction_hook = use_auction_detail(props.auction_id);
-    let rounds_hook = use_auction_rounds(props.auction_id);
+fn RoundsPageContent(props: &RoundsPageContentProps) -> Html {
+    let auction_id = props.auction.auction_id;
+    let rounds_hook = use_auction_rounds(auction_id);
 
-    // Handle auction loading state
-    if auction_hook.is_loading {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"Loading auction..."}
-                </p>
-            </div>
-        };
-    }
-
-    // Handle auction error
-    if let Some(error) = &auction_hook.error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 \
-                        border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">
-                    {format!("Error loading auction: {}", error)}
-                </p>
-            </div>
-        };
-    }
-
-    // Get auction data
-    let Some(auction) = auction_hook.data.as_ref() else {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"No auction found"}
-                </p>
-            </div>
-        };
-    };
-
-    let auction_clone = auction.clone();
-    html! {
-        <div>
-            <AuctionTabHeader
-                auction={auction.clone()}
-                active_tab={ActiveTab::Rounds}
-            />
-            <div class="py-6">
-                {rounds_hook.render("rounds", move |rounds, _is_loading, _error| {
-                    html! {
-                        <RoundsContent
-                            auction={auction_clone.clone()}
-                            rounds={rounds.clone()}
-                        />
-                    }
-                })}
-            </div>
-        </div>
-    }
+    rounds_hook.render("rounds", {
+        let auction = props.auction.clone();
+        let currency = props.currency.clone();
+        move |rounds, _is_loading, _error| {
+            html! {
+                <RoundsContent
+                    auction={auction.clone()}
+                    rounds={rounds.clone()}
+                    currency={currency.clone()}
+                />
+            }
+        }
+    })
 }
 
 #[derive(Properties, PartialEq)]
 struct RoundsContentProps {
     auction: payloads::responses::Auction,
     rounds: Vec<payloads::responses::AuctionRound>,
+    currency: CurrencySettings,
 }
 
 #[function_component]
@@ -199,6 +184,7 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
                             key={round_id.0.to_string()}
                             round={round.clone()}
                             bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                            currency={props.currency.clone()}
                             user_bids={user_bids_for_round}
                             round_results={results_for_round}
                             previous_round_results={previous_round_results}
@@ -216,6 +202,7 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
 struct RoundCardProps {
     round: payloads::responses::AuctionRound,
     bid_increment: rust_decimal::Decimal,
+    currency: CurrencySettings,
     user_bids: Option<Vec<payloads::SpaceId>>,
     round_results: Option<Vec<payloads::RoundSpaceResult>>,
     previous_round_results: Option<Vec<payloads::RoundSpaceResult>>,
@@ -332,7 +319,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                                         html! {
                                             <li class="text-sm text-neutral-900 \
                                                        dark:text-neutral-100">
-                                                {format!("{}: ${:.2}", name, value)}
+                                                {format!("{}: {}", name, props.currency.format_amount(*value))}
                                             </li>
                                         }
                                     }).collect::<Html>()}
@@ -367,7 +354,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                                         Some(html! {
                                             <li class="text-sm text-neutral-900 \
                                                        dark:text-neutral-100">
-                                                {format!("{}: ${:.2}", space.space_details.name, result.value)}
+                                                {format!("{}: {}", space.space_details.name, props.currency.format_amount(result.value))}
                                             </li>
                                         })
                                     }).collect::<Html>()}

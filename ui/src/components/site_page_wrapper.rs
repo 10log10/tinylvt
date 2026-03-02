@@ -1,4 +1,7 @@
-use payloads::{Role, SiteId, responses::Site};
+use payloads::{
+    Role, SiteId,
+    responses::{CommunityWithRole, Site},
+};
 use yew::prelude::*;
 
 use crate::components::RequireAuth;
@@ -7,7 +10,14 @@ use crate::hooks::{use_communities, use_site};
 #[derive(Clone, PartialEq)]
 pub struct SiteWithRole {
     pub site: Site,
-    pub user_role: Role,
+    pub community: CommunityWithRole,
+}
+
+impl SiteWithRole {
+    /// Get the user's role in the site's community
+    pub fn user_role(&self) -> Role {
+        self.community.user_role
+    }
 }
 
 #[derive(Properties, PartialEq)]
@@ -28,66 +38,48 @@ pub fn SitePageWrapper(props: &Props) -> Html {
     }
 }
 
-// Inner component that only renders when authenticated
 #[function_component]
 fn SitePageWrapperInner(props: &Props) -> Html {
     let site_hook = use_site(props.site_id);
     let communities_hook = use_communities();
+    let children = props.children.clone();
 
-    if site_hook.is_loading {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">{"Loading site..."}</p>
-            </div>
-        };
-    }
+    site_hook.render("site", move |site, _is_loading, _error| {
+        let community_id = site.site_details.community_id;
 
-    if let Some(error) = &site_hook.error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-            </div>
-        };
-    }
+        communities_hook.render("community membership", {
+            let site = site.clone();
+            let children = children.clone();
 
-    let site = match site_hook.data.as_ref() {
-        Some(s) => s,
-        None => {
-            return html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">{"Site not found"}</p>
-                </div>
-            };
-        }
-    };
+            move |communities, _is_loading, _error| {
+                let community = communities
+                    .iter()
+                    .find(|c| c.community.id == community_id)
+                    .cloned();
 
-    // Find the user's role in this site's community
-    let user_role = communities_hook.data.as_ref().and_then(|communities| {
-        communities
-            .iter()
-            .find(|c| c.id == site.site_details.community_id)
-            .map(|c| c.user_role)
-    });
-
-    let user_role = match user_role {
-        Some(role) => role,
-        None => {
-            return html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">{"Unable to verify community membership"}</p>
-                </div>
-            };
-        }
-    };
-
-    let site_with_role = SiteWithRole {
-        site: site.clone(),
-        user_role,
-    };
-
-    html! {
-        <div>
-            {props.children.emit(site_with_role)}
-        </div>
-    }
+                match community {
+                    Some(community) => {
+                        let site_with_role = SiteWithRole {
+                            site: site.clone(),
+                            community,
+                        };
+                        html! {
+                            <div>
+                                {children.emit(site_with_role)}
+                            </div>
+                        }
+                    }
+                    None => {
+                        html! {
+                            <div class="text-center py-12">
+                                <p class="text-neutral-600 dark:text-neutral-400">
+                                    {"Unable to verify community membership"}
+                                </p>
+                            </div>
+                        }
+                    }
+                }
+            }
+        })
+    })
 }

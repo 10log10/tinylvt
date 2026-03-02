@@ -53,9 +53,9 @@ You'll be the community **Leader** with full administrative access.
    - Name each space clearly (e.g., "Desk 1 - Window", "Desk 2 - Corner")
    - Add descriptions noting features (natural light, proximity to exit, etc.)
 
-**Tip:** If some desks are significantly more desirable, consider setting higher
-eligibility points on those desks to prevent last-minute switching during
-auctions.
+**Tip:** Set all desks to 1 eligibility point. Since desks are substitutes,
+bidders should be able to freely shift between them as prices rise. The default
+100% eligibility requirement ensures everyone participates each round.
 
 ### Inviting Members
 

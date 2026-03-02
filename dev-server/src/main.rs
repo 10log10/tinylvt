@@ -10,7 +10,7 @@ use anyhow::Result;
 use api::scheduler::Scheduler;
 use jiff::Timestamp;
 use std::time::Duration;
-use test_helpers::mock::DevDataset;
+use test_helpers::mock::DeskAllocationScreenshot;
 use tokio::time::interval;
 use tracing::info;
 
@@ -28,9 +28,9 @@ async fn main() -> Result<()> {
 
     info!("✅ API server running on http://127.0.0.1:{}", app.port);
 
-    // Set up comprehensive test data using mocked time for realistic progressions
-    info!("📊 Setting up development test data...");
-    let dataset = DevDataset::create(&app).await?;
+    // Set up desk allocation screenshot data
+    info!("📊 Setting up desk allocation screenshot data...");
+    let dataset = DeskAllocationScreenshot::create(&app).await?;
 
     // Start scheduler to process auction rounds and proxy bidding
     info!("⏲️  Starting auction scheduler...");

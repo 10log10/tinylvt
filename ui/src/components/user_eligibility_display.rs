@@ -2,6 +2,12 @@ use yew::prelude::*;
 
 use crate::hooks::FetchState;
 
+/// Format f64 for display, normalizing -0.0 to 0.0
+fn format_value(v: f64) -> String {
+    // Adding 0.0 converts -0.0 to 0.0
+    format!("{:.1}", v + 0.0)
+}
+
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub eligibility_points: FetchState<Option<f64>>,
@@ -62,7 +68,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
                             {if let Some(ep) = eligibility_points {
-                                format!("{:.1}", ep)
+                                format_value(ep)
                             } else {
                                 "--".to_string()
                             }}
@@ -88,7 +94,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
                             {if let Some(mra) = min_required_activity {
-                                format!("{:.1}", mra)
+                                format_value(mra)
                             } else {
                                 "--".to_string()
                             }}
@@ -114,7 +120,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                             }
                         }>
                             {if let Some(ca) = props.current_activity {
-                                format!("{:.1}", ca)
+                                format_value(ca)
                             } else {
                                 "--".to_string()
                             }}
@@ -132,7 +138,7 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                         <div class="text-2xl font-bold text-neutral-900 \
                                     dark:text-white">
                             {if let Some(nre) = next_round_eligibility {
-                                format!("{:.1}", nre)
+                                format_value(nre)
                             } else {
                                 "--".to_string()
                             }}

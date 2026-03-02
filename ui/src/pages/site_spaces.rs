@@ -29,7 +29,7 @@ pub fn SiteSpacesPage(props: &Props) -> Html {
                     <SpacesTab
                         site_id={site_with_role.site.site_id}
                         community_id={site_with_role.site.site_details.community_id}
-                        user_role={site_with_role.user_role}
+                        user_role={site_with_role.user_role()}
                     />
                 </div>
             </div>

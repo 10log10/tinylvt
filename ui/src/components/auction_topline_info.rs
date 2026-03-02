@@ -1,6 +1,6 @@
 use crate::components::{AuctionParamsViewer, TimestampDisplay};
 use jiff::Timestamp;
-use payloads::responses;
+use payloads::{CurrencySettings, responses};
 use yew::prelude::*;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +53,7 @@ impl AuctionStatus {
 pub struct Props {
     pub auction: responses::Auction,
     pub site_timezone: Option<String>,
+    pub currency: CurrencySettings,
 }
 
 #[function_component]
@@ -189,6 +190,7 @@ pub fn AuctionToplineInfo(props: &Props) -> Html {
                                 auction_params={
                                     auction_details.auction_params.clone()
                                 }
+                                currency={props.currency.clone()}
                             />
                         }
                     } else {

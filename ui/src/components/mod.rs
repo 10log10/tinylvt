@@ -1,4 +1,5 @@
 pub mod active_status_toggle;
+pub mod auction_page_wrapper;
 pub mod auction_params_editor;
 pub mod auction_params_viewer;
 pub mod auction_tab_header;
@@ -42,6 +43,7 @@ pub mod user_identity_display;
 pub mod warning_modal;
 
 pub use active_status_toggle::ActiveStatusToggle;
+pub use auction_page_wrapper::{AuctionContext, AuctionPageWrapper};
 pub use auction_params_editor::AuctionParamsEditor;
 pub use auction_params_viewer::AuctionParamsViewer;
 pub use auction_tab_header::AuctionTabHeader;

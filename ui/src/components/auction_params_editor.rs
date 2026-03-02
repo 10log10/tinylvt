@@ -8,6 +8,8 @@ use yew::prelude::*;
 pub struct Props {
     pub auction_params: AuctionParams,
     pub on_change: Callback<AuctionParams>,
+    /// The name of the currency (e.g., "dollars", "credits")
+    pub currency_name: String,
     #[prop_or_default]
     pub disabled: bool,
 }
@@ -150,7 +152,7 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
 
                 <div>
                     <label for="bid-increment" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-                        {"Bid Increment (dollars)"}
+                        {format!("Bid Increment ({})", props.currency_name)}
                     </label>
                     <input
                         type="text"
@@ -168,7 +170,7 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
                                disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                        {"Minimum bid increment in dollars (e.g., 1.00, 0.25, 5.50)"}
+                        {"Minimum bid increment (e.g., 1.00, 0.25, 5.50)"}
                     </p>
                 </div>
 

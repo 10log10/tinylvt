@@ -1,10 +1,11 @@
 use jiff::{Span, SpanRound, Unit};
-use payloads::AuctionParams;
+use payloads::{AuctionParams, CurrencySettings};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub auction_params: AuctionParams,
+    pub currency: CurrencySettings,
 }
 
 #[function_component]
@@ -44,7 +45,7 @@ pub fn AuctionParamsViewer(props: &Props) -> Html {
                     {"Bid Increment"}
                 </label>
                 <p class="text-neutral-900 dark:text-neutral-100">
-                    {format!("${:.2}", props.auction_params.bid_increment)}
+                    {props.currency.format_amount(props.auction_params.bid_increment)}
                 </p>
             </div>
 

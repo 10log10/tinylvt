@@ -1,4 +1,4 @@
-use payloads::{RoundSpaceResult, SpaceId, responses};
+use payloads::{CurrencySettings, RoundSpaceResult, SpaceId, responses};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
 use yew::prelude::*;
@@ -30,6 +30,7 @@ pub struct Props {
     pub user_bid_space_ids: HashSet<SpaceId>,
     pub current_username: Option<String>,
     pub bid_increment: Decimal,
+    pub currency: CurrencySettings,
     pub on_bid: Callback<SpaceId>,
     pub on_delete_bid: Callback<SpaceId>,
     pub on_update_value: Callback<(SpaceId, Decimal)>,
@@ -40,6 +41,10 @@ pub struct Props {
     pub auction_started: bool,
     #[prop_or_default]
     pub user_eligibility: FetchState<Option<f64>>,
+    /// Current activity points (sum of eligibility points for spaces the user
+    /// is bidding on or winning)
+    #[prop_or_default]
+    pub current_activity: f64,
 }
 
 #[function_component]
@@ -78,25 +83,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             .collect()
     };
 
-    // Calculate current activity: sum of points for spaces where user is
-    // high bidder or has placed a bid in this round
-    let current_activity: f64 = filtered_spaces
-        .iter()
-        .filter(|space| {
-            let is_high_bidder = props
-                .current_username
-                .as_ref()
-                .and_then(|username| {
-                    price_map
-                        .get(&space.space_id)
-                        .map(|r| &r.winner.username == username)
-                })
-                .unwrap_or(false);
-            let has_bid = props.user_bid_space_ids.contains(&space.space_id);
-            is_high_bidder || has_bid
-        })
-        .map(|space| space.space_details.eligibility_points)
-        .sum();
+    let current_activity = props.current_activity;
 
     // Prepare space data
     let mut space_data: Vec<_> = filtered_spaces
@@ -285,6 +272,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 space={(*space).clone()}
                                 price={*price}
                                 bid_increment={props.bid_increment}
+                                currency={props.currency.clone()}
                                 user_value={*user_value}
                                 surplus={*surplus}
                                 proxy_bidding_enabled={props.proxy_bidding_enabled}
@@ -365,6 +353,7 @@ struct SpaceRowProps {
     space: responses::Space,
     price: Option<Decimal>,
     bid_increment: Decimal,
+    currency: CurrencySettings,
     user_value: Option<Decimal>,
     surplus: Option<Decimal>,
     proxy_bidding_enabled: bool,
@@ -516,7 +505,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     <div class="text-sm font-medium text-neutral-900 \
                                 dark:text-white">
                         {match props.price {
-                            Some(price) => format!("${:.2}", price),
+                            Some(price) => props.currency.format_amount(price),
                             None => "--".to_string(),
                         }}
                     </div>
@@ -557,8 +546,8 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                        dark:border-neutral-500"
                             >
                                 {match props.user_value {
-                                    Some(value) => format!("${:.2}", value),
-                                    None => "$--".to_string(),
+                                    Some(value) => props.currency.format_amount(value),
+                                    None => format!("{}--", props.currency.symbol),
                                 }}
                             </div>
                         }
@@ -581,8 +570,8 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         }
                     )}>
                         {match props.surplus {
-                            Some(value) => format!("${:.2}", value),
-                            None => "$--".to_string(),
+                            Some(value) => props.currency.format_amount(value),
+                            None => format!("{}--", props.currency.symbol),
                         }}
                     </div>
                 </div>
@@ -639,7 +628,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                        px-4 py-2 rounded-md text-sm \
                                        font-medium transition-colors"
                             >
-                                {format!("Remove bid at ${:.2}", bid_price)}
+                                {format!("Remove bid at {}", props.currency.format_amount(bid_price))}
                             </button>
                         }
                     } else if props.user_has_bid {
@@ -648,7 +637,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                             <span class="text-xs text-neutral-600 \
                                          dark:text-neutral-400 font-medium \
                                          text-right">
-                                {format!("Already bid at ${:.2}", bid_price)}
+                                {format!("Already bid at {}", props.currency.format_amount(bid_price))}
                             </span>
                         }
                     } else if props.is_deleted {
@@ -682,7 +671,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                        px-4 py-2 rounded-md text-sm \
                                        font-medium transition-colors"
                             >
-                                {format!("Bid at ${:.2}", bid_price)}
+                                {format!("Bid at {}", props.currency.format_amount(bid_price))}
                             </button>
                         }
                     } else {

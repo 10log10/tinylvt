@@ -108,12 +108,9 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                     round_duration: jiff::Span::new().minutes(5),
                     bid_increment: rust_decimal::Decimal::new(100, 2), // $1.00
                     activity_rule_params: ActivityRuleParams {
-                        eligibility_progression: vec![
-                            (0, 0.5),
-                            (10, 0.75),
-                            (20, 0.9),
-                            (30, 1.0),
-                        ],
+                        // 100% from round 0: bidders can freely move between
+                        // items while maintaining participation each round.
+                        eligibility_progression: vec![(0, 1.0)],
                     },
                 },
                 // Default values for MVP - auctions will be manually created
