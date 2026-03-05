@@ -7,7 +7,7 @@ edition = "2024"
 
 [features]
 default = []
-mock-time = []
+mock-time = []  # enables time mocking and deterministing scheduler behavior
 mock-email = []
 
 [dependencies]

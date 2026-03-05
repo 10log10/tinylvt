@@ -1,4 +1,6 @@
 pub mod active_status_toggle;
+pub mod annotated_screenshot;
+pub mod auction_interface_walkthrough;
 pub mod auction_page_wrapper;
 pub mod auction_params_editor;
 pub mod auction_params_viewer;
@@ -43,6 +45,10 @@ pub mod user_identity_display;
 pub mod warning_modal;
 
 pub use active_status_toggle::ActiveStatusToggle;
+pub use annotated_screenshot::{
+    AnnotatedScreenshot, Annotation, AnnotationLayout,
+};
+pub use auction_interface_walkthrough::AuctionInterfaceWalkthrough;
 pub use auction_page_wrapper::{AuctionContext, AuctionPageWrapper};
 pub use auction_params_editor::AuctionParamsEditor;
 pub use auction_params_viewer::AuctionParamsViewer;

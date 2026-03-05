@@ -10,3 +10,4 @@ ui/dist
 
 # Environment variables (may contain sensitive data)
 .env
+screenshots/output/

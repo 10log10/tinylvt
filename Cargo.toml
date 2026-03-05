@@ -5,7 +5,8 @@ members = [
     "ui",
     "test-helpers",
     "dev-server",
-    "markdown-html"
+    "markdown-html",
+    "screenshots"
 ]
 resolver = "3"
 

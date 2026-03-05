@@ -498,40 +498,56 @@ impl TestApp {
     }
 }
 
-pub fn alice_credentials() -> requests::CreateAccount {
+// Test user names
+pub const ALICE: &str = "alice";
+pub const BOB: &str = "bob";
+pub const CHARLIE: &str = "charlie";
+pub const DIANA: &str = "diana";
+pub const EVE: &str = "eve";
+
+/// Generate credentials for a test user following the pattern:
+/// - username: the provided name
+/// - password: first letter of name
+/// - email: "{name}@example.com"
+pub fn credentials(username: &str) -> requests::CreateAccount {
     requests::CreateAccount {
-        username: "alice".into(),
-        password: "a".into(),
-        email: "alice@example.com".into(),
+        username: username.into(),
+        password: username.chars().next().unwrap().to_string(),
+        email: format!("{}@example.com", username),
     }
+}
+
+/// Generate login credentials for a test user
+pub fn login_credentials(username: &str) -> requests::LoginCredentials {
+    requests::LoginCredentials {
+        username: username.into(),
+        password: username.chars().next().unwrap().to_string(),
+    }
+}
+
+// Legacy helpers for backward compatibility
+pub fn alice_credentials() -> requests::CreateAccount {
+    credentials(ALICE)
 }
 
 pub fn alice_login_credentials() -> requests::LoginCredentials {
-    to_login_credentials(&alice_credentials())
+    login_credentials(ALICE)
 }
 
 pub fn bob_credentials() -> requests::CreateAccount {
-    requests::CreateAccount {
-        username: "bob".into(),
-        password: "bobspw".into(),
-        email: "bob@example.com".into(),
-    }
+    credentials(BOB)
 }
 
 pub fn bob_login_credentials() -> requests::LoginCredentials {
-    to_login_credentials(&bob_credentials())
+    login_credentials(BOB)
 }
 
 pub fn charlie_credentials() -> requests::CreateAccount {
-    requests::CreateAccount {
-        username: "charlie".into(),
-        password: "charliepw".into(),
-        email: "charlie@example.com".into(),
-    }
+    credentials(CHARLIE)
 }
 
 pub fn charlie_login_credentials() -> requests::LoginCredentials {
-    to_login_credentials(&charlie_credentials())
+    login_credentials(CHARLIE)
 }
 
 // Helper function to convert CreateAccount to LoginCredentials

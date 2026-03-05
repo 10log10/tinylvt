@@ -58,12 +58,6 @@ pub fn AuctionTabHeader(props: &Props) -> Html {
                 <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
                     {"Auction"}
                 </h1>
-                <p class="text-lg text-neutral-600 dark:text-neutral-400 mt-2">
-                    {"Possession period: "}
-                    {props.auction.auction_details.possession_start_at.to_string()}
-                    {" to "}
-                    {props.auction.auction_details.possession_end_at.to_string()}
-                </p>
             </div>
 
             // Tab Navigation

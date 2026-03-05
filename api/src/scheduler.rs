@@ -392,19 +392,31 @@ async fn update_round_space_results_within_tx(
 
         let (new_value, winning_user_id) = if bid_count > 0 {
             // With any bids, increase the value if there was a previous value
-            let winner = sqlx::query_scalar::<_, payloads::UserId>(
-                "SELECT user_id FROM bids
+            // In mock-time mode, use deterministic ordering for reproducible tests
+            // Need to use username since ids are nondeterministic
+            #[cfg(feature = "mock-time")]
+            let query = "SELECT b.user_id FROM bids b
+                JOIN users u ON b.user_id = u.id
+                WHERE b.space_id = $1 AND b.round_id = $2
+                ORDER BY u.username
+                LIMIT 1";
+            #[cfg(not(feature = "mock-time"))]
+            let query = "SELECT user_id FROM bids
                 WHERE space_id = $1 AND round_id = $2
                 ORDER BY random()
-                LIMIT 1",
-            )
-            .bind(space.id)
-            .bind(previous_round.id)
-            .fetch_one(&mut **tx)
-            .await
-            .with_context(|| {
-                format!("failed to select winning bid for space {}", space.id)
-            })?;
+                LIMIT 1";
+
+            let winner = sqlx::query_scalar::<_, payloads::UserId>(query)
+                .bind(space.id)
+                .bind(previous_round.id)
+                .fetch_one(&mut **tx)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to select winning bid for space {}",
+                        space.id
+                    )
+                })?;
 
             let new_value = match prev_result {
                 Some(prev) => prev.value + auction_params.bid_increment,
@@ -1091,17 +1103,25 @@ async fn process_user_proxy_bidding(
     })?;
 
     // Get user values for all spaces
-    let user_values = sqlx::query_as::<_, store::UserValue>(
-        "SELECT * FROM user_values 
-            WHERE user_id = $1 AND space_id = ANY($2)",
-    )
-    .bind(settings.user_id)
-    .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
-    .fetch_all(&mut *tx)
-    .await
-    .with_context(|| {
-        format!("failed to get user values for {:?}", settings.user_id)
-    })?;
+    // In mock-time mode, order by space name for deterministic proxy bidding
+    // Need to use space name since ids are nondeterministic
+    #[cfg(feature = "mock-time")]
+    let user_values_query = "SELECT uv.* FROM user_values uv
+        JOIN spaces s ON uv.space_id = s.id
+        WHERE uv.user_id = $1 AND uv.space_id = ANY($2)
+        ORDER BY s.name";
+    #[cfg(not(feature = "mock-time"))]
+    let user_values_query = "SELECT * FROM user_values
+        WHERE user_id = $1 AND space_id = ANY($2)";
+
+    let user_values = sqlx::query_as::<_, store::UserValue>(user_values_query)
+        .bind(settings.user_id)
+        .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
+        .fetch_all(&mut *tx)
+        .await
+        .with_context(|| {
+            format!("failed to get user values for {:?}", settings.user_id)
+        })?;
 
     tracing::info!("Found {} space values", user_values.len(),);
 
@@ -1112,6 +1132,7 @@ async fn process_user_proxy_bidding(
         .count();
 
     // Calculate surpluses for spaces where user has set values
+    // user_values is already ordered by space name in mock-time mode
     let mut space_surpluses: Vec<(SpaceId, Decimal)> = Vec::new();
     for user_value_entry in &user_values {
         let space_id = &user_value_entry.space_id;
@@ -1143,6 +1164,7 @@ async fn process_user_proxy_bidding(
     );
 
     // Sort by surplus (highest to lowest)
+    // Use stable sort to preserve space name ordering from the query
     space_surpluses.sort_by(|a, b| b.1.cmp(&a.1));
 
     // Try bidding on spaces in surplus order until we hit max_items

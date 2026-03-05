@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::Route;
 use crate::State;
+use crate::components::AuctionInterfaceWalkthrough;
 use crate::hooks::{use_push_route, use_title};
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -249,37 +250,17 @@ pub fn LoggedOutHomePage() -> Html {
                 </button>
             </div>
 
-            // Screenshots
-            <div class="max-w-7xl mx-auto px-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    if state.is_dark_mode() {
-                        <img
-                            src="/auction-list-dark.jpg"
-                            alt="TinyLVT screenshot showing auction list"
-                            class="w-full rounded-lg shadow-lg border \
-                                border-neutral-700"
-                        />
-                        <img
-                            src="/auction-page-dark.jpg"
-                            alt="TinyLVT screenshot showing auction page"
-                            class="w-full rounded-lg shadow-lg border \
-                                border-neutral-700"
-                        />
-                    } else {
-                        <img
-                            src="/auction-list-light.jpg"
-                            alt="TinyLVT screenshot showing auction list"
-                            class="w-full rounded-lg shadow-lg border \
-                                border-neutral-300"
-                        />
-                        <img
-                            src="/auction-page-light.jpg"
-                            alt="TinyLVT screenshot showing auction page"
-                            class="w-full rounded-lg shadow-lg border \
-                                border-neutral-300"
-                        />
-                    }
+            // Interface walkthrough section
+            <div class="max-w-5xl mx-auto space-y-8">
+                <div class="text-center space-y-4">
+                    <h2 class="text-2xl font-semibold text-neutral-900 \
+                        dark:text-neutral-100">
+                        {"The auction interface"}
+                    </h2>
                 </div>
+                <AuctionInterfaceWalkthrough
+                    dark_mode={state.is_dark_mode()}
+                />
             </div>
         </div>
     }
