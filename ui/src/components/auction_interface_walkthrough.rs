@@ -55,19 +55,19 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: true,
             caption_title: "Current round".to_string(),
             caption_text:
-                "Each round people place bids, and one bidder for each space is randomly selected as the standing high bidder."
+                "Bid at current price + increment. When the round ends, one bidder per space is randomly selected as standing high bidder."
                     .to_string(),
         },
         Annotation {
             point_x: 1450.0,
             point_y: 1380.0,
             caption_x: IMAGE_WIDTH + 70.0,
-            caption_y: 1200.0,
+            caption_y: 1000.0,
             caption_width: CAPTION_WIDTH,
             arrow_from_left: false,
             caption_title: "Eligibility".to_string(),
             caption_text:
-                "Ensures bidders actively participate throughout the auction."
+                "Your round activity (sum of eligibility points from bids + standing high bids) cannot exceed your eligibility."
                     .to_string(),
         },
         Annotation {
@@ -79,7 +79,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: true,
             caption_title: "Proxy bidding".to_string(),
             caption_text:
-                "The system bids for you automatically. Enable it before the auction starts."
+                "The system can bid for you automatically. Set your values and enable it before the auction starts."
                     .to_string(),
         },
         Annotation {
@@ -103,7 +103,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: true,
             caption_title: "Eligibility points".to_string(),
             caption_text:
-                "The number of eligibility points a space has. New bids and standing high bids count towards round activity."
+                "The number of eligibility points a space has. New bids and standing high bids count toward round activity."
                     .to_string(),
         },
         Annotation {
@@ -115,7 +115,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: false,
             caption_title: "Current price".to_string(),
             caption_text:
-                "The current price for a space based on the results of the last round. \"C\" is for \"credits\"."
+                "Prices increase each round. This community uses internal credits (C)."
                     .to_string(),
         },
         Annotation {
@@ -127,7 +127,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: false,
             caption_title: "Your value".to_string(),
             caption_text:
-                "The maximum amount you'd pay for a space. Set these to complete proxy bidding setup."
+                "The maximum amount you'd pay for a space. Required for proxy bidding."
                     .to_string(),
         },
         Annotation {
@@ -139,7 +139,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: false,
             caption_title: "Surplus".to_string(),
             caption_text:
-                "The difference between your value and the current price. This is what the proxy bidding maximizes."
+                "The difference between your value and the current price. Proxy bidding maximizes surplus."
                     .to_string(),
         },
         Annotation {
@@ -151,7 +151,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: false,
             caption_title: "Current bid".to_string(),
             caption_text:
-                "The proxy bidding has already bid for the space with the maximum surplus."
+                "Proxy bidding automatically bid on this space for its surplus."
                     .to_string(),
         },
         Annotation {
@@ -163,7 +163,7 @@ pub fn AuctionInterfaceWalkthrough(
             arrow_from_left: false,
             caption_title: "Eligibility limit".to_string(),
             caption_text:
-                "Not enough eligibility to bid for more than 1 point of spaces."
+                "Current eligibility only allows bidding on 1 eligibility point worth of spaces."
                     .to_string(),
         },
     ];

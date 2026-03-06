@@ -56,15 +56,13 @@ pub fn LoggedOutHomePage() -> Html {
                 </h2>
                 <p class="text-lg text-neutral-600 dark:text-neutral-400">
                     {"When housemates share a rental, who gets the master bedroom? \
-                    When a team shares an office, who gets the window desk?"}
-                </p>
-                <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"Traditional methods—first-come-first-served, rotation, or \
+                    When a team shares an office, who gets the window desk? \
+                    Traditional methods—first-come-first-served, rotation, or \
                     awkward negotiations—leave someone feeling shortchanged."}
                 </p>
             </div>
 
-            // Solution with key insight
+            // Solution
             <div class="max-w-2xl mx-auto space-y-4">
                 <h2 class="text-2xl font-semibold text-neutral-900 \
                     dark:text-neutral-100">
@@ -75,22 +73,15 @@ pub fn LoggedOutHomePage() -> Html {
                     bids what each space is worth to them. Spaces go to those who \
                     value them most, and the proceeds are shared equally."}
                 </p>
-                <p class="text-lg text-neutral-600 dark:text-neutral-400">
-                    {"TinyLVT uses "}
-                    <span class="font-medium text-neutral-900 \
-                        dark:text-neutral-100">
-                        {"Simultaneous Ascending Auctions"}
-                    </span>
-                    {", the same mechanism used for high-stakes allocations like \
-                    wireless spectrum licenses. It's the gold standard in \
-                    mechanism design."}
-                </p>
+            </div>
+
+            // Key insight box
+            <div class="max-w-2xl mx-auto">
                 <div class="bg-neutral-100 dark:bg-neutral-800 rounded-lg p-6 \
                     border border-neutral-200 dark:border-neutral-700">
                     <p class="text-lg font-medium text-neutral-900 \
                         dark:text-neutral-100">
-                        {"You only pay what others would have \
-                        paid."}
+                        {"You only pay what others would have paid."}
                     </p>
                     <p class="text-neutral-600 dark:text-neutral-400 mt-2">
                         {"If you win a space, you pay just enough to outbid the \
@@ -98,6 +89,42 @@ pub fn LoggedOutHomePage() -> Html {
                         honest bidding and ensures fair prices."}
                     </p>
                 </div>
+            </div>
+
+            // CTAs
+            <div class="py-4 flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                    onclick={on_sign_up.clone()}
+                    class="inline-block px-8 py-3 text-lg font-semibold \
+                        text-white bg-neutral-900 hover:bg-neutral-700 \
+                        dark:bg-neutral-100 dark:text-neutral-900 \
+                        dark:hover:bg-neutral-300 rounded transition-colors"
+                >
+                    {"Sign Up"}
+                </button>
+                <button
+                    onclick={on_learn_more.clone()}
+                    class="inline-block px-8 py-3 text-lg font-semibold \
+                        text-neutral-900 dark:text-neutral-100 border-2 \
+                        border-neutral-900 dark:border-neutral-100 \
+                        hover:bg-neutral-100 dark:hover:bg-neutral-800 \
+                        rounded transition-colors"
+                >
+                    {"Learn How It Works"}
+                </button>
+            </div>
+
+            // Interface walkthrough section
+            <div class="max-w-5xl mx-auto space-y-8">
+                <div class="text-center space-y-4">
+                    <h2 class="text-2xl font-semibold text-neutral-900 \
+                        dark:text-neutral-100">
+                        {"The auction interface"}
+                    </h2>
+                </div>
+                <AuctionInterfaceWalkthrough
+                    dark_mode={state.is_dark_mode()}
+                />
             </div>
 
             // Examples
@@ -227,7 +254,7 @@ pub fn LoggedOutHomePage() -> Html {
                 </div>
             </div>
 
-            // CTAs
+            // Final CTAs
             <div class="py-4 flex flex-col sm:flex-row gap-4 justify-center">
                 <button
                     onclick={on_sign_up}
@@ -248,19 +275,6 @@ pub fn LoggedOutHomePage() -> Html {
                 >
                     {"Learn How It Works"}
                 </button>
-            </div>
-
-            // Interface walkthrough section
-            <div class="max-w-5xl mx-auto space-y-8">
-                <div class="text-center space-y-4">
-                    <h2 class="text-2xl font-semibold text-neutral-900 \
-                        dark:text-neutral-100">
-                        {"The auction interface"}
-                    </h2>
-                </div>
-                <AuctionInterfaceWalkthrough
-                    dark_mode={state.is_dark_mode()}
-                />
             </div>
         </div>
     }
