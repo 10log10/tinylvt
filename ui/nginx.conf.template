@@ -47,6 +47,12 @@ http {
             add_header Cache-Control "public, immutable";
         }
 
+        # Cache images for 5 minutes (no content hash in filenames)
+        location ~* \.(png|jpg|jpeg|gif|webp|svg|ico)$ {
+            expires 5m;
+            add_header Cache-Control "public";
+        }
+
         # Enable directory listing for docs-source
         location /docs-source/ {
             autoindex on;
