@@ -1,4 +1,3 @@
-use payloads::requests;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -13,32 +12,32 @@ pub struct Props {
 pub fn EmailVerificationBanner(props: &Props) -> Html {
     let resend_loading = use_state(|| false);
     let resend_success = use_state(|| false);
+    let resend_error = use_state(|| false);
 
     let on_resend_email = {
         let resend_loading = resend_loading.clone();
         let resend_success = resend_success.clone();
-        let email = props.email.to_string();
+        let resend_error = resend_error.clone();
 
         Callback::from(move |_: MouseEvent| {
             let resend_loading = resend_loading.clone();
             let resend_success = resend_success.clone();
-            let email = email.clone();
+            let resend_error = resend_error.clone();
 
             resend_loading.set(true);
             resend_success.set(false);
+            resend_error.set(false);
 
             wasm_bindgen_futures::spawn_local(async move {
                 let client = crate::get_api_client();
-                let request = requests::ResendVerificationEmail { email };
 
-                match client.resend_verification_email(&request).await {
+                match client.resend_verification_email().await {
                     Ok(_) => {
                         resend_success.set(true);
                         resend_loading.set(false);
                     }
                     Err(_) => {
-                        // Even on error, don't reveal if the email exists
-                        resend_success.set(true);
+                        resend_error.set(true);
                         resend_loading.set(false);
                     }
                 }
@@ -83,6 +82,16 @@ pub fn EmailVerificationBanner(props: &Props) -> Html {
                             <p class="text-sm text-green-800 \
                                       dark:text-green-200">
                                 {"Verification email sent! Check your inbox."}
+                            </p>
+                        </div>
+                    }
+                    if *resend_error {
+                        <div class="bg-red-50 dark:bg-red-900/20 border \
+                                    border-red-200 dark:border-red-800 \
+                                    rounded-md p-3 mb-3">
+                            <p class="text-sm text-red-800 dark:text-red-200">
+                                {"Failed to send verification email. Please \
+                                  try again."}
                             </p>
                         </div>
                     }

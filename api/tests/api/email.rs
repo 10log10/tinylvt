@@ -114,20 +114,16 @@ async fn test_forgot_password_prevents_email_enumeration() {
 }
 
 #[tokio::test]
-async fn test_resend_verification_email_prevents_enumeration() {
+async fn test_resend_verification_email_requires_auth() {
     let app = spawn_app().await;
 
-    // Test with non-existent email - should still return success
-    let resend_request = requests::ResendVerificationEmail {
-        email: "nonexistent@example.com".to_string(),
-    };
-
-    let result = app.client.resend_verification_email(&resend_request).await;
-    assert!(result.is_ok());
+    // Without logging in, should fail with unauthorized
+    let result = app.client.resend_verification_email().await;
+    assert_status_code(result, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
-async fn test_resend_verification_email_invalidates_old_tokens() {
+async fn test_resend_verification_email_works() {
     let app = spawn_app().await;
 
     let credentials = requests::CreateAccount {
@@ -136,44 +132,29 @@ async fn test_resend_verification_email_invalidates_old_tokens() {
         password: "password123".to_string(),
     };
 
-    // 1. Create unverified account
+    // 1. Create unverified account and login
     app.create_unverified_user(&credentials).await.unwrap();
-
-    // 2. Get first verification token
-    let first_token = app
-        .get_verification_token_from_db(&credentials.email)
-        .await
-        .unwrap();
-
-    // 3. Request resend verification email
-    let resend_request = requests::ResendVerificationEmail {
-        email: credentials.email.clone(),
-    };
     app.client
-        .resend_verification_email(&resend_request)
+        .login(&requests::LoginCredentials {
+            username: credentials.username.clone(),
+            password: credentials.password.clone(),
+        })
         .await
         .unwrap();
 
-    // 4. Get new verification token (should be different)
-    let second_token = app
+    // 2. Request resend verification email
+    app.client.resend_verification_email().await.unwrap();
+
+    // 3. Get a valid verification token and use it
+    let token = app
         .get_verification_token_from_db(&credentials.email)
         .await
         .unwrap();
-    assert_ne!(first_token, second_token);
 
-    // 5. First token should now be invalid
-    assert!(!app.is_token_valid(&first_token).await.unwrap());
-
-    // 6. Second token should be valid
-    assert!(app.is_token_valid(&second_token).await.unwrap());
-
-    // 7. Second token should work for verification
-    let verify_request = requests::VerifyEmail {
-        token: second_token,
-    };
+    let verify_request = requests::VerifyEmail { token };
     app.client.verify_email(&verify_request).await.unwrap();
 
-    // 8. Email should now be verified
+    // 4. Email should now be verified
     assert!(app.is_email_verified(&credentials.email).await.unwrap());
 }
 
@@ -187,25 +168,35 @@ async fn test_resend_verification_email_already_verified() {
         password: "password123".to_string(),
     };
 
-    // 1. Create and verify account
+    // 1. Create unverified account
     app.create_unverified_user(&credentials).await.unwrap();
-    app.mark_user_email_verified(&credentials.username)
+
+    // 2. Verify email through the normal flow
+    let token = app
+        .get_verification_token_from_db(&credentials.email)
+        .await
+        .unwrap();
+    let verify_request = requests::VerifyEmail { token };
+    app.client.verify_email(&verify_request).await.unwrap();
+
+    // 3. Login
+    app.client
+        .login(&requests::LoginCredentials {
+            username: credentials.username.clone(),
+            password: credentials.password.clone(),
+        })
         .await
         .unwrap();
 
-    // 2. Request resend verification email for already verified account
-    let resend_request = requests::ResendVerificationEmail {
-        email: credentials.email.clone(),
-    };
-
-    // Should still return success (to prevent enumeration)
-    let result = app.client.resend_verification_email(&resend_request).await;
+    // 4. Request resend verification email for already verified account
+    // Should return success (email already verified message)
+    let result = app.client.resend_verification_email().await;
     assert!(result.is_ok());
 
-    // But no new token should be created since email is already verified
+    // No new unused token should exist since email is already verified
     let token_result =
         app.get_verification_token_from_db(&credentials.email).await;
-    assert!(token_result.is_err()); // No unused verification token should exist
+    assert!(token_result.is_err());
 }
 
 #[tokio::test]

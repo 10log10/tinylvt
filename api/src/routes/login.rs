@@ -218,93 +218,65 @@ pub async fn forgot_password(
     Ok(HttpResponse::Ok().json(response))
 }
 
-#[tracing::instrument(skip(pool, email_service, time_source, config))]
+#[tracing::instrument(skip(
+    identity,
+    pool,
+    email_service,
+    time_source,
+    config
+))]
 #[post("/resend_verification_email")]
 pub async fn resend_verification_email(
-    request: web::Json<payloads::requests::ResendVerificationEmail>,
+    identity: Identity,
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, APIError> {
-    // Always return success to prevent email enumeration
-    let response = payloads::responses::SuccessMessage {
-        message: "If an account with that email exists and is not yet verified, a verification email has been sent.".to_string(),
-    };
+    let user_id = get_user_id(&identity)?;
+    let user = store::read_user(&pool, &user_id).await?;
 
-    // Always perform the expensive operations to prevent timing attacks
-    // This ensures similar response times regardless of whether email exists/is verified
+    // If already verified, just return success
+    if user.email_verified {
+        return Ok(HttpResponse::Ok().json(
+            payloads::responses::SuccessMessage {
+                message: "Email already verified.".to_string(),
+            },
+        ));
+    }
 
-    // Try to find user by email
-    let user = store::get_user_by_email(&request.email, &pool).await.ok();
-
-    // Always invalidate tokens (even if user doesn't exist) - this is a no-op for non-existent users
-    sqlx::query(
-        r#"
-        UPDATE tokens 
-        SET used = true
-        WHERE user_id = $1 AND action = $2 AND used = false
-        "#,
-    )
-    .bind(user.as_ref().map(|u| &u.id))
-    .bind(TokenAction::EmailVerification)
-    .execute(&**pool)
-    .await
-    .map_err(|e| APIError::UnexpectedError(anyhow::Error::from(e)))?;
-
-    // Always create a token (even if we won't use it)
+    // Create new verification token
     let expires_at = time_source.now() + Span::new().hours(24);
-
-    // Create token using a dummy user ID if user doesn't exist
-    let dummy_user_id = payloads::UserId(uuid::Uuid::new_v4());
-    let token_user_id = user.as_ref().map(|u| &u.id).unwrap_or(&dummy_user_id); // Use dummy ID for non-existent users
-
     let token_id = store::create_token(
-        token_user_id,
+        &user_id,
         TokenAction::EmailVerification,
         expires_at,
         &pool,
         &time_source,
     )
-    .await;
+    .await?;
 
-    // Only send email if user exists and is not verified
-    let should_send_email =
-        user.as_ref().map(|u| !u.email_verified).unwrap_or(false);
-
-    if should_send_email && token_id.is_ok() {
-        let user = user.as_ref().unwrap(); // Safe because should_send_email ensures user exists
-        let token_id = token_id.unwrap(); // Safe because we checked is_ok()
-
-        if let Err(e) = email_service
-            .send_verification_email(
-                &user.email,
-                &user.username,
-                &token_id.0.to_string(),
-                &config.base_url,
-            )
-            .await
-        {
-            tracing::error!("Failed to resend verification email: {}", e);
-            // Still don't fail the request to maintain consistent behavior
-        }
-    } else if token_id.is_ok() {
-        // If we created a token but won't use it (user doesn't exist or already verified),
-        // mark it as used immediately to clean up
-        let token_id = token_id.unwrap();
-        let _ = sqlx::query(
-            r#"
-            UPDATE tokens 
-            SET used = true
-            WHERE id = $1
-            "#,
+    // Send verification email
+    email_service
+        .send_verification_email(
+            &user.email,
+            &user.username,
+            &token_id.0.to_string(),
+            &config.base_url,
         )
-        .bind(&token_id)
-        .execute(&**pool)
-        .await;
-    }
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to send verification email: {}", e);
+            APIError::UnexpectedError(anyhow::anyhow!(
+                "Failed to send verification email"
+            ))
+        })?;
 
-    Ok(HttpResponse::Ok().json(response))
+    Ok(
+        HttpResponse::Ok().json(payloads::responses::SuccessMessage {
+            message: "Verification email sent.".to_string(),
+        }),
+    )
 }
 
 #[derive(serde::Deserialize, Debug)]

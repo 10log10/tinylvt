@@ -267,11 +267,6 @@ pub struct ResetPassword {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ResendVerificationEmail {
-    pub email: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct VerifyEmail {
     pub token: String,
 }

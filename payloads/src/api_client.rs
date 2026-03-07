@@ -139,12 +139,11 @@ impl APIClient {
         ok_body(response).await
     }
 
-    /// Resend email verification for the given email address.
+    /// Resend email verification for the currently authenticated user.
     pub async fn resend_verification_email(
         &self,
-        details: &requests::ResendVerificationEmail,
     ) -> Result<responses::SuccessMessage, ClientError> {
-        let response = self.post("resend_verification_email", details).await?;
+        let response = self.empty_post("resend_verification_email").await?;
         ok_body(response).await
     }
 
