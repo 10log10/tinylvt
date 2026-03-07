@@ -13,8 +13,35 @@ use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../api/migrations");
-const DATABASE_URL: &str = "postgresql://user:password@localhost:5433";
+const DEFAULT_DATABASE_URL: &str = "postgresql://user:password@localhost:5433";
 const DEFAULT_DB: &str = "tinylvt";
+
+/// Get the database URL base (without database name) from environment or use
+/// default. Strips the database name if present since test-helpers creates its
+/// own test databases.
+fn get_database_url_base() -> String {
+    std::env::var("DATABASE_URL")
+        .map(|url| {
+            // Strip database name if present (e.g., "/tinylvt" suffix)
+            url.rsplit_once('/')
+                .map(|(base, _)| base.to_string())
+                .unwrap_or(url)
+        })
+        .unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())
+}
+
+/// Get allowed origins from environment or use default.
+fn get_allowed_origins() -> Vec<String> {
+    std::env::var("ALLOWED_ORIGINS")
+        .map(|origins| {
+            origins
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_else(|_| vec!["http://localhost:8080".to_string()])
+}
 
 pub struct TestApp {
     #[allow(unused)]
@@ -802,12 +829,12 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
     let time_source = TimeSource::new();
 
     let (db_pool, new_db_name) = setup_database().await.unwrap();
-    let db_url = format!("{DATABASE_URL}/{}", new_db_name);
+    let db_url = format!("{}/{}", get_database_url_base(), new_db_name);
     let mut config = Config {
         database_url: db_url,
         ip: "127.0.0.1".into(),
         port,
-        allowed_origins: vec!["http://localhost:8080".to_string()],
+        allowed_origins: get_allowed_origins(),
         email_api_key: secrecy::SecretBox::new(Box::new(
             "test-api-key".to_string(),
         )),
@@ -844,14 +871,15 @@ pub async fn spawn_app() -> TestApp {
 /// Create a new database specific for the test and migrate it, returning a
 /// connection and the name of the new database.
 async fn setup_database() -> Result<(PgPool, String), Error> {
+    let db_url_base = get_database_url_base();
     let default_conn =
-        PgPool::connect(&format!("{DATABASE_URL}/{DEFAULT_DB}")).await?;
+        PgPool::connect(&format!("{db_url_base}/{DEFAULT_DB}")).await?;
     let new_db = Uuid::new_v4().to_string();
     sqlx::query(&format!(r#"CREATE DATABASE "{}";"#, new_db))
         .execute(&default_conn)
         .await?;
     // If anything fails, we clean up the database with the guard
-    let conn = PgPool::connect(&format!("{DATABASE_URL}/{new_db}")).await?;
+    let conn = PgPool::connect(&format!("{db_url_base}/{new_db}")).await?;
     MIGRATOR.run(&conn).await?;
     Ok((conn, new_db))
 }

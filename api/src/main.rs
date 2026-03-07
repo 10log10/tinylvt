@@ -21,7 +21,7 @@ use api::{
 /// - BASE_URL: Base URL for email links (optional, defaults to http://localhost:8080)
 ///
 /// Example .env file:
-/// DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt
+/// DATABASE_URL=postgresql://user:password@localhost:5433/tinylvt
 /// IP_ADDRESS=127.0.0.1
 /// PORT=8000
 /// ALLOWED_ORIGINS=http://localhost:8080
@@ -30,7 +30,7 @@ use api::{
 /// BASE_URL=http://localhost:8080
 ///
 /// Example production command:
-/// DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt \
+/// DATABASE_URL=postgresql://user:password@localhost:5433/tinylvt \
 /// IP_ADDRESS=0.0.0.0 PORT=8000 ALLOWED_ORIGINS=https://app.tinylvt.com,https://tinylvt.com \
 /// cargo run
 #[actix_web::main]

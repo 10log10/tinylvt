@@ -14,3 +14,4 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 rust_decimal = { workspace = true }
 sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal", "time" ] }
+dotenvy = { workspace = true }

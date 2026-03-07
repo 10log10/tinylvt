@@ -13,13 +13,6 @@ Note that it uses the `postgres` container name, attached to port 5433, and that
 
 ## Environment Configuration
 
-You can configure the application using either:
-
-1. **Environment variables** (traditional method)
-2. **`.env` file** (recommended for local development)
-
-### Using a .env file
-
 Copy the example environment file and customize it:
 
 ```bash
@@ -27,69 +20,37 @@ cp env.example .env
 # Edit .env with your values
 ```
 
-Example `.env` file:
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt
-IP_ADDRESS=127.0.0.1
-PORT=8000
-ALLOWED_ORIGINS=http://localhost:8080
-EMAIL_API_KEY=your_resend_api_key_here
-EMAIL_FROM_ADDRESS=noreply@yourdomain.com
-BASE_URL=http://localhost:8080
-```
-
-### Using environment variables directly
-
-You can still use environment variables directly (they will override .env file values):
-
-```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt cargo run
-```
+The `.env` file is used by both `dev-server` and `api` binaries.
 
 ## Development with Hot Reloading
 
-For the best development experience with hot reloading:
+Run the development server (creates test data automatically):
 
-**Option 1: Using .env file (recommended)**
-
-Create a `.env` file (see above), then run:
-
-```
-cd api
-cargo run
+```bash
+cargo run -p dev-server
 ```
 
-**Option 2: Using environment variables**
+In a separate terminal, run the frontend:
 
-Run the backend (API server):
-
-```
-cd api
-DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt \
-IP_ADDRESS=127.0.0.1 \
-PORT=8000 \
-ALLOWED_ORIGINS=http://localhost:8080 \
-cargo run
+```bash
+cd ui && BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com trunk serve
 ```
 
-Run the frontend with hot reloading:
+The dev-server:
+- Creates comprehensive test data (users, communities, auctions)
+- Runs the auction scheduler automatically
+- Syncs mocked time with real time for browser compatibility
+- Prints login credentials for test accounts on startup
 
+### Using the API binary directly
+
+For production-like testing or when you don't need test data:
+
+```bash
+cd api && cargo run
 ```
-cd ui
-BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com trunk serve
-```
 
-This will:
-- Backend runs on `http://localhost:8000`
-- Frontend runs on `http://localhost:8080` with hot reloading
-
-## Multiple Origins
-
-To allow multiple origins (e.g., for testing from different ports):
-
-```
-ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
-```
+This requires configuring all environment variables in `.env` (see `env.example`).
 
 ## Production Deployment
 
@@ -130,7 +91,7 @@ BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk buil
 ## Environment Variables
 
 ### Backend (API Server)
-- `DATABASE_URL`: PostgreSQL connection string
+- `DATABASE_URL`: PostgreSQL connection string (port 5433 for local dev)
 - `IP_ADDRESS`: Server bind address (`127.0.0.1` for local, `0.0.0.0` for public)
 - `PORT`: Server port
 - `ALLOWED_ORIGINS`: Comma-separated list of allowed origins (e.g., `http://localhost:8080` for development, `https://tinylvt.com` for production)
@@ -143,12 +104,6 @@ BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk buil
 - `SUPPORT_EMAIL`: Support email address displayed in the help page (required)
 
 Use `cargo watch -x ...` in place of `cargo ...` to watch for filesystem changes.
-
-TODO: Generate data for testing:
-
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/database IP_ADDRESS=127.0.0.1 cargo run --bin gen_test_data
-```
 
 ## Linting SQL
 

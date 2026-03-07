@@ -20,7 +20,7 @@ anyhow = { workspace = true }
 argon2 = { version = "0.5.3", features = ["std"] }
 base64 = "0.22"
 derive_more = { workspace = true }
-dotenvy = "0.15.7"
+dotenvy = { workspace = true }
 jiff = { workspace = true }
 jiff-sqlx = { workspace = true }
 payloads = { path = "../payloads", features = ["use-sqlx"] }

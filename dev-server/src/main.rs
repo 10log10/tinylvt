@@ -16,6 +16,9 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables from .env file if available
+    let _ = dotenvy::dotenv();
+
     // Initialize logging
     let subscriber = api::telemetry::get_subscriber("info".into());
     api::telemetry::init_subscriber(subscriber);
