@@ -34,6 +34,24 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
     let is_loading = use_state(|| false);
     let username_error = use_state(|| None::<String>);
 
+    // Pre-fill dev credentials on mount
+    {
+        let username_ref = username_ref.clone();
+        let password_ref = password_ref.clone();
+        let show_dev_credentials = props.show_dev_credentials;
+        use_effect_with(show_dev_credentials, move |&show| {
+            if show {
+                if let Some(input) = username_ref.cast::<HtmlInputElement>() {
+                    input.set_value("alice");
+                }
+                if let Some(input) = password_ref.cast::<HtmlInputElement>() {
+                    input.set_value("password_alice");
+                }
+            }
+            || ()
+        });
+    }
+
     // Shared login callback that handles the login API call and state management
     let perform_login = {
         let error_message = error_message.clone();
@@ -267,7 +285,6 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         autocomplete="username"
                         required={true}
                         onchange={on_username_change.clone()}
-                        value={if props.show_dev_credentials { "alice" } else { "" }}
                         class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                rounded-md shadow-sm bg-white dark:bg-neutral-700
                                text-neutral-900 dark:text-neutral-100
@@ -295,7 +312,6 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         name="password"
                         autocomplete={if props.mode == AuthMode::CreateAccount { "new-password" } else { "current-password" }}
                         required={true}
-                        value={if props.show_dev_credentials { "password_alice" } else { "" }}
                         class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                rounded-md shadow-sm bg-white dark:bg-neutral-700
                                text-neutral-900 dark:text-neutral-100
