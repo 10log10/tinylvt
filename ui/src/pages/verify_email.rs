@@ -1,15 +1,17 @@
 use payloads::requests;
 use yew::prelude::*;
+use yewdux::prelude::*;
 
-use crate::Route;
 use crate::contexts::use_toast;
 use crate::hooks::{use_push_route, use_title};
+use crate::{AuthState, Route, State};
 
 #[function_component]
 pub fn VerifyEmailPage() -> Html {
     use_title("Verify Email - TinyLVT");
     let push_route = use_push_route();
     let toast = use_toast();
+    let (_, dispatch) = use_store::<State>();
 
     let is_verifying = use_state(|| true);
     let error_message = use_state(|| None::<String>);
@@ -22,6 +24,7 @@ pub fn VerifyEmailPage() -> Html {
         let success = success.clone();
         let push_route = push_route.clone();
         let toast = toast.clone();
+        let dispatch = dispatch.clone();
 
         use_effect_with((), move |_| {
             let is_verifying = is_verifying.clone();
@@ -29,6 +32,7 @@ pub fn VerifyEmailPage() -> Html {
             let success = success.clone();
             let push_route = push_route.clone();
             let toast = toast.clone();
+            let dispatch = dispatch.clone();
 
             yew::platform::spawn_local(async move {
                 // Extract token from query parameter
@@ -60,6 +64,14 @@ pub fn VerifyEmailPage() -> Html {
                     .await
                 {
                     Ok(_) => {
+                        // Refetch user profile to update auth state with
+                        // email_verified = true
+                        if let Ok(profile) = api_client.user_profile().await {
+                            dispatch.reduce_mut(|state| {
+                                state.auth_state = AuthState::LoggedIn(profile);
+                            });
+                        }
+
                         is_verifying.set(false);
                         success.set(true);
                         toast.success("Email verified successfully!");
