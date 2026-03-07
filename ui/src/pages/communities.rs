@@ -1,22 +1,31 @@
+use payloads::responses::UserProfile;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
-use crate::components::RequireAuth;
+use crate::components::{EmailVerificationBanner, RequireAuth};
 use crate::hooks::{use_communities, use_push_route, use_title};
 
 #[function_component]
 pub fn CommunitiesPage() -> Html {
     use_title("Communities - TinyLVT");
+    let render_content = Callback::from(|profile: UserProfile| {
+        html! { <CommunitiesPageInner profile={profile} /> }
+    });
+
     html! {
-        <RequireAuth>
-            <CommunitiesPageInner />
-        </RequireAuth>
+        <RequireAuth render={render_content} />
     }
 }
 
+#[derive(Properties, PartialEq)]
+struct CommunitiesPageInnerProps {
+    profile: UserProfile,
+}
+
 #[function_component]
-fn CommunitiesPageInner() -> Html {
+fn CommunitiesPageInner(props: &CommunitiesPageInnerProps) -> Html {
+    let profile = &props.profile;
     let push_route = use_push_route();
     let communities_hook = use_communities();
 
@@ -29,18 +38,27 @@ fn CommunitiesPageInner() -> Html {
 
     html! {
         <div class="space-y-8">
+            if !profile.email_verified {
+                <EmailVerificationBanner email={profile.email.clone()} />
+            }
+
             <div class="flex justify-between items-center">
                 <div>
-                    <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
+                    <h1 class="text-3xl font-bold text-neutral-900 \
+                               dark:text-neutral-100">
                         {"Communities"}
                     </h1>
-                    <p class="text-lg text-neutral-600 dark:text-neutral-400 mt-2">
+                    <p class="text-lg text-neutral-600 dark:text-neutral-400 \
+                              mt-2">
                         {"Manage your community memberships"}
                     </p>
                 </div>
                 <button
                     onclick={on_create_community.clone()}
-                    class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                    class="bg-neutral-900 hover:bg-neutral-800 \
+                           dark:bg-neutral-100 dark:text-neutral-900 \
+                           dark:hover:bg-neutral-200 text-white px-4 py-2 \
+                           rounded-md text-sm font-medium transition-colors"
                 >
                     {"Create New Community"}
                 </button>

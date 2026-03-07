@@ -64,8 +64,7 @@ pub fn LeaveCommunityButton(props: &Props) -> Html {
                     Ok(_) => {
                         // Clear cached communities so they'll be refetched
                         dispatch.reduce_mut(|s| s.clear_communities());
-                        // Navigate to home page after leaving
-                        push_route.emit(Route::Home);
+                        push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         error_message.set(Some(format!(

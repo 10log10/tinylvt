@@ -44,15 +44,6 @@ pub fn render_user_name<T: HasUserName>(user: &T) -> Html {
     }
 }
 
-/// Returns the user's preferred display name (display_name if set, otherwise
-/// @username). Use this for plain text contexts like welcome messages.
-pub fn format_user_name<T: HasUserName>(user: &T) -> String {
-    match user.display_name() {
-        Some(display_name) => display_name.to_string(),
-        None => format!("@{}", user.username()),
-    }
-}
-
 /// Renders a user's identity unambiguously as a string, showing both display
 /// name and username. Format: "Display Name (@username)" or "@username" if no
 /// display name is set.

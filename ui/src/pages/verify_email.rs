@@ -82,9 +82,7 @@ pub fn VerifyEmailPage() -> Html {
                         )
                         .await;
 
-                        // Redirect to home - it will show login form if not
-                        // authenticated
-                        push_route.emit(Route::Home);
+                        push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         is_verifying.set(false);

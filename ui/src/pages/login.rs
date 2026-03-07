@@ -26,14 +26,14 @@ pub fn LoginPage() -> Html {
         }
     };
 
-    // Redirect to home if already logged in
+    // Redirect to communities if already logged in
     {
         let push_route = push_route.clone();
         let is_authenticated = state.is_authenticated();
 
         use_effect_with(is_authenticated, move |is_auth| {
             if *is_auth {
-                push_route.emit(Route::Home);
+                push_route.emit(Route::Communities);
             }
         });
     }
@@ -42,9 +42,7 @@ pub fn LoginPage() -> Html {
         let push_route = push_route.clone();
 
         Callback::from(move |_profile: responses::UserProfile| {
-            // Both login and account creation now navigate to home
-            // since we auto-login users after successful account creation
-            push_route.emit(Route::Home);
+            push_route.emit(Route::Communities);
         })
     };
 
