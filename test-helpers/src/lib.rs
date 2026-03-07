@@ -800,6 +800,7 @@ fn site_image_details_a_update_expected(
         community_id,
         name: "test image updated".into(),
         image_data: original.image_data,
+        mime_type: "image/png".into(),
         created_at: jiff::Timestamp::now(), // This will be overridden in the test
         updated_at: jiff::Timestamp::now(), // This will be overridden in the test
     }
@@ -813,6 +814,7 @@ pub fn assert_site_image_equal(
     assert_eq!(expected.community_id, retrieved.community_id);
     assert_eq!(expected.name, retrieved.name);
     assert_eq!(expected.image_data, retrieved.image_data);
+    assert_eq!(expected.mime_type, retrieved.mime_type);
     // We don't check timestamps as they are set by the database
     Ok(())
 }

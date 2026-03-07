@@ -156,7 +156,7 @@ pub async fn get_site_image_bytes(
     let site_image =
         store::get_site_image(&site_image_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok()
-        .content_type("image/jpeg")
+        .content_type(site_image.mime_type.as_str())
         // Private caching ensures membership check happens per-user (CDNs won't
         // cache, but browsers will). Image data is immutable once created.
         .insert_header(("Cache-Control", "private, max-age=604800, immutable"))

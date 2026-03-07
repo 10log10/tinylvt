@@ -486,6 +486,14 @@ pub async fn create_site_image(
         });
     }
 
+    // Validate image format using magic bytes
+    let kind = infer::get(&details.image_data)
+        .ok_or(StoreError::InvalidImageFormat)?;
+    if !infer::is_image(&details.image_data) {
+        return Err(StoreError::InvalidImageFormat);
+    }
+    let mime_type = kind.mime_type();
+
     // Validate user is a member of the community
     let actor =
         get_validated_member(user_id, &details.community_id, pool).await?;
@@ -496,13 +504,15 @@ pub async fn create_site_image(
     }
 
     let site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
-        "INSERT INTO site_images (community_id, name, image_data, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $4)
+        "INSERT INTO site_images
+            (community_id, name, image_data, mime_type, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)
          RETURNING *",
     )
     .bind(details.community_id)
     .bind(&details.name)
     .bind(&details.image_data)
+    .bind(mime_type)
     .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
     .await?;
@@ -623,7 +633,7 @@ pub async fn list_site_images(
     let _ = get_validated_member(user_id, community_id, pool).await?;
 
     let site_images = sqlx::query_as::<_, payloads::responses::SiteImageInfo>(
-        "SELECT id, community_id, name, created_at, updated_at
+        "SELECT id, community_id, name, mime_type, created_at, updated_at
          FROM site_images WHERE community_id = $1 ORDER BY name",
     )
     .bind(community_id)

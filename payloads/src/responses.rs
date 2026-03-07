@@ -177,6 +177,7 @@ pub struct SiteImage {
     pub community_id: crate::CommunityId,
     pub name: String,
     pub image_data: Vec<u8>,
+    pub mime_type: String,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub created_at: Timestamp,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
@@ -191,6 +192,7 @@ pub struct SiteImageInfo {
     pub id: crate::SiteImageId,
     pub community_id: crate::CommunityId,
     pub name: String,
+    pub mime_type: String,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub created_at: Timestamp,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]

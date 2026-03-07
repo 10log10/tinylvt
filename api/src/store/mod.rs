@@ -564,6 +564,10 @@ pub enum StoreError {
     #[error("Image too large. Maximum size is 1MB, received {size} bytes")]
     ImageTooLarge { size: usize },
     #[error(
+        "Invalid image format. File must be a valid image (JPEG, PNG, etc.)"
+    )]
+    InvalidImageFormat,
+    #[error(
         "Site description too long. Maximum is {max} characters, received {size}"
     )]
     SiteDescriptionTooLong { size: usize, max: usize },
