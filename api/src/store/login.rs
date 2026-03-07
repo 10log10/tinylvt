@@ -20,8 +20,10 @@ pub async fn create_user(
     if let Some(error_message) = validation.error_message() {
         return Err(StoreError::InvalidUsername(error_message.to_string()));
     }
-    if email.len() > payloads::requests::EMAIL_MAX_LEN {
-        return Err(StoreError::FieldTooLong);
+    // Validate email format
+    let email_validation = payloads::requests::validate_email(email);
+    if let Some(error_message) = email_validation.error_message() {
+        return Err(StoreError::InvalidEmail(error_message.to_string()));
     }
     let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (

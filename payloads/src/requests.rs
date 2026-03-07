@@ -57,6 +57,51 @@ pub fn validate_username(username: &str) -> UsernameValidation {
     UsernameValidation::Valid
 }
 
+/// Validation result for emails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmailValidation {
+    Valid,
+    TooLong,
+    InvalidFormat,
+}
+
+impl EmailValidation {
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    pub fn error_message(&self) -> Option<&'static str> {
+        match self {
+            Self::Valid => None,
+            Self::TooLong => Some("Email must be at most 255 characters"),
+            Self::InvalidFormat => Some("Invalid email format"),
+        }
+    }
+}
+
+/// Validate an email address.
+///
+/// Basic format check: must contain exactly one @, with non-empty
+/// local and domain parts, and domain must contain a dot.
+pub fn validate_email(email: &str) -> EmailValidation {
+    if email.len() > EMAIL_MAX_LEN {
+        return EmailValidation::TooLong;
+    }
+
+    // Basic format: local@domain.tld
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 {
+        return EmailValidation::InvalidFormat;
+    }
+
+    let (local, domain) = (parts[0], parts[1]);
+    if local.is_empty() || domain.is_empty() || !domain.contains('.') {
+        return EmailValidation::InvalidFormat;
+    }
+
+    EmailValidation::Valid
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct LoginCredentials {
     pub username: String,

@@ -64,7 +64,6 @@ pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
     Ok(HttpResponse::Ok().finish())
 }
 
-// TODO: return error if email is not a valid format
 #[tracing::instrument(skip(
     new_user_details,
     pool,

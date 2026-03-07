@@ -489,6 +489,8 @@ pub struct AuditLog {
 pub enum StoreError {
     #[error("Invalid username: {0}")]
     InvalidUsername(String),
+    #[error("Invalid email: {0}")]
+    InvalidEmail(String),
     #[error("Email not yet verified")]
     UnverifiedEmail,
     #[error("Moderator permissions required")]
