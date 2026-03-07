@@ -32,7 +32,7 @@ Example `.env` file:
 DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt
 IP_ADDRESS=127.0.0.1
 PORT=8000
-ALLOWED_ORIGINS=*
+ALLOWED_ORIGINS=http://localhost:8080
 EMAIL_API_KEY=your_resend_api_key_here
 EMAIL_FROM_ADDRESS=noreply@yourdomain.com
 BASE_URL=http://localhost:8080
@@ -68,7 +68,7 @@ cd api
 DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt \
 IP_ADDRESS=127.0.0.1 \
 PORT=8000 \
-ALLOWED_ORIGINS=* \
+ALLOWED_ORIGINS=http://localhost:8080 \
 cargo run
 ```
 
@@ -80,29 +80,16 @@ BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com trunk serve
 ```
 
 This will:
-- Backend runs on `http://localhost:8000` 
+- Backend runs on `http://localhost:8000`
 - Frontend runs on `http://localhost:8080` with hot reloading
-- CORS allows any origin (using `*`)
 
-## Production-Style Development
+## Multiple Origins
 
-To test production-like CORS restrictions:
-
-```
-cd api
-DATABASE_URL=postgresql://user:password@localhost:5432/tinylvt \
-IP_ADDRESS=127.0.0.1 \
-PORT=8000 \
-ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000 \
-cargo run
-```
+To allow multiple origins (e.g., for testing from different ports):
 
 ```
-cd ui
-SUPPORT_EMAIL=support@tinylvt.com trunk build --release
+ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
 ```
-
-Then serve the built files from `ui/dist/` with a proper web server.
 
 ## Production Deployment
 
@@ -146,9 +133,7 @@ BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk buil
 - `DATABASE_URL`: PostgreSQL connection string
 - `IP_ADDRESS`: Server bind address (`127.0.0.1` for local, `0.0.0.0` for public)
 - `PORT`: Server port
-- `ALLOWED_ORIGINS`:
-  - Use `*` to allow any origin (development only)
-  - Or comma-separated list of specific origins (e.g., `https://app.tinylvt.com,https://tinylvt.com`)
+- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins (e.g., `http://localhost:8080` for development, `https://tinylvt.com` for production)
 - `EMAIL_API_KEY`: API key for email service (e.g., Resend)
 - `EMAIL_FROM_ADDRESS`: From address for outgoing emails
 - `BASE_URL`: Base URL for email links (optional, defaults to http://localhost:8080)

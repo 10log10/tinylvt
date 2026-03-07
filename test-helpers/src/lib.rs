@@ -807,7 +807,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         database_url: db_url,
         ip: "127.0.0.1".into(),
         port,
-        allowed_origins: vec!["*".to_string()],
+        allowed_origins: vec!["http://localhost:8080".to_string()],
         email_api_key: secrecy::SecretBox::new(Box::new(
             "test-api-key".to_string(),
         )),

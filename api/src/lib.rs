@@ -85,26 +85,15 @@ pub async fn build_with_email_service(
     let listener = TcpListener::bind(format!("{}:{}", config.ip, config.port))?;
     config.port = listener.local_addr()?.port();
     let server = HttpServer::new(move || {
-        // Configure CORS based on allowed origins
-        let cors = if allowed_origins.contains(&"*".to_string()) {
-            // Allow any origin (for development)
-            Cors::default()
-                .allow_any_origin()
-                .allow_any_method()
-                .allow_any_header()
-                .supports_credentials()
-        } else {
-            // Production: Only allow specified origins
-            let mut cors = Cors::default()
-                .allow_any_method()
-                .allow_any_header()
-                .supports_credentials();
+        // Configure CORS with explicitly allowed origins
+        let mut cors = Cors::default()
+            .allow_any_method()
+            .allow_any_header()
+            .supports_credentials();
 
-            for origin in &allowed_origins {
-                cors = cors.allowed_origin(origin);
-            }
-            cors
-        };
+        for origin in &allowed_origins {
+            cors = cors.allowed_origin(origin);
+        }
 
         App::new()
             .wrap(cors)
@@ -169,7 +158,7 @@ impl Config {
         use std::env::var;
 
         let allowed_origins = var("ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "*".to_string()) // Default to allow any origin for development
+            .expect("ALLOWED_ORIGINS must be specified")
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
