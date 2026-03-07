@@ -98,6 +98,13 @@ pub async fn change_password(
     password: SecretBox<String>,
     pool: &PgPool,
 ) -> Result<(), anyhow::Error> {
+    // Validate password before expensive hash operation
+    let password_validation =
+        payloads::requests::validate_password(password.expose_secret());
+    if let Some(error_message) = password_validation.error_message() {
+        return Err(anyhow::anyhow!(error_message));
+    }
+
     let password_hash =
         spawn_blocking_with_tracing(move || compute_password_hash(password))
             .await?
@@ -134,6 +141,14 @@ pub async fn create_user(
     pool: &PgPool,
     time_source: &crate::time::TimeSource,
 ) -> Result<payloads::UserId, StoreError> {
+    // Validate password before expensive hash operation
+    let password_validation = payloads::requests::validate_password(
+        new_user_details.password.expose_secret(),
+    );
+    if let Some(error_message) = password_validation.error_message() {
+        return Err(StoreError::InvalidPassword(error_message.to_string()));
+    }
+
     let password_hash = spawn_blocking_with_tracing(move || {
         compute_password_hash(new_user_details.password)
     })

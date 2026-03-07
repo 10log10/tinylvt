@@ -65,11 +65,11 @@ pub fn ResetPasswordPage() -> Html {
                 return;
             }
 
-            // Validate password length
-            if password.len() < 8 {
-                error.set(Some(
-                    "Password must be at least 8 characters long".to_string(),
-                ));
+            // Validate password
+            if let Some(err) =
+                payloads::requests::validate_password(&password).error_message()
+            {
+                error.set(Some(err.to_string()));
                 return;
             }
 

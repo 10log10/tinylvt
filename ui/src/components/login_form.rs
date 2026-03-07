@@ -165,11 +165,11 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         return;
                     }
 
-                    if password.len() < 6 {
-                        error_message.set(Some(
-                            "Password must be at least 6 characters"
-                                .to_string(),
-                        ));
+                    if let Some(err) =
+                        payloads::requests::validate_password(&password)
+                            .error_message()
+                    {
+                        error_message.set(Some(err.to_string()));
                         return;
                     }
 
@@ -267,6 +267,7 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         autocomplete="username"
                         required={true}
                         onchange={on_username_change.clone()}
+                        value={if props.show_dev_credentials { "alice" } else { "" }}
                         class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                rounded-md shadow-sm bg-white dark:bg-neutral-700
                                text-neutral-900 dark:text-neutral-100
@@ -294,6 +295,7 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         name="password"
                         autocomplete={if props.mode == AuthMode::CreateAccount { "new-password" } else { "current-password" }}
                         required={true}
+                        value={if props.show_dev_credentials { "password_alice" } else { "" }}
                         class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                rounded-md shadow-sm bg-white dark:bg-neutral-700
                                text-neutral-900 dark:text-neutral-100
@@ -346,14 +348,6 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                     }
                 </button>
             </form>
-
-            if props.show_dev_credentials {
-                <div class="mt-6 text-center">
-                    <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                        {"Development credentials: alice / a"}
-                    </p>
-                </div>
-            }
         </div>
     }
 }

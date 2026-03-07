@@ -6,6 +6,8 @@ pub const EMAIL_MAX_LEN: usize = 255;
 pub const USERNAME_MIN_LEN: usize = 3;
 pub const USERNAME_MAX_LEN: usize = 30;
 pub const DISPLAY_NAME_MAX_LEN: usize = 255;
+pub const PASSWORD_MIN_LEN: usize = 8;
+pub const PASSWORD_MAX_LEN: usize = 128;
 
 /// Validation result for usernames.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +102,39 @@ pub fn validate_email(email: &str) -> EmailValidation {
     }
 
     EmailValidation::Valid
+}
+
+/// Validation result for passwords.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasswordValidation {
+    Valid,
+    TooShort,
+    TooLong,
+}
+
+impl PasswordValidation {
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    pub fn error_message(&self) -> Option<&'static str> {
+        match self {
+            Self::Valid => None,
+            Self::TooShort => Some("Password must be at least 8 characters"),
+            Self::TooLong => Some("Password must be at most 128 characters"),
+        }
+    }
+}
+
+/// Validate a password.
+pub fn validate_password(password: &str) -> PasswordValidation {
+    if password.len() < PASSWORD_MIN_LEN {
+        return PasswordValidation::TooShort;
+    }
+    if password.len() > PASSWORD_MAX_LEN {
+        return PasswordValidation::TooLong;
+    }
+    PasswordValidation::Valid
 }
 
 #[derive(Serialize, Deserialize)]

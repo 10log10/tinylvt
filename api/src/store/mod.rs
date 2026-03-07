@@ -491,6 +491,8 @@ pub enum StoreError {
     InvalidUsername(String),
     #[error("Invalid email: {0}")]
     InvalidEmail(String),
+    #[error("Invalid password: {0}")]
+    InvalidPassword(String),
     #[error("Email not yet verified")]
     UnverifiedEmail,
     #[error("Moderator permissions required")]

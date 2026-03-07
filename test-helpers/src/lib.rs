@@ -534,12 +534,12 @@ pub const EVE: &str = "eve";
 
 /// Generate credentials for a test user following the pattern:
 /// - username: the provided name
-/// - password: first letter of name
+/// - password: "password_{name}" (meets 8-char minimum)
 /// - email: "{name}@example.com"
 pub fn credentials(username: &str) -> requests::CreateAccount {
     requests::CreateAccount {
         username: username.into(),
-        password: username.chars().next().unwrap().to_string(),
+        password: format!("password_{}", username),
         email: format!("{}@example.com", username),
     }
 }
@@ -548,7 +548,7 @@ pub fn credentials(username: &str) -> requests::CreateAccount {
 pub fn login_credentials(username: &str) -> requests::LoginCredentials {
     requests::LoginCredentials {
         username: username.into(),
-        password: username.chars().next().unwrap().to_string(),
+        password: format!("password_{}", username),
     }
 }
 
