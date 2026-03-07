@@ -187,7 +187,9 @@ impl Config {
 use actix_web::{
     Error,
     dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
-    http::header::{CACHE_CONTROL, EXPIRES, HeaderValue, PRAGMA},
+    http::header::{
+        CACHE_CONTROL, EXPIRES, HeaderValue, PRAGMA, X_CONTENT_TYPE_OPTIONS,
+    },
 };
 use std::{
     future::{Ready, ready},
@@ -259,6 +261,10 @@ where
                     .insert(PRAGMA, HeaderValue::from_static("no-cache"));
                 res.headers_mut()
                     .insert(EXPIRES, HeaderValue::from_static("0"));
+                res.headers_mut().insert(
+                    X_CONTENT_TYPE_OPTIONS,
+                    HeaderValue::from_static("nosniff"),
+                );
 
                 Ok(ServiceResponse::new(req, res))
             } else {

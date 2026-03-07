@@ -50,6 +50,16 @@ async fn test_security_headers_on_authenticated_endpoints() -> Result<()> {
         .to_str()?;
     assert_eq!(expires, "0", "Expires should be 0");
 
+    // Check X-Content-Type-Options header
+    let content_type_options = headers
+        .get("x-content-type-options")
+        .expect("X-Content-Type-Options header should be present")
+        .to_str()?;
+    assert_eq!(
+        content_type_options, "nosniff",
+        "X-Content-Type-Options should be nosniff"
+    );
+
     Ok(())
 }
 
