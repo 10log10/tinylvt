@@ -3,7 +3,6 @@ use yew::prelude::*;
 use yewdux::prelude::*;
 
 use crate::components::AuthForm;
-use crate::contexts::use_toast;
 use crate::hooks::{use_push_route, use_title};
 use crate::{AuthState, Route, State};
 
@@ -17,11 +16,11 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
     use_title("Accept Invite - TinyLVT");
     let push_route = use_push_route();
     let (state, dispatch) = use_store::<State>();
-    let toast = use_toast();
 
     let invite_id = props.invite_id;
     let is_accepting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
+    let success_message = use_state(|| false);
     let community_name = use_state(|| None::<String>);
     let is_loading_name = use_state(|| true);
 
@@ -60,15 +59,15 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
     let accept_invite = {
         let is_accepting = is_accepting.clone();
         let error_message = error_message.clone();
+        let success_message = success_message.clone();
         let push_route = push_route.clone();
-        let toast = toast.clone();
         let dispatch = dispatch.clone();
 
         move || {
             let is_accepting = is_accepting.clone();
             let error_message = error_message.clone();
+            let success_message = success_message.clone();
             let push_route = push_route.clone();
-            let toast = toast.clone();
             let dispatch = dispatch.clone();
 
             yew::platform::spawn_local(async move {
@@ -78,22 +77,27 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                 let api_client = crate::get_api_client();
                 match api_client.accept_invite(&invite_id).await {
                     Ok(()) => {
-                        toast.success("Successfully joined community!");
+                        success_message.set(true);
 
                         // Clear communities cache to force refresh
                         dispatch.reduce_mut(|state| {
                             state.clear_communities();
                         });
 
+                        // Wait briefly to show success message
+                        yew::platform::time::sleep(
+                            std::time::Duration::from_secs(2),
+                        )
+                        .await;
+
                         // Navigate to communities page
                         push_route.emit(Route::Communities);
                     }
                     Err(e) => {
                         error_message.set(Some(e.to_string()));
+                        is_accepting.set(false);
                     }
                 }
-
-                is_accepting.set(false);
             });
         }
     };
@@ -152,64 +156,88 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
             html! {
                 <div class="flex items-center justify-center min-h-[60vh]">
                     <div class="max-w-md w-full bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-md">
-                        <div class="mb-8 text-center">
-                            <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-                                {"Accept Community Invite"}
-                            </h1>
-                            <p class="text-neutral-600 dark:text-neutral-400">
-                                {
-                                    if let Some(name) = &*community_name {
-                                        format!("You've been invited to join {} on TinyLVT.", name)
-                                    } else {
-                                        "You've been invited to join a community on TinyLVT.".to_string()
-                                    }
-                                }
-                            </p>
-                        </div>
-
-                        if let Some(error) = &*error_message {
-                            <div class="mb-6 p-4 rounded-md bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-800">
-                                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
+                        if *success_message {
+                            <div class="text-center py-8">
+                                <div class="mb-4">
+                                    <svg class="mx-auto h-12 w-12 text-green-600 dark:text-green-400"
+                                         fill="none"
+                                         stroke="currentColor"
+                                         viewBox="0 0 24 24">
+                                        <path stroke-linecap="round"
+                                              stroke-linejoin="round"
+                                              stroke-width="2"
+                                              d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                                <p class="text-neutral-900 dark:text-neutral-100 font-medium mb-2">
+                                    {"Successfully joined community!"}
+                                </p>
+                                <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                                    {"Redirecting..."}
+                                </p>
                             </div>
-                        }
+                        } else {
+                            <>
+                                <div class="mb-8 text-center">
+                                    <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                                        {"Accept Community Invite"}
+                                    </h1>
+                                    <p class="text-neutral-600 dark:text-neutral-400">
+                                        {
+                                            if let Some(name) = &*community_name {
+                                                format!("You've been invited to join {} on TinyLVT.", name)
+                                            } else {
+                                                "You've been invited to join a community on TinyLVT.".to_string()
+                                            }
+                                        }
+                                    </p>
+                                </div>
 
-                        <div class="space-y-4">
-                            <button
-                                onclick={{
-                                    let accept_invite = accept_invite.clone();
-                                    Callback::from(move |_| {
-                                        accept_invite();
-                                    })
-                                }}
-                                disabled={*is_accepting}
-                                class="w-full flex justify-center py-2 px-4 border border-transparent
-                                       rounded-md shadow-sm text-sm font-medium text-white
-                                       bg-neutral-900 hover:bg-neutral-800 
-                                       dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200
-                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                       disabled:opacity-50 disabled:cursor-not-allowed
-                                       transition-colors duration-200"
-                            >
-                                if *is_accepting {
-                                    {"Accepting..."}
-                                } else {
-                                    {"Accept Invite"}
+                                if let Some(error) = &*error_message {
+                                    <div class="mb-6 p-4 rounded-md bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-800">
+                                        <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
+                                    </div>
                                 }
-                            </button>
 
-                            <button
-                                onclick={Callback::from(move |_| {
-                                    push_route.emit(Route::Communities);
-                                })}
-                                class="w-full flex justify-center py-2 px-4 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                       bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                       transition-colors duration-200"
-                            >
-                                {"Cancel"}
-                            </button>
-                        </div>
+                                <div class="space-y-4">
+                                    <button
+                                        onclick={{
+                                            let accept_invite = accept_invite.clone();
+                                            Callback::from(move |_| {
+                                                accept_invite();
+                                            })
+                                        }}
+                                        disabled={*is_accepting}
+                                        class="w-full flex justify-center py-2 px-4 border border-transparent
+                                               rounded-md shadow-sm text-sm font-medium text-white
+                                               bg-neutral-900 hover:bg-neutral-800
+                                               dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200
+                                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
+                                               disabled:opacity-50 disabled:cursor-not-allowed
+                                               transition-colors duration-200"
+                                    >
+                                        if *is_accepting {
+                                            {"Accepting..."}
+                                        } else {
+                                            {"Accept Invite"}
+                                        }
+                                    </button>
+
+                                    <button
+                                        onclick={Callback::from(move |_| {
+                                            push_route.emit(Route::Communities);
+                                        })}
+                                        class="w-full flex justify-center py-2 px-4 border border-neutral-300 dark:border-neutral-600
+                                               rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
+                                               bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
+                                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
+                                               transition-colors duration-200"
+                                    >
+                                        {"Cancel"}
+                                    </button>
+                                </div>
+                            </>
+                        }
                     </div>
                 </div>
             }

@@ -2,7 +2,6 @@ use payloads::requests;
 use yew::prelude::*;
 use yewdux::prelude::*;
 
-use crate::contexts::use_toast;
 use crate::hooks::{use_push_route, use_title};
 use crate::{AuthState, Route, State};
 
@@ -10,7 +9,6 @@ use crate::{AuthState, Route, State};
 pub fn VerifyEmailPage() -> Html {
     use_title("Verify Email - TinyLVT");
     let push_route = use_push_route();
-    let toast = use_toast();
     let (_, dispatch) = use_store::<State>();
 
     let is_verifying = use_state(|| true);
@@ -23,7 +21,6 @@ pub fn VerifyEmailPage() -> Html {
         let error_message = error_message.clone();
         let success = success.clone();
         let push_route = push_route.clone();
-        let toast = toast.clone();
         let dispatch = dispatch.clone();
 
         use_effect_with((), move |_| {
@@ -31,7 +28,6 @@ pub fn VerifyEmailPage() -> Html {
             let error_message = error_message.clone();
             let success = success.clone();
             let push_route = push_route.clone();
-            let toast = toast.clone();
             let dispatch = dispatch.clone();
 
             yew::platform::spawn_local(async move {
@@ -74,7 +70,6 @@ pub fn VerifyEmailPage() -> Html {
 
                         is_verifying.set(false);
                         success.set(true);
-                        toast.success("Email verified successfully!");
 
                         // Wait before redirecting
                         yew::platform::time::sleep(

@@ -4,7 +4,6 @@ use web_sys::{Event, FocusEvent, SubmitEvent};
 use yew::prelude::*;
 
 use crate::components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader};
-use crate::contexts::use_toast;
 use crate::hooks::use_issued_invites;
 
 #[derive(Properties, PartialEq)]
@@ -488,7 +487,7 @@ pub struct IssuedInviteCardProps {
 fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
     let invite = &props.invite;
     let is_deleting = use_state(|| false);
-    let toast = use_toast();
+    let delete_error = use_state(|| None::<String>);
 
     // Format timestamp for display
     let created_date = {
@@ -500,17 +499,18 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
 
     let on_delete_click = {
         let is_deleting = is_deleting.clone();
+        let delete_error = delete_error.clone();
         let community_id = props.community_id;
         let invite_id = invite.id;
         let on_invite_deleted = props.on_invite_deleted.clone();
-        let toast = toast.clone();
 
         Callback::from(move |_| {
             let is_deleting = is_deleting.clone();
+            let delete_error = delete_error.clone();
             let on_invite_deleted = on_invite_deleted.clone();
-            let toast = toast.clone();
 
             is_deleting.set(true);
+            delete_error.set(None);
 
             yew::platform::spawn_local(async move {
                 let api_client = crate::get_api_client();
@@ -521,13 +521,11 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
 
                 match api_client.delete_invite(&delete_details).await {
                     Ok(()) => {
-                        // Show success toast and refetch invites
-                        toast.success("Invite deleted successfully");
+                        // Refetch invites (the card will disappear)
                         on_invite_deleted.emit(());
                     }
                     Err(err) => {
-                        toast
-                            .error(format!("Failed to delete invite: {}", err));
+                        delete_error.set(Some(err.to_string()));
                         is_deleting.set(false);
                     }
                 }
@@ -572,6 +570,16 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
                     {if *is_deleting { "Deleting..." } else { "Delete" }}
                 </button>
             </div>
+
+            {if let Some(error) = delete_error.as_ref() {
+                html! {
+                    <div class="mb-2 p-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                        <p class="text-xs text-red-700 dark:text-red-400">{error}</p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
 
             <div class="text-sm text-neutral-600 dark:text-neutral-400">
                 <p class="mb-2">{format!("Created on {}", created_date)}</p>
