@@ -583,6 +583,18 @@ pub enum StoreError {
         "Community description too long. Maximum is {max} characters, received {size}"
     )]
     CommunityDescriptionTooLong { size: usize, max: usize },
+    #[error("Site name too long. Maximum is {max} characters, received {size}")]
+    SiteNameTooLong { size: usize, max: usize },
+    #[error(
+        "Space name too long. Maximum is {max} characters, received {size}"
+    )]
+    SpaceNameTooLong { size: usize, max: usize },
+    #[error(
+        "Journal note too long. Maximum is {max} characters, received {size}"
+    )]
+    JournalNoteTooLong { size: usize, max: usize },
+    #[error("Invalid timezone: {timezone}")]
+    InvalidTimezone { timezone: String },
     #[error("Community invite not found")]
     CommunityInviteNotFound,
     #[error("Open hours not found")]

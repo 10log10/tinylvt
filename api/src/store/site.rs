@@ -18,6 +18,14 @@ pub async fn create_site(
         });
     }
 
+    // Validate name length
+    if details.name.len() > payloads::requests::SITE_NAME_MAX_LEN {
+        return Err(StoreError::SiteNameTooLong {
+            size: details.name.len(),
+            max: payloads::requests::SITE_NAME_MAX_LEN,
+        });
+    }
+
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
@@ -25,6 +33,15 @@ pub async fn create_site(
         return Err(StoreError::SiteDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
+        });
+    }
+
+    // Validate timezone is a valid IANA timezone string
+    if let Some(tz) = &details.timezone
+        && jiff::tz::TimeZone::get(tz).is_err()
+    {
+        return Err(StoreError::InvalidTimezone {
+            timezone: tz.clone(),
         });
     }
 
@@ -222,6 +239,14 @@ pub async fn update_site(
 
     let details = &update_site.site_details;
 
+    // Validate name length
+    if details.name.len() > payloads::requests::SITE_NAME_MAX_LEN {
+        return Err(StoreError::SiteNameTooLong {
+            size: details.name.len(),
+            max: payloads::requests::SITE_NAME_MAX_LEN,
+        });
+    }
+
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
@@ -229,6 +254,15 @@ pub async fn update_site(
         return Err(StoreError::SiteDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
+        });
+    }
+
+    // Validate timezone is a valid IANA timezone string
+    if let Some(tz) = &details.timezone
+        && jiff::tz::TimeZone::get(tz).is_err()
+    {
+        return Err(StoreError::InvalidTimezone {
+            timezone: tz.clone(),
         });
     }
 

@@ -1,12 +1,14 @@
 use payloads::{
     CommunityId, CurrencyMode, IdempotencyKey, TreasuryRecipient, UserId,
-    requests, responses::CommunityWithRole,
+    requests::{self, JOURNAL_NOTE_MAX_LEN},
+    responses::CommunityWithRole,
 };
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
 use yew::prelude::*;
 
+use super::TextInput;
 use crate::components::transfer_form::MemberSelect;
 use crate::get_api_client;
 
@@ -138,12 +140,8 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
         let success_message = success_message.clone();
         let error_message = error_message.clone();
 
-        Callback::from(move |e: Event| {
-            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-            let value = input.value();
-            if value.len() <= 100 {
-                note_input.set(value);
-            }
+        Callback::from(move |value: String| {
+            note_input.set(value);
             success_message.set(None);
             error_message.set(None);
         })
@@ -396,23 +394,15 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
             </div>
 
             // Note input
-            <div>
-                <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                    {"Note (optional)"}
-                </label>
-                <input
-                    type="text"
-                    class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                    placeholder="What is this operation for?"
-                    value={(*note_input).clone()}
-                    onchange={on_note_change}
-                    maxlength="100"
-                    disabled={*is_submitting}
-                />
-                <p class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                    {format!("{}/100 characters", note_input.len())}
-                </p>
-            </div>
+            <TextInput
+                value={AttrValue::from((*note_input).clone())}
+                on_change={on_note_change}
+                max_length={JOURNAL_NOTE_MAX_LEN}
+                label="Note (optional)"
+                placeholder="What is this operation for?"
+                disabled={*is_submitting}
+                id="treasury-note"
+            />
 
             // Actions
             <div class="flex gap-3">

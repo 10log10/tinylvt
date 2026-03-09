@@ -151,6 +151,9 @@ pub struct CreateAccount {
 }
 
 pub const COMMUNITY_NAME_MAX_LEN: usize = 255;
+pub const SITE_NAME_MAX_LEN: usize = 255;
+pub const SPACE_NAME_MAX_LEN: usize = 255;
+pub const JOURNAL_NOTE_MAX_LEN: usize = 100;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateCommunity {

@@ -52,6 +52,14 @@ async fn create_space_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> Result<Space, StoreError> {
+    // Validate name length
+    if details.name.len() > payloads::requests::SPACE_NAME_MAX_LEN {
+        return Err(StoreError::SpaceNameTooLong {
+            size: details.name.len(),
+            max: payloads::requests::SPACE_NAME_MAX_LEN,
+        });
+    }
+
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH
@@ -167,6 +175,14 @@ async fn update_space_tx(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<payloads::responses::UpdateSpaceResult, StoreError> {
+    // Validate name length
+    if details.name.len() > payloads::requests::SPACE_NAME_MAX_LEN {
+        return Err(StoreError::SpaceNameTooLong {
+            size: details.name.len(),
+            max: payloads::requests::SPACE_NAME_MAX_LEN,
+        });
+    }
+
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH

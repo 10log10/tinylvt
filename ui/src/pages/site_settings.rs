@@ -1,6 +1,7 @@
 use payloads::{
     AuctionParams, CurrencySettings, Role, Site, SiteId, SiteImageId,
-    requests::UpdateSite, responses::Site as SiteResponse,
+    requests::{SITE_NAME_MAX_LEN, UpdateSite},
+    responses::Site as SiteResponse,
 };
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
@@ -11,7 +12,7 @@ use crate::{
     components::{
         AuctionParamsEditor, AuctionParamsViewer, ConfirmationModal,
         MarkdownEditor, MarkdownText, SiteImageSelector, SitePageWrapper,
-        SiteTabHeader, SiteWithRole, site_tab_header::ActiveTab,
+        SiteTabHeader, SiteWithRole, TextInput, site_tab_header::ActiveTab,
     },
     get_api_client,
     hooks::{use_auctions, use_push_route, use_site, use_sites},
@@ -67,7 +68,7 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         .unwrap_or("UTC")
         .to_string();
 
-    let name_ref = use_node_ref();
+    let site_name = use_state(|| props.site.site_details.name.clone());
     let timezone_ref = use_node_ref();
     let use_timezone_ref = use_node_ref();
 
@@ -130,8 +131,16 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         })
     };
 
+    // Handle name change
+    let on_name_change = {
+        let site_name = site_name.clone();
+        Callback::from(move |value: String| {
+            site_name.set(value);
+        })
+    };
+
     let on_update = {
-        let name_ref = name_ref.clone();
+        let site_name = site_name.clone();
         let timezone_ref = timezone_ref.clone();
         let use_timezone_ref = use_timezone_ref.clone();
         let error_message = error_message.clone();
@@ -147,11 +156,18 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
 
-            let name_input = name_ref.cast::<HtmlInputElement>().unwrap();
-            let name = name_input.value().trim().to_string();
+            let name = site_name.trim().to_string();
 
             if name.is_empty() {
                 error_message.set(Some("Please enter a site name".to_string()));
+                return;
+            }
+
+            if name.len() > SITE_NAME_MAX_LEN {
+                error_message.set(Some(format!(
+                    "Site name must be at most {} characters",
+                    SITE_NAME_MAX_LEN
+                )));
                 return;
             }
 
@@ -527,27 +543,16 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
                             {"Basic Information"}
                         </h3>
 
-                        <div>
-                            <label for="site-name" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-                                {"Site Name *"}
-                            </label>
-                            <input
-                                ref={name_ref}
-                                type="text"
-                                id="site-name"
-                                name="name"
-                                value={props.site.site_details.name.clone()}
-                                required={true}
-                                disabled={*is_loading}
-                                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
-                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
-                                       text-neutral-900 dark:text-neutral-100
-                                       focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
-                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400
-                                       disabled:opacity-50 disabled:cursor-not-allowed"
-                                placeholder="Enter site name"
-                            />
-                        </div>
+                        <TextInput
+                            value={AttrValue::from((*site_name).clone())}
+                            on_change={on_name_change.clone()}
+                            max_length={SITE_NAME_MAX_LEN}
+                            label="Site Name"
+                            placeholder="Enter site name"
+                            required={true}
+                            disabled={*is_loading}
+                            id="site-name"
+                        />
 
                         <div>
                             <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">

@@ -475,6 +475,16 @@ async fn create_entry(
     time_source: &TimeSource,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
+    // Validate note length
+    if let Some(note) = &params.note
+        && note.len() > payloads::requests::JOURNAL_NOTE_MAX_LEN
+    {
+        return Err(StoreError::JournalNoteTooLong {
+            size: note.len(),
+            max: payloads::requests::JOURNAL_NOTE_MAX_LEN,
+        });
+    }
+
     // Check idempotency
     let existing: Option<JournalEntryId> = sqlx::query_scalar(
         "SELECT id FROM journal_entries WHERE idempotency_key = $1",

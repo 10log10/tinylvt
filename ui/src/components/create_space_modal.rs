@@ -1,9 +1,11 @@
-use payloads::{CommunityId, SiteId, SiteImageId, Space};
+use payloads::{
+    CommunityId, SiteId, SiteImageId, Space, requests::SPACE_NAME_MAX_LEN,
+};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use super::SiteImageSelector;
+use super::{SiteImageSelector, TextInput};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -15,7 +17,7 @@ pub struct Props {
 
 #[function_component]
 pub fn CreateSpaceModal(props: &Props) -> Html {
-    let name_ref = use_node_ref();
+    let space_name = use_state(String::new);
     let description_ref = use_node_ref();
     let eligibility_ref = use_node_ref();
     let available_ref = use_node_ref();
@@ -59,16 +61,26 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         let error = error.clone();
         let created_space_name = created_space_name.clone();
         let selected_image_id = selected_image_id.clone();
+        let space_name = space_name.clone();
         Callback::from(move |_| {
             success.set(false);
             error.set(None);
             created_space_name.set(None);
             selected_image_id.set(None);
+            space_name.set(String::new());
+        })
+    };
+
+    // Handle name change
+    let on_name_change = {
+        let space_name = space_name.clone();
+        Callback::from(move |value: String| {
+            space_name.set(value);
         })
     };
 
     let on_submit = {
-        let name_ref = name_ref.clone();
+        let space_name = space_name.clone();
         let description_ref = description_ref.clone();
         let eligibility_ref = eligibility_ref.clone();
         let available_ref = available_ref.clone();
@@ -83,15 +95,22 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
 
-            let name_input = name_ref.cast::<HtmlInputElement>().unwrap();
-            let name = name_input.value().trim().to_string();
+            let name = space_name.trim().to_string();
 
             if name.is_empty() {
                 error.set(Some("Name is required".to_string()));
                 return;
             }
 
-            let space_name = name.clone();
+            if name.len() > SPACE_NAME_MAX_LEN {
+                error.set(Some(format!(
+                    "Space name must be at most {} characters",
+                    SPACE_NAME_MAX_LEN
+                )));
+                return;
+            }
+
+            let space_name_for_display = name.clone();
 
             let description_input =
                 description_ref.cast::<HtmlInputElement>().unwrap();
@@ -135,7 +154,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
             let success = success.clone();
             let created_space_name = created_space_name.clone();
             let on_space_created = on_space_created.clone();
-            let name_ref = name_ref.clone();
+            let space_name_state = space_name.clone();
             let description_ref = description_ref.clone();
             let eligibility_ref = eligibility_ref.clone();
             let available_ref = available_ref.clone();
@@ -148,14 +167,10 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                 match api_client.create_space(&space).await {
                     Ok(_) => {
                         success.set(true);
-                        created_space_name.set(Some(space_name));
+                        created_space_name.set(Some(space_name_for_display));
                         on_space_created.emit(());
                         // Clear form inputs
-                        if let Some(name_elem) =
-                            name_ref.cast::<HtmlInputElement>()
-                        {
-                            name_elem.set_value("");
-                        }
+                        space_name_state.set(String::new());
                         if let Some(desc_elem) =
                             description_ref.cast::<HtmlInputElement>()
                         {
@@ -257,23 +272,16 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                             }}
 
                 <form onsubmit={on_submit} class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-                            {"Name *"}
-                        </label>
-                        <input
-                            ref={name_ref}
-                            type="text"
-                            disabled={*is_loading}
-                            required={true}
-                            class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
-                                   rounded-md shadow-sm bg-white dark:bg-neutral-700
-                                   text-neutral-900 dark:text-neutral-100
-                                   focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
-                                   disabled:opacity-50 disabled:cursor-not-allowed"
-                            placeholder="Enter space name"
-                        />
-                    </div>
+                    <TextInput
+                        value={AttrValue::from((*space_name).clone())}
+                        on_change={on_name_change.clone()}
+                        max_length={SPACE_NAME_MAX_LEN}
+                        label="Name"
+                        placeholder="Enter space name"
+                        required={true}
+                        disabled={*is_loading}
+                        id="space-name"
+                    />
 
                     <div>
                         <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
