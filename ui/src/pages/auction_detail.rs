@@ -482,9 +482,6 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                     }
                     Err(e) => {
                         tracing::error!("Failed to place bid: {}", e);
-                        web_sys::console::error_1(
-                            &format!("Failed to place bid: {}", e).into(),
-                        );
                     }
                 }
             });
@@ -522,9 +519,6 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                     }
                     Err(e) => {
                         tracing::error!("Failed to remove bid: {}", e);
-                        web_sys::console::error_1(
-                            &format!("Failed to remove bid: {}", e).into(),
-                        );
                     }
                 }
             });

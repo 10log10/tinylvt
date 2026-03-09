@@ -154,9 +154,7 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
                     }
                     Err(e) => {
                         // TODO: Could show error in the card itself
-                        web_sys::console::error_1(
-                            &format!("Failed to rename image: {}", e).into(),
-                        );
+                        tracing::error!("Failed to rename image: {}", e);
                     }
                 }
             });
