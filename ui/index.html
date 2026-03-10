@@ -3,8 +3,21 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0">
-        <title>TinyLVT</title>
-        <meta name="description" content="Fair allocation for shared spaces.">
+        <title>TinyLVT - Fair Allocation for Shared Spaces</title>
+        <meta name="description" content="TinyLVT uses auctions to allocate shared spaces fairly. From splitting rent among housemates to assigning desks in a workspace, everyone pays according to actual demand.">
+
+        <!-- Open Graph -->
+        <meta property="og:type" content="website">
+        <meta property="og:title" content="TinyLVT - Fair Allocation for Shared Spaces">
+        <meta property="og:description" content="TinyLVT uses auctions to allocate shared spaces fairly. From splitting rent among housemates to assigning desks in a workspace, everyone pays according to actual demand.">
+        <meta property="og:url" content="https://tinylvt.com/">
+        <meta property="og:site_name" content="TinyLVT">
+
+        <!-- Twitter Card -->
+        <meta name="twitter:card" content="summary">
+        <meta name="twitter:title" content="TinyLVT - Fair Allocation for Shared Spaces">
+        <meta name="twitter:description" content="TinyLVT uses auctions to allocate shared spaces fairly. From splitting rent among housemates to assigning desks in a workspace, everyone pays according to actual demand.">
+
         <script>
             // Set dark mode immediately to prevent flash
             // HTML has class="dark" by default, so we only remove it if needed
@@ -25,23 +38,8 @@
         <link data-trunk rel="copy-file" href="assets/auction-detail-light.jpg"/>
         <link data-trunk rel="copy-file" href="assets/auction-detail-dark.jpg"/>
         <link data-trunk rel="copy-dir" href="../docs" data-target-path="docs-source"/>
-        <style>
-            #app-loading {
-                position: absolute;
-                left: -10000px;
-                top: auto;
-                width: 1px;
-                height: 1px;
-                overflow: hidden;
-            }
-        </style>
     </head>
     <body>
-        <!-- Trunk will inject the WASM app and hot-reload script here -->
-        <div id="app-loading">
-            <h1>TinyLVT - Fair space allocation for shared spaces</h1>
-            <p>TinyLVT helps communities allocate shared spaces fairly through simultaneous ascending auctions.</p>
-            <p>For full documentation, see <a href="/docs-source/">/docs-source/</a></p>
-        </div>
+        <!-- Trunk will inject the WASM app here -->
     </body>
 </html>

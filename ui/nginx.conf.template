@@ -23,7 +23,7 @@ http {
     # Gzip compression for text-based assets
     gzip on;
     gzip_vary on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript application/wasm;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript application/wasm text/html;
     gzip_min_length 256;
 
     server {
@@ -60,7 +60,19 @@ http {
             autoindex_localtime on;
         }
 
-        # SPA routing: all routes serve index.html
+        # Pre-rendered landing page for SEO
+        # Serve static HTML that includes full content for search engines
+        location = / {
+            try_files /landing.html /index.html;
+        }
+
+        # Pre-rendered docs pages for SEO
+        # Serves pre-rendered HTML if it exists, otherwise falls back to SPA
+        location ~ ^/docs(?:/(.+?))?/?$ {
+            try_files /docs/$1/index.html /docs/index.html /index.html;
+        }
+
+        # SPA routing: all other routes serve index.html
         # This allows client-side routing (e.g., /communities/123) to work
         # when users refresh the page or visit a direct URL
         location / {

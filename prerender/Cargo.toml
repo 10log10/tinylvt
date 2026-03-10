@@ -1,0 +1,12 @@
+[package]
+name = "prerender"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "prerender"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+pulldown-cmark = { workspace = true }

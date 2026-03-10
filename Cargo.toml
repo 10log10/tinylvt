@@ -6,12 +6,14 @@ members = [
     "test-helpers",
     "dev-server",
     "markdown-html",
-    "screenshots"
+    "screenshots",
+    "prerender"
 ]
 resolver = "3"
 
 [workspace.dependencies]
 anyhow = "1.0.97"
+pulldown-cmark = "0.13"
 derive_more = { version = "2.0.1", features = ["display"] }
 dotenvy = "0.15.7"
 jiff = { version = "0.2", features = ["serde"] }

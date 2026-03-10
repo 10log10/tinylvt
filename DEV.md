@@ -141,3 +141,19 @@ done
 ```
 
 Quality depends on the image content. 50 seems fine for screenshots that lack any subtle color gradients. [JPEG quality examples.](https://regex.info/blog/lightroom-goodies/jpeg-quality)
+
+## Running ui Docker Container Locally
+
+```
+docker build -f ui/Dockerfile \
+    --build-arg BACKEND_URL=http://localhost:8000 \
+    --build-arg SUPPORT_EMAIL=support@tinylvt.com \
+    -t tinylvt-ui .
+```
+
+```
+docker run -d -p 8080:80 \
+    -e BACKEND_URL=http://localhost:8000 \
+    --name tinylvt-ui \
+    tinylvt-ui
+```

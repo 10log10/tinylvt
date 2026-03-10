@@ -38,7 +38,7 @@
 # NOTE: This Dockerfile must be run from the repository root (not ui/)
 # ============================================================================
 
-# Stage 1: Build the UI with Trunk
+# Stage 1: Build the UI with Trunk and generate pre-rendered pages
 FROM rust:1.90-bookworm AS builder
 
 # Install dependencies for Trunk and WASM compilation
@@ -70,6 +70,7 @@ COPY test-helpers ./test-helpers
 COPY dev-server ./dev-server
 COPY markdown-html ./markdown-html
 COPY screenshots ./screenshots
+COPY prerender ./prerender
 COPY docs ./docs
 
 # Build-time arguments: BACKEND_URL and SUPPORT_EMAIL embedded in WASM bundle
@@ -80,6 +81,12 @@ ARG SUPPORT_EMAIL
 # Note: data-wasm-opt="0" in index.html skips wasm-opt (binaryen 108 compatibility)
 WORKDIR /build/ui
 RUN BACKEND_URL=${BACKEND_URL} SUPPORT_EMAIL=${SUPPORT_EMAIL} trunk build --release
+
+# Build and run the prerender tool to generate static HTML pages for SEO
+# Debug mode is faster to compile and the tool only runs once
+WORKDIR /build
+RUN cargo build -p prerender
+RUN ./target/debug/prerender docs ui/dist
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine

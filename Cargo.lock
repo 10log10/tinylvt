@@ -2337,7 +2337,7 @@ name = "markdown-html"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
- "pulldown-cmark 0.12.2",
+ "pulldown-cmark",
  "quote",
  "syn 2.0.100",
 ]
@@ -2765,6 +2765,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "prerender"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pulldown-cmark",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2877,19 +2885,6 @@ checksum = "6f42ea446cab60335f76979ec15e12619a2165b5ae2c12166bef27d283a9fadf"
 dependencies = [
  "idna",
  "psl-types",
-]
-
-[[package]]
-name = "pulldown-cmark"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f86ba2052aebccc42cbbb3ed234b8b13ce76f75c3551a303cb2bcffcff12bb14"
-dependencies = [
- "bitflags",
- "getopts",
- "memchr",
- "pulldown-cmark-escape",
- "unicase",
 ]
 
 [[package]]
@@ -4246,7 +4241,7 @@ dependencies = [
  "js-sys",
  "markdown-html",
  "payloads",
- "pulldown-cmark 0.13.0",
+ "pulldown-cmark",
  "reqwest",
  "rust_decimal",
  "serde",

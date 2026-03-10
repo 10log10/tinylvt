@@ -20,6 +20,7 @@ COPY ui ./ui
 COPY dev-server ./dev-server
 COPY markdown-html ./markdown-html
 COPY screenshots ./screenshots
+COPY prerender ./prerender
 
 # Build the api binary in release mode
 # The sqlx::migrate!() macro will embed migrations at compile time
