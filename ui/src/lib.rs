@@ -16,10 +16,10 @@ use pages::{
     CommunityCurrencyPage, CommunityDetailPage, CommunityImagesPage,
     CommunityInvitesPage, CommunityMembersPage, CommunitySettingsPage,
     CommunityTreasuryPage, CreateAuctionPage, CreateCommunityPage,
-    CreateSitePage, ForgotPasswordPage, HelpPage, LoggedOutHomePage, LoginPage,
+    CreateSitePage, ForgotPasswordPage, LoggedOutHomePage, LoginPage,
     NotFoundPage, OrphanedAccountsPage, ProfilePage, ResetPasswordPage,
     SiteAuctionsPage, SiteOverviewPage, SiteSettingsPage, SiteSpacesPage,
-    VerifyEmailPage, docs,
+    TermsPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -65,8 +65,8 @@ pub enum Route {
     Login,
     #[at("/verify_email")]
     VerifyEmail,
-    #[at("/help")]
-    Help,
+    #[at("/terms")]
+    Terms,
     #[at("/docs")]
     Docs,
     #[at("/docs/currency")]
@@ -134,7 +134,7 @@ fn switch(routes: Route) -> Html {
         Route::Home => html! { <Redirect<Route> to={Route::Communities} /> },
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
-        Route::Help => html! { <HelpPage /> },
+        Route::Terms => html! { <TermsPage /> },
         Route::Docs => html! { <docs::DocsPage /> },
         Route::DocsCurrency => html! { <docs::CurrencyPage /> },
         Route::DocsSetup => html! { <docs::SetupPage /> },

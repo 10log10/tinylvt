@@ -23,6 +23,13 @@ struct DocsPage {
     output_file: &'static str,
 }
 
+const TERMS_PAGE: PageMeta = PageMeta {
+    title: "Terms of Service - TinyLVT",
+    description: "Terms of service for TinyLVT, \
+        operated by Aperture Beam Technologies, Inc.",
+    path: "/terms",
+};
+
 const LANDING_PAGE: PageMeta = PageMeta {
     title: "TinyLVT - Fair Allocation for Shared Spaces",
     description: "TinyLVT uses auctions to allocate shared spaces fairly. \
@@ -131,12 +138,15 @@ fn main() -> Result<()> {
     // Generate landing page
     generate_landing_page(output_dir, &assets)?;
 
+    // Generate terms page
+    generate_terms_page(docs_dir, output_dir, &assets)?;
+
     // Generate docs pages
     for page in DOCS_PAGES {
         generate_docs_page(docs_dir, output_dir, page, &assets)?;
     }
 
-    println!("Done! Generated {} pages.", DOCS_PAGES.len() + 1);
+    println!("Done! Generated {} pages.", DOCS_PAGES.len() + 2);
     Ok(())
 }
 
@@ -209,6 +219,31 @@ fn generate_landing_page(
     let html = render_page(&LANDING_PAGE, &content, assets, false);
 
     let output_path = output_dir.join("landing.html");
+    fs::write(&output_path, html)?;
+    println!("  Generated: {}", output_path.display());
+
+    Ok(())
+}
+
+/// Generate the terms page HTML
+fn generate_terms_page(
+    docs_dir: &Path,
+    output_dir: &Path,
+    assets: &TrunkAssets,
+) -> Result<()> {
+    let markdown_path = docs_dir.join("terms.md");
+    let markdown = fs::read_to_string(&markdown_path).with_context(|| {
+        format!("Failed to read {}", markdown_path.display())
+    })?;
+    let content = format!(
+        r#"<div class="max-w-3xl mx-auto px-4 py-8"><div class="prose dark:prose-invert max-w-none">{}</div></div>"#,
+        render_markdown(&markdown)
+    );
+    let html = render_page(&TERMS_PAGE, &content, assets, false);
+
+    let terms_dir = output_dir.join("terms");
+    fs::create_dir_all(&terms_dir)?;
+    let output_path = terms_dir.join("index.html");
     fs::write(&output_path, html)?;
     println!("  Generated: {}", output_path.display());
 
@@ -345,11 +380,13 @@ fn render_page(
 {content}
 </main>
 <footer class="bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 mt-auto">
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-<div class="flex justify-center gap-6">
-<a href="/help" class="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Help</a>
-<a href="https://github.com/10log10/tinylvt" target="_blank" rel="noopener noreferrer" class="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Source</a>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-2">
+<div class="flex flex-wrap justify-center gap-x-6 gap-y-1">
+<a href="/terms" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Terms</a>
+<a href="https://github.com/10log10/tinylvt" target="_blank" rel="noopener noreferrer" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Source</a>
+<a href="mailto:info@aperturebeam.com" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Contact</a>
 </div>
+<p class="text-xs text-neutral-400 dark:text-neutral-500 text-center">Aperture Beam Technologies, Inc.</p>
 </div>
 </footer>
 </div>

@@ -66,6 +66,11 @@ http {
             try_files /landing.html /index.html;
         }
 
+        # Pre-rendered terms page
+        location = /terms {
+            try_files /terms/index.html /index.html;
+        }
+
         # Pre-rendered docs pages for SEO
         # Serves pre-rendered HTML if it exists, otherwise falls back to SPA
         location ~ ^/docs(?:/(.+?))?/?$ {

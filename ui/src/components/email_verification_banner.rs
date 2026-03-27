@@ -1,7 +1,4 @@
 use yew::prelude::*;
-use yew_router::prelude::*;
-
-use crate::Route;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -113,13 +110,13 @@ pub fn EmailVerificationBanner(props: &Props) -> Html {
                             }}
                         </button>
                         <span>{"or"}</span>
-                        <Link<Route>
-                            to={Route::Help}
-                            classes="underline hover:text-amber-700 \
-                                     dark:hover:text-amber-300"
+                        <a
+                            href="mailto:info@aperturebeam.com"
+                            class="underline hover:text-amber-700 \
+                                   dark:hover:text-amber-300"
                         >
                             {"contact support"}
-                        </Link<Route>>
+                        </a>
                     </div>
                 </div>
             </div>
