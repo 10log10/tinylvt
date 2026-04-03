@@ -69,7 +69,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
         .await?;
 
     // Create initial round and do first round proxy bidding
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Check initial round creation
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -92,7 +92,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
             .set(latest_round.round_details.end_at + Span::new().seconds(1));
 
         // Create the next round and do proxy bidding
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
         // Check if auction has ended
         let auction = app.client.get_auction(&auction_id).await?;
@@ -205,7 +205,7 @@ async fn test_proxy_bidding_basic() -> anyhow::Result<()> {
         .await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -342,7 +342,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
     println!("Charlie (Bidder 3): B=2, C=9, max_items=1");
 
     // Create initial round and run proxy bidding
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Run the auction to completion
     let mut rounds_processed = 0;
@@ -412,7 +412,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
             .set(latest_round.round_details.end_at + Span::new().seconds(1));
 
         // Create the next round and do proxy bidding
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
         // Check if auction has ended
         let auction = app.client.get_auction(&auction_id).await?;

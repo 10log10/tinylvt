@@ -1,0 +1,4 @@
+# For available parameters, see https://github.com/trunk-rs/trunk/blob/main/Trunk.toml
+
+[tools]
+tailwindcss = "3.4.17"

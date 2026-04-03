@@ -7,7 +7,8 @@ use jiff::Span;
 use jiff_sqlx::ToSqlx;
 use payloads::{CommunityId, SiteId, requests, responses};
 use reqwest::StatusCode;
-use sqlx::{Error, PgPool, migrate::Migrator};
+use sqlx::{Error, PgPool, migrate::Migrator, postgres::PgPoolOptions};
+use std::time::Duration;
 use tracing_log::LogTracer;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
@@ -49,6 +50,7 @@ pub struct TestApp {
     pub db_pool: PgPool,
     pub client: payloads::APIClient,
     pub time_source: TimeSource,
+    pub stripe_service: std::sync::Arc<api::stripe_service::StripeService>,
 }
 
 /// Email testing utilities for TestApp
@@ -795,12 +797,14 @@ fn site_image_details_a_update_expected(
 ) -> payloads::responses::SiteImage {
     // Image data is immutable, so it stays the same as the original
     let original = site_image_details_a(community_id);
+    let file_size = original.image_data.len() as i64;
     payloads::responses::SiteImage {
         id,
         community_id,
         name: "test image updated".into(),
         image_data: original.image_data,
         mime_type: "image/png".into(),
+        file_size,
         created_at: jiff::Timestamp::now(), // This will be overridden in the test
         updated_at: jiff::Timestamp::now(), // This will be overridden in the test
     }
@@ -843,6 +847,14 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         email_from_address: "test@example.com".to_string(),
         base_url: "http://localhost:8080".to_string(),
         session_master_key: None,
+        stripe_api_key: secrecy::SecretBox::new(Box::new(
+            "sk_test_mock".to_string(),
+        )),
+        stripe_webhook_secret: secrecy::SecretBox::new(Box::new(
+            "whsec_test_mock".to_string(),
+        )),
+        stripe_monthly_price_id: "price_test_monthly".to_string(),
+        stripe_annual_price_id: "price_test_annual".to_string(),
     };
 
     let client = reqwest::Client::builder()
@@ -851,7 +863,16 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         .build()
         .unwrap();
 
-    let server = api::build(&mut config, time_source.clone()).await.unwrap();
+    let stripe_service = config.create_stripe_service();
+
+    let server = api::build(
+        &mut config,
+        db_pool.clone(),
+        time_source.clone(),
+        stripe_service.clone(),
+    )
+    .await
+    .unwrap();
     tokio::spawn(server);
 
     TestApp {
@@ -862,6 +883,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
             inner_client: client,
         },
         time_source,
+        stripe_service,
     }
 }
 
@@ -874,16 +896,60 @@ pub async fn spawn_app() -> TestApp {
 /// connection and the name of the new database.
 async fn setup_database() -> Result<(PgPool, String), Error> {
     let db_url_base = get_database_url_base();
-    let default_conn =
-        PgPool::connect(&format!("{db_url_base}/{DEFAULT_DB}")).await?;
+    let default_conn = PgPoolOptions::new()
+        .idle_timeout(Duration::from_secs(1))
+        .connect(&format!("{db_url_base}/{DEFAULT_DB}"))
+        .await?;
+
+    // Drop stale test databases from previous runs (once per process)
+    static CLEANUP: tokio::sync::OnceCell<()> =
+        tokio::sync::OnceCell::const_new();
+    CLEANUP
+        .get_or_init(|| async {
+            drop_stale_test_databases(&default_conn).await;
+        })
+        .await;
+
     let new_db = Uuid::new_v4().to_string();
     sqlx::query(&format!(r#"CREATE DATABASE "{}";"#, new_db))
         .execute(&default_conn)
         .await?;
-    // If anything fails, we clean up the database with the guard
-    let conn = PgPool::connect(&format!("{db_url_base}/{new_db}")).await?;
+    let conn = PgPoolOptions::new()
+        .idle_timeout(Duration::from_secs(1))
+        .connect(&format!("{db_url_base}/{new_db}"))
+        .await?;
     MIGRATOR.run(&conn).await?;
     Ok((conn, new_db))
+}
+
+/// Drop all databases whose names look like UUIDs (leftover test
+/// databases from previous runs).
+async fn drop_stale_test_databases(conn: &PgPool) {
+    let stale: Vec<String> = sqlx::query_scalar(
+        "SELECT datname::text FROM pg_database \
+         WHERE datname ~ '^[0-9a-f]{8}-'",
+    )
+    .fetch_all(conn)
+    .await
+    .unwrap_or_default();
+
+    if stale.is_empty() {
+        return;
+    }
+    tracing::info!("Dropping {} stale test databases", stale.len());
+    for db in &stale {
+        // Terminate any lingering connections first
+        let _ = sqlx::query(
+            "SELECT pg_terminate_backend(pid) \
+             FROM pg_stat_activity WHERE datname = $1",
+        )
+        .bind(db)
+        .execute(conn)
+        .await;
+        let _ = sqlx::query(&format!(r#"DROP DATABASE IF EXISTS "{db}";"#))
+            .execute(conn)
+            .await;
+    }
 }
 
 /// Assert that the result of an API action results in a specific status code.

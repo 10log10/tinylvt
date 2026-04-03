@@ -11,6 +11,7 @@ use crate::TestApp;
 use anyhow::Result;
 use api::scheduler;
 use jiff::{Span, Timestamp};
+use jiff_sqlx::ToSqlx;
 use payloads::{CommunityId, SiteId, requests, responses};
 use rust_decimal::Decimal;
 
@@ -26,6 +27,39 @@ pub struct DeskAllocationScreenshot {
 }
 
 impl DeskAllocationScreenshot {
+    /// Insert an active subscription row for the community,
+    /// bypassing Stripe. Useful for screenshots and tests that
+    /// need paid-tier features without a real checkout flow.
+    pub async fn activate_subscription(&self, app: &TestApp) -> Result<()> {
+        let now = app.time_source.now();
+        let now_sqlx = jiff_sqlx::ToSqlx::to_sqlx(now);
+        let period_end = (now + jiff::Span::new().hours(30 * 24)).to_sqlx();
+        sqlx::query(
+            "INSERT INTO community_subscriptions (
+                community_id, tier, status, billing_interval,
+                stripe_subscription_id,
+                current_period_start, current_period_end,
+                cancel_at_period_end,
+                created_at, updated_at
+            ) VALUES (
+                $1, 'paid', 'active', 'month',
+                'sub_mock',
+                $2, $3, false, $2, $2
+            )
+            ON CONFLICT (community_id) DO UPDATE SET
+                status = 'active',
+                current_period_start = $2,
+                current_period_end = $3,
+                updated_at = $2",
+        )
+        .bind(self.community_id)
+        .bind(now_sqlx)
+        .bind(period_end)
+        .execute(&app.db_pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn create(app: &TestApp) -> Result<Self> {
         app.time_source.set(Timestamp::now());
 
@@ -424,7 +458,7 @@ async fn create_desk_auction_with_bidding(
     // Process rounds
     let round_duration = auction_details.auction_params.round_duration;
     for round_num in 0..num_rounds_to_process {
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
         // Advance time by round_duration
         let current_time = app.time_source.now();
         app.time_source.set(current_time + round_duration);

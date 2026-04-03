@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     // Set up desk allocation screenshot data
     info!("📊 Setting up desk allocation screenshot data...");
     let dataset = DeskAllocationScreenshot::create(&app).await?;
+    // dataset.activate_subscription(&app).await?;
 
     // Start scheduler to process auction rounds and proxy bidding
     info!("⏲️  Starting auction scheduler...");

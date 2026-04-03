@@ -373,7 +373,7 @@ async fn space_copy_on_write_with_auction_history() -> anyhow::Result<()> {
     let auction = app.create_test_auction(&site.site_id).await?;
 
     // Start the auction and create a bid to establish auction history
-    api::scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    api::scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
     assert!(!rounds.is_empty());
 

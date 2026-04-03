@@ -10,7 +10,6 @@ use crate::store;
 
 use super::{APIError, get_user_id, get_validated_member};
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_community")]
 pub async fn create_community(
     user: Identity,
@@ -27,7 +26,6 @@ pub async fn create_community(
 
 /// Get the communities the user is a part of, including their role in each community.
 /// This provides the frontend with role information to show/hide controls based on permissions.
-#[tracing::instrument(skip(user, pool), ret)]
 #[get("/communities")]
 pub async fn get_communities(
     user: Identity,
@@ -38,10 +36,6 @@ pub async fn get_communities(
     Ok(HttpResponse::Ok().json(communities))
 }
 
-#[tracing::instrument(
-    skip(user, pool, email_service, config, time_source),
-    ret
-)]
 #[post("/invite_member")]
 pub async fn invite_community_member(
     user: Identity,
@@ -87,7 +81,6 @@ pub async fn invite_community_member(
 }
 
 /// Get the invites the user has received
-#[tracing::instrument(skip(user, pool), ret)]
 #[get("/received_invites")]
 pub async fn get_received_invites(
     user: Identity,
@@ -99,7 +92,6 @@ pub async fn get_received_invites(
 }
 
 /// Get the invites that have been issued for a community (moderator+ only)
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/issued_invites")]
 pub async fn get_issued_invites(
     user: Identity,
@@ -114,7 +106,6 @@ pub async fn get_issued_invites(
 }
 
 /// Delete/rescind a community invite (moderator+ only)
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_invite")]
 pub async fn delete_invite(
     user: Identity,
@@ -128,7 +119,6 @@ pub async fn delete_invite(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(pool), ret)]
 #[get("/invite_community_name/{invite_id}")]
 pub async fn get_invite_community_name(
     path: web::Path<payloads::InviteId>,
@@ -138,7 +128,6 @@ pub async fn get_invite_community_name(
     Ok(HttpResponse::Ok().json(community_name))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/accept_invite/{invite_id}")]
 pub async fn accept_invite(
     user: Identity,
@@ -151,7 +140,6 @@ pub async fn accept_invite(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/members")]
 pub async fn get_members(
     user: Identity,
@@ -166,7 +154,6 @@ pub async fn get_members(
 }
 
 /// Set the community schedule all at once.
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/membership_schedule")]
 pub async fn set_membership_schedule(
     user: Identity,
@@ -187,7 +174,6 @@ pub async fn set_membership_schedule(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_membership_schedule")]
 pub async fn get_membership_schedule(
     user: Identity,
@@ -203,7 +189,6 @@ pub async fn get_membership_schedule(
 }
 
 /// Update a member's active status (moderator+ only)
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/update_member_active_status")]
 pub async fn update_member_active_status(
     user: Identity,
@@ -228,7 +213,6 @@ pub async fn update_member_active_status(
 }
 
 /// Remove a member from the community (moderator+ only)
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/remove_member")]
 pub async fn remove_member(
     user: Identity,
@@ -252,7 +236,6 @@ pub async fn remove_member(
 }
 
 /// Change a member's role (coleader+ only)
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/change_member_role")]
 pub async fn change_member_role(
     user: Identity,
@@ -277,7 +260,6 @@ pub async fn change_member_role(
 }
 
 /// Leave a community voluntarily
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/leave_community")]
 pub async fn leave_community(
     user: Identity,
@@ -294,22 +276,27 @@ pub async fn leave_community(
 }
 
 /// Delete a community (leader only)
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_community")]
 pub async fn delete_community(
     user: Identity,
     community_id: web::Json<CommunityId>,
+    stripe_service: web::Data<crate::stripe_service::StripeService>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
-    store::delete_community(&community_id, &validated_member, &pool).await?;
+    store::delete_community(
+        &community_id,
+        &validated_member,
+        &stripe_service,
+        &pool,
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
 /// Update community name and description (coleader+ only)
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/update_community_details")]
 pub async fn update_community_details(
     user: Identity,

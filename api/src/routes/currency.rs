@@ -9,7 +9,6 @@ use super::{APIError, get_user_id, get_validated_member};
 
 // Phase 3: Credit Limit Management
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/update_credit_limit_override")]
 pub async fn update_credit_limit_override(
     user: Identity,
@@ -31,7 +30,6 @@ pub async fn update_credit_limit_override(
     Ok(HttpResponse::Ok().json(account))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_member_credit_limit_override")]
 pub async fn get_member_credit_limit_override(
     user: Identity,
@@ -54,7 +52,6 @@ pub async fn get_member_credit_limit_override(
 
 // Phase 4: Balance & Transaction Queries
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_member_currency_info")]
 pub async fn get_member_currency_info(
     user: Identity,
@@ -75,7 +72,6 @@ pub async fn get_member_currency_info(
     Ok(HttpResponse::Ok().json(info))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_member_transactions")]
 pub async fn get_member_transactions(
     user: Identity,
@@ -101,7 +97,6 @@ pub async fn get_member_transactions(
 
 // Phase 5: Member-to-Member Transfers
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_transfer")]
 pub async fn create_transfer(
     user: Identity,
@@ -129,7 +124,6 @@ pub async fn create_transfer(
 
 // Phase 6: Treasury Operations
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_treasury_account")]
 pub async fn get_treasury_account(
     user: Identity,
@@ -146,7 +140,6 @@ pub async fn get_treasury_account(
     Ok(HttpResponse::Ok().json(account))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_treasury_transactions")]
 pub async fn get_treasury_transactions(
     user: Identity,
@@ -168,7 +161,6 @@ pub async fn get_treasury_transactions(
     Ok(HttpResponse::Ok().json(transactions))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/treasury_credit_operation")]
 pub async fn treasury_credit_operation(
     user: Identity,
@@ -197,7 +189,6 @@ pub async fn treasury_credit_operation(
 // Currency Configuration Management
 
 /// Update currency configuration for a community (coleader+ only)
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/update_currency_config")]
 pub async fn update_currency_config(
     user: Identity,
@@ -220,7 +211,6 @@ pub async fn update_currency_config(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/reset_all_balances")]
 pub async fn reset_all_balances(
     user: Identity,
@@ -246,7 +236,6 @@ pub async fn reset_all_balances(
 // Orphaned Account Management
 
 /// Get orphaned accounts (coleader+ only)
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/orphaned_accounts")]
 pub async fn get_orphaned_accounts(
     user: Identity,
@@ -269,7 +258,6 @@ pub async fn get_orphaned_accounts(
 }
 
 /// Resolve orphaned account balance (coleader+ only)
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/resolve_orphaned_balance")]
 pub async fn resolve_orphaned_balance(
     user: Identity,

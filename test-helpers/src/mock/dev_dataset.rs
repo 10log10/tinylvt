@@ -401,7 +401,7 @@ async fn create_ongoing_auction_with_rounds(
     // Process the configured number of rounds
     for round_num in 0..num_rounds_to_process {
         // Create round and process proxy bids
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
         // Advance time by round_duration
         let current_time = app.time_source.now();

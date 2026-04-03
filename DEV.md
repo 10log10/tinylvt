@@ -157,3 +157,11 @@ docker run -d -p 8080:80 \
     --name tinylvt-ui \
     tinylvt-ui
 ```
+
+## Local Stripe testing
+
+```
+stripe listen --forward-to localhost:8000/api/stripe_webhook
+```
+
+Then add the printed key to .env

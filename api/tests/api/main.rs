@@ -1,4 +1,5 @@
 mod auction;
+mod billing;
 mod community;
 mod currency;
 mod database;

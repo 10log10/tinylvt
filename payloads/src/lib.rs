@@ -5,8 +5,8 @@ use rust_decimal::Decimal;
 #[cfg(feature = "use-sqlx")]
 use sqlx::{FromRow, Type};
 
-/// Maximum allowed size for site images (1MB)
-pub const MAX_IMAGE_SIZE: usize = 1_048_576;
+/// Maximum allowed size for site images (1 MB)
+pub const MAX_IMAGE_SIZE: usize = 1_000_000;
 
 /// Maximum allowed length for site descriptions (10,000 characters)
 pub const MAX_SITE_DESCRIPTION_LENGTH: usize = 10_000;
@@ -670,8 +670,15 @@ pub struct JournalLine {
     pub amount: Decimal,
 }
 
+pub mod billing;
 pub mod requests;
 pub mod responses;
+
+pub use billing::{
+    BillingInterval, CheckoutSessionResponse, CommunityStorageUsage,
+    StorageUsage, SubscriptionInfo, SubscriptionStatus, SubscriptionTier,
+    TierLimits,
+};
 
 use derive_more::Display;
 use serde::{Deserialize, Serialize};

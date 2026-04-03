@@ -97,7 +97,7 @@ async fn test_auction_round_creation() -> anyhow::Result<()> {
 
     // Advance time to auction start
     app.time_source.set(start_time);
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Round 0 should now exist
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
@@ -133,7 +133,7 @@ async fn test_immediate_auction_round_creation() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Round 0 should be created immediately
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -183,7 +183,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Start the auction to create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Verify initial round
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -221,7 +221,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -274,7 +274,7 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -326,7 +326,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let mut rounds = app.client.list_auction_rounds(&auction_id).await?;
     let mut round = &rounds[0];
 
@@ -356,7 +356,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
             .set(round.round_details.end_at + Span::new().seconds(1));
 
         // View results and create the next round
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
         // View the result of the last round
         let round_space_result = app
@@ -382,7 +382,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     app.time_source
         .set(round.round_details.end_at + Span::new().seconds(1));
     // View results and conclude the auction
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // View the result of the last round
     let round_space_result = app
@@ -408,7 +408,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     round = &rounds[6];
     app.time_source
         .set(round.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     let auction = app.client.get_auction(&auction_id).await?;
     assert_eq!(auction.end_at, Some(round.round_details.end_at));
@@ -444,7 +444,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     auction_details.start_at = start_time;
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Round 0 - no eligibility constraints
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -464,7 +464,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     // Advance time to end round 0
     app.time_source
         .advance(auction_details.auction_params.round_duration);
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Round 1 - eligibility is based on round 0 results
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -533,7 +533,7 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round0 = &rounds[0];
@@ -546,7 +546,7 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     // Advance time past round 0
     app.time_source
         .set(round0.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Get rounds again - should now have round 1
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -615,7 +615,7 @@ async fn test_bid_unavailable_space() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];

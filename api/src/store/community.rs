@@ -844,12 +844,23 @@ pub async fn update_is_active_from_schedule(
 pub async fn delete_community(
     community_id: &payloads::CommunityId,
     actor: &ValidatedMember,
+    stripe_service: &crate::stripe_service::StripeService,
     pool: &PgPool,
 ) -> Result<(), StoreError> {
     // Only leader can delete a community
     if !actor.0.role.is_leader() {
         return Err(StoreError::RequiresLeaderPermissions);
     }
+
+    // Cancel any active Stripe subscription before deleting
+    // the community (which cascade-deletes the subscription
+    // row and the stripe_subscription_id with it).
+    super::billing::cancel_subscription_if_active(
+        pool,
+        stripe_service,
+        community_id,
+    )
+    .await?;
 
     let mut tx = pool.begin().await?;
 
@@ -866,6 +877,7 @@ pub async fn delete_community(
     // - community_members
     // - community_invites
     // - community_membership_schedule
+    // - community_subscriptions
     // - site_images
     // - sites (which cascades to spaces, auctions, etc.)
     // - accounts

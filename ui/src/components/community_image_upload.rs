@@ -68,7 +68,7 @@ pub fn CommunityImageUpload(props: &Props) -> Html {
             if file_size > MAX_IMAGE_SIZE {
                 error_message.set(Some(format!(
                     "File is too large ({:.1}MB). Maximum size is 1MB.",
-                    file_size as f64 / 1_048_576.0
+                    file_size as f64 / 1_000_000.0
                 )));
                 return;
             }

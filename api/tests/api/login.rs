@@ -213,7 +213,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
     let auction = app.create_test_auction(&site.site_id).await?;
 
     // Run scheduler to create the first round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Get the current round
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
@@ -228,7 +228,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
 
     // Complete the round so Bob wins
     app.time_source.advance(Span::new().minutes(2));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Verify Bob won
     let results = app

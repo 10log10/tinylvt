@@ -9,6 +9,7 @@ edition = "2024"
 default = []
 mock-time = []  # enables time mocking and deterministing scheduler behavior
 mock-email = []
+mock-stripe = []
 
 [dependencies]
 actix-cors = "0.7.1"
@@ -21,6 +22,8 @@ argon2 = { version = "0.5.3", features = ["std"] }
 base64 = "0.22"
 derive_more = { workspace = true }
 dotenvy = { workspace = true }
+hex = "0.4.3"
+hmac = "0.12.1"
 infer = "0.19.0"
 jiff = { workspace = true }
 jiff-sqlx = { workspace = true }
@@ -32,8 +35,10 @@ rust_decimal = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal", "time" ] }
+sha2 = "0.10.9"
+sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal" ] }
 sqlx-postgres = "0.8.3"
+stripe = { version = "0.41.0", package = "async-stripe", default-features = false, features = ["runtime-tokio-hyper", "full", "webhook-events"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

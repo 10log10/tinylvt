@@ -68,19 +68,15 @@ impl Scheduler {
         let mut interval = time::interval(self.tick_interval);
         loop {
             interval.tick().await;
-            let _ = schedule_tick(&self.pool, &self.time_source)
-                .await
-                .map_err(log_error);
+            schedule_tick(&self.pool, &self.time_source).await;
         }
     }
 }
-
-/// Update state once right now.
+/// Main scheduler tick function.
+/// Runs all periodic tasks and logs any errors without propagating them,
+/// ensuring one task failure doesn't prevent other tasks from running.
 #[tracing::instrument(skip(pool, time_source))]
-pub async fn schedule_tick(
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
+pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
     // Update active states from schedule
     // TODO: revisit this after MVP
     // let _ = store::update_is_active_from_schedule(pool, time_source)
@@ -88,12 +84,20 @@ pub async fn schedule_tick(
     // .map_err(log_error);
 
     // Process auctions without ongoing rounds
-    process_auctions_without_rounds(pool, time_source).await?;
+    let _ = process_auctions_without_rounds(pool, time_source)
+        .await
+        .map_err(log_error);
 
     // Process proxy bidding for active rounds
-    process_proxy_bidding_for_active_rounds(pool, time_source).await?;
+    let _ = process_proxy_bidding_for_active_rounds(pool, time_source)
+        .await
+        .map_err(log_error);
 
-    Ok(())
+    // Refresh storage usage for communities with stale caches
+    let _ = store::billing::refresh_all_community_storage(pool, time_source)
+        .await
+        .context("Failed to refresh storage usage")
+        .map_err(log_error);
 }
 
 /// Process all auctions that don't have ongoing rounds sequentially.

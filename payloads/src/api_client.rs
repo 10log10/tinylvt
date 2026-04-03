@@ -739,6 +739,41 @@ impl APIClient {
         let response = self.post("list_site_images", community_id).await?;
         ok_body(response).await
     }
+
+    // Billing
+
+    pub async fn get_community_storage_usage(
+        &self,
+        request: &requests::GetCommunityStorageUsage,
+    ) -> Result<crate::CommunityStorageUsage, ClientError> {
+        let response =
+            self.post("get_community_storage_usage", request).await?;
+        ok_body(response).await
+    }
+
+    pub async fn get_subscription_info(
+        &self,
+        request: &requests::GetSubscriptionInfo,
+    ) -> Result<Option<crate::SubscriptionInfo>, ClientError> {
+        let response = self.post("get_subscription_info", request).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_checkout_session(
+        &self,
+        request: &requests::CreateCheckoutSession,
+    ) -> Result<crate::CheckoutSessionResponse, ClientError> {
+        let response = self.post("create_checkout_session", request).await?;
+        ok_body(response).await
+    }
+
+    pub async fn create_portal_session(
+        &self,
+        request: &requests::CreatePortalSession,
+    ) -> Result<crate::CheckoutSessionResponse, ClientError> {
+        let response = self.post("create_portal_session", request).await?;
+        ok_body(response).await
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

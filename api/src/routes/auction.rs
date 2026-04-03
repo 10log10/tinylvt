@@ -6,7 +6,6 @@ use sqlx::PgPool;
 use crate::routes::{APIError, get_user_id};
 use crate::{store, time::TimeSource};
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_auction")]
 pub async fn create_auction(
     user: Identity,
@@ -20,7 +19,6 @@ pub async fn create_auction(
     Ok(HttpResponse::Ok().json(auction_id))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/auction")]
 pub async fn get_auction(
     user: Identity,
@@ -32,7 +30,6 @@ pub async fn get_auction(
     Ok(HttpResponse::Ok().json(auction))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_auction")]
 pub async fn delete_auction(
     user: Identity,
@@ -44,7 +41,6 @@ pub async fn delete_auction(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/auctions")]
 pub async fn list_auctions(
     user: Identity,
@@ -56,7 +52,6 @@ pub async fn list_auctions(
     Ok(HttpResponse::Ok().json(auctions))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/auction_round")]
 pub async fn get_auction_round(
     user: Identity,
@@ -68,7 +63,6 @@ pub async fn get_auction_round(
     Ok(HttpResponse::Ok().json(round))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/auction_rounds")]
 pub async fn list_auction_rounds(
     user: Identity,
@@ -81,7 +75,6 @@ pub async fn list_auction_rounds(
     Ok(HttpResponse::Ok().json(rounds))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/round_space_result")]
 pub async fn get_round_space_result(
     user: Identity,
@@ -96,7 +89,6 @@ pub async fn get_round_space_result(
     Ok(HttpResponse::Ok().json(round))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/round_space_results_for_round")]
 pub async fn list_round_space_results_for_round(
     user: Identity,
@@ -110,7 +102,6 @@ pub async fn list_round_space_results_for_round(
     Ok(HttpResponse::Ok().json(rounds))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_eligibility")]
 pub async fn get_eligibility(
     user: Identity,
@@ -123,7 +114,6 @@ pub async fn get_eligibility(
     Ok(HttpResponse::Ok().json(eligibility))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/list_eligibility")]
 pub async fn list_eligibility(
     user: Identity,
@@ -136,7 +126,6 @@ pub async fn list_eligibility(
     Ok(HttpResponse::Ok().json(eligibilities))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_bid")]
 pub async fn create_bid(
     user: Identity,
@@ -151,7 +140,6 @@ pub async fn create_bid(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/bid")]
 pub async fn get_bid(
     user: Identity,
@@ -164,7 +152,6 @@ pub async fn get_bid(
     Ok(HttpResponse::Ok().json(bid))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/bids")]
 pub async fn list_bids(
     user: Identity,
@@ -176,7 +163,6 @@ pub async fn list_bids(
     Ok(HttpResponse::Ok().json(bids))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/delete_bid")]
 pub async fn delete_bid(
     user: Identity,

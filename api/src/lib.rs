@@ -3,6 +3,7 @@ pub mod password;
 pub mod routes;
 pub mod scheduler;
 pub mod store;
+pub mod stripe_service;
 pub mod telemetry;
 pub mod time;
 
@@ -25,16 +26,9 @@ use crate::time::TimeSource;
 /// Returns the port that the server has bound to by modifying the config.
 pub async fn build(
     config: &mut Config,
+    db_pool: PgPool,
     time_source: TimeSource,
-) -> std::io::Result<Server> {
-    build_with_email_service(config, time_source, None).await
-}
-
-/// Build the server with optional email service override (for testing)
-pub async fn build_with_email_service(
-    config: &mut Config,
-    time_source: TimeSource,
-    email_service_override: Option<web::Data<email::EmailService>>,
+    stripe_service: std::sync::Arc<stripe_service::StripeService>,
 ) -> std::io::Result<Server> {
     // Initialize session key from config or generate a temporary one
     let secret_key = match &config.session_master_key {
@@ -60,25 +54,24 @@ pub async fn build_with_email_service(
             Key::generate()
         }
     };
-    let db_pool =
-        web::Data::new(PgPool::connect(&config.database_url).await.unwrap());
+    let db_pool = web::Data::new(db_pool);
     let time_source = web::Data::new(time_source);
 
-    // Use override email service for testing, or create real one
-    let email_service = match email_service_override {
-        Some(service) => service,
-        None => web::Data::new(email::EmailService::new(
-            secrecy::SecretBox::new(Box::new(
-                config.email_api_key.expose_secret().clone(),
-            )),
-            config.email_from_address.clone(),
+    let email_service = web::Data::new(email::EmailService::new(
+        secrecy::SecretBox::new(Box::new(
+            config.email_api_key.expose_secret().clone(),
         )),
-    };
+        config.email_from_address.clone(),
+    ));
+
+    let stripe_service = web::Data::from(stripe_service);
 
     // Clone config for use in closure
     let allowed_origins = config.allowed_origins.clone();
     let app_config = web::Data::new(AppConfig {
         base_url: config.base_url.clone(),
+        stripe_monthly_price_id: config.stripe_monthly_price_id.clone(),
+        stripe_annual_price_id: config.stripe_annual_price_id.clone(),
     });
 
     // OS assigns the port if binding to 0
@@ -116,8 +109,16 @@ pub async fn build_with_email_service(
             )
             .service(routes::api_services())
             .app_data(db_pool.clone())
+            .app_data(
+                web::JsonConfig::default()
+                    // 1 MB image as JSON-serialized Vec<u8>
+                    // expands ~4-5x (each byte becomes 1-3
+                    // digits + comma)
+                    .limit(6 * 1024 * 1024),
+            )
             .app_data(time_source.clone())
             .app_data(email_service.clone())
+            .app_data(stripe_service.clone())
             .app_data(app_config.clone())
     })
     .listen(listener)?
@@ -144,16 +145,41 @@ pub struct Config {
     /// Optional master key for session cookies (base64-encoded 64-byte key)
     /// If not provided, a random key will be generated on each startup
     pub session_master_key: Option<SecretBox<String>>,
+    /// Stripe secret API key
+    pub stripe_api_key: SecretBox<String>,
+    /// Stripe webhook endpoint secret
+    pub stripe_webhook_secret: SecretBox<String>,
+    /// Stripe Price ID for the monthly plan
+    pub stripe_monthly_price_id: String,
+    /// Stripe Price ID for the annual plan
+    pub stripe_annual_price_id: String,
 }
 
 /// Runtime configuration shared across the application as app_data.
 /// Contains only the fields needed by route handlers at runtime.
 pub struct AppConfig {
-    /// Base URL for email links (e.g., "https://yourdomain.com" or "http://localhost:8080")
+    /// Base URL for links (e.g., "https://yourdomain.com")
     pub base_url: String,
+    /// Stripe Price ID for the monthly plan
+    pub stripe_monthly_price_id: String,
+    /// Stripe Price ID for the annual plan
+    pub stripe_annual_price_id: String,
 }
 
 impl Config {
+    pub fn create_stripe_service(
+        &self,
+    ) -> std::sync::Arc<stripe_service::StripeService> {
+        std::sync::Arc::new(stripe_service::StripeService::new(
+            SecretBox::new(Box::new(
+                self.stripe_api_key.expose_secret().clone(),
+            )),
+            SecretBox::new(Box::new(
+                self.stripe_webhook_secret.expose_secret().clone(),
+            )),
+        ))
+    }
+
     pub fn from_env() -> Self {
         use std::env::var;
 
@@ -179,6 +205,17 @@ impl Config {
             session_master_key: var("SESSION_MASTER_KEY")
                 .ok()
                 .map(|k| SecretBox::new(Box::new(k))),
+            stripe_api_key: SecretBox::new(Box::new(
+                var("STRIPE_API_KEY").expect("STRIPE_API_KEY must be set"),
+            )),
+            stripe_webhook_secret: SecretBox::new(Box::new(
+                var("STRIPE_WEBHOOK_SECRET")
+                    .expect("STRIPE_WEBHOOK_SECRET must be set"),
+            )),
+            stripe_monthly_price_id: var("STRIPE_MONTHLY_PRICE_ID")
+                .expect("STRIPE_MONTHLY_PRICE_ID must be set"),
+            stripe_annual_price_id: var("STRIPE_ANNUAL_PRICE_ID")
+                .expect("STRIPE_ANNUAL_PRICE_ID must be set"),
         }
     }
 }

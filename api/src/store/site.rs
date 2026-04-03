@@ -45,6 +45,15 @@ pub async fn create_site(
         });
     }
 
+    // Check storage limit before creating
+    super::billing::check_storage_limit(
+        pool,
+        time_source,
+        actor.0.community_id,
+        super::billing::row_estimates::SITE,
+    )
+    .await?;
+
     let mut tx = pool.begin().await?;
 
     let open_hours_id = match &details.open_hours {
@@ -537,18 +546,40 @@ pub async fn create_site_image(
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
+    let file_size = details.image_data.len() as i64;
+
+    // Check storage limit before creating
+    super::billing::check_storage_limit(
+        pool,
+        time_source,
+        details.community_id,
+        file_size,
+    )
+    .await?;
+
     let site_image = sqlx::query_as::<_, payloads::responses::SiteImage>(
         "INSERT INTO site_images
-            (community_id, name, image_data, mime_type, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)
+            (community_id, name, image_data, mime_type, file_size,
+             created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)
          RETURNING *",
     )
     .bind(details.community_id)
     .bind(&details.name)
     .bind(&details.image_data)
     .bind(mime_type)
+    .bind(file_size)
     .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
+    .await?;
+
+    // Update cache with new image size
+    super::billing::update_cached_storage_after_image_op(
+        pool,
+        time_source,
+        details.community_id,
+        file_size,
+    )
     .await?;
 
     Ok(site_image.id)
@@ -627,6 +658,7 @@ pub async fn delete_site_image(
     site_image_id: &payloads::SiteImageId,
     user_id: &UserId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // First, get the existing site image to check permissions
     let existing_site_image =
@@ -649,11 +681,23 @@ pub async fn delete_site_image(
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
+    let file_size = existing_site_image.file_size;
+    let community_id = existing_site_image.community_id;
+
     // Delete the site image
     sqlx::query("DELETE FROM site_images WHERE id = $1")
         .bind(site_image_id)
         .execute(pool)
         .await?;
+
+    // Update cache with negative delta (image deleted)
+    super::billing::update_cached_storage_after_image_op(
+        pool,
+        time_source,
+        community_id,
+        -file_size,
+    )
+    .await?;
 
     Ok(())
 }
@@ -667,7 +711,7 @@ pub async fn list_site_images(
     let _ = get_validated_member(user_id, community_id, pool).await?;
 
     let site_images = sqlx::query_as::<_, payloads::responses::SiteImageInfo>(
-        "SELECT id, community_id, name, mime_type, created_at, updated_at
+        "SELECT id, community_id, name, mime_type, file_size, created_at, updated_at
          FROM site_images WHERE community_id = $1 ORDER BY name",
     )
     .bind(community_id)

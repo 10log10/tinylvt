@@ -163,6 +163,15 @@ pub async fn create_auction(
         return Err(StoreError::SiteDeleted);
     }
 
+    // Check storage limit before creating auction
+    super::billing::check_storage_limit(
+        pool,
+        time_source,
+        community_id,
+        super::billing::row_estimates::AUCTION,
+    )
+    .await?;
+
     let mut tx = pool.begin().await?;
 
     // Create auction params first

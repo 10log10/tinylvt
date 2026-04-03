@@ -1467,6 +1467,20 @@ pub async fn treasury_credit_operation(
 
     let recipient_count = recipient_account_ids.len();
 
+    // Check storage limit before proceeding.
+    // We'll create 1 journal entry + N journal lines (1 per recipient).
+    let estimated_size = super::billing::row_estimates::JOURNAL_ENTRY
+        + (recipient_count as i64
+            * super::billing::row_estimates::JOURNAL_LINE);
+
+    super::billing::check_storage_limit(
+        pool,
+        time_source,
+        *community_id,
+        estimated_size,
+    )
+    .await?;
+
     if recipient_count == 0 {
         // No recipients - return early with zero result
         return Ok(payloads::TreasuryOperationResult {

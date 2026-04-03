@@ -6,7 +6,6 @@ use sqlx::PgPool;
 use super::{APIError, get_user_id};
 use crate::store;
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_or_update_user_value")]
 pub async fn create_or_update_user_value(
     user: Identity,
@@ -20,7 +19,6 @@ pub async fn create_or_update_user_value(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_user_value")]
 pub async fn get_user_value(
     user: Identity,
@@ -32,7 +30,6 @@ pub async fn get_user_value(
     Ok(HttpResponse::Ok().json(value))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_user_value")]
 pub async fn delete_user_value(
     user: Identity,
@@ -44,7 +41,6 @@ pub async fn delete_user_value(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/user_values")]
 pub async fn list_user_values(
     user: Identity,
@@ -56,7 +52,6 @@ pub async fn list_user_values(
     Ok(HttpResponse::Ok().json(values))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_or_update_proxy_bidding")]
 pub async fn create_or_update_proxy_bidding(
     user: Identity,
@@ -75,7 +70,6 @@ pub async fn create_or_update_proxy_bidding(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_proxy_bidding")]
 pub async fn get_proxy_bidding(
     user: Identity,
@@ -88,7 +82,6 @@ pub async fn get_proxy_bidding(
     Ok(HttpResponse::Ok().json(settings))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_proxy_bidding")]
 pub async fn delete_proxy_bidding(
     user: Identity,

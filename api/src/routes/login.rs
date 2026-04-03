@@ -14,11 +14,6 @@ use crate::time::TimeSource;
 
 use super::{APIError, get_user_id};
 
-#[tracing::instrument(
-    skip(credentials, pool),
-    fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
-    ret,
-)]
 #[post("/login")]
 pub async fn login(
     request: HttpRequest,
@@ -49,14 +44,12 @@ pub async fn login(
     }
 }
 
-#[tracing::instrument(skip(user))]
 #[post("/login_check")]
 pub async fn login_check(user: Identity) -> Result<HttpResponse, APIError> {
     get_user_id(&user)?;
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user))]
 #[post("/logout")]
 pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
     let _ = get_user_id(&user); // to instrument the user_id, if exists
@@ -64,16 +57,9 @@ pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(
-    new_user_details,
-    pool,
-    email_service,
-    time_source,
-    config
-))]
 #[post("/create_account")]
 pub async fn create_account(
-    request: HttpRequest,
+    _request: HttpRequest,
     new_user_details: web::Json<NewUserDetails>,
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
@@ -113,7 +99,6 @@ pub async fn create_account(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(pool, time_source))]
 #[post("/verify_email")]
 pub async fn verify_email(
     request: web::Json<payloads::requests::VerifyEmail>,
@@ -146,7 +131,6 @@ pub async fn verify_email(
     Ok(HttpResponse::Ok().json(response))
 }
 
-#[tracing::instrument(skip(pool, email_service, time_source, config))]
 #[post("/forgot_password")]
 pub async fn forgot_password(
     request: web::Json<payloads::requests::ForgotPassword>,
@@ -183,10 +167,9 @@ pub async fn forgot_password(
     .await;
 
     // Only send email if user exists
-    if user.is_some() && token_id.is_ok() {
-        let user = user.as_ref().unwrap(); // Safe because we checked is_some()
-        let token_id = token_id.unwrap(); // Safe because we checked is_ok()
-
+    if let Some(user) = user
+        && let Ok(token_id) = token_id
+    {
         if let Err(e) = email_service
             .send_password_reset_email(
                 &user.email,
@@ -199,10 +182,9 @@ pub async fn forgot_password(
             tracing::error!("Failed to send password reset email: {}", e);
             // Don't fail the request, but log the error
         }
-    } else if token_id.is_ok() {
+    } else if let Ok(token_id) = token_id {
         // If we created a token but won't use it (user doesn't exist),
         // mark it as used immediately to clean up
-        let token_id = token_id.unwrap();
         let _ = sqlx::query(
             r#"
             UPDATE tokens 
@@ -218,13 +200,6 @@ pub async fn forgot_password(
     Ok(HttpResponse::Ok().json(response))
 }
 
-#[tracing::instrument(skip(
-    identity,
-    pool,
-    email_service,
-    time_source,
-    config
-))]
 #[post("/resend_verification_email")]
 pub async fn resend_verification_email(
     identity: Identity,
@@ -285,7 +260,6 @@ pub struct ResetPasswordRequest {
     password: SecretBox<String>,
 }
 
-#[tracing::instrument(skip(pool, time_source), ret)]
 #[post("/reset_password")]
 pub async fn reset_password(
     mut request: web::Json<ResetPasswordRequest>,
@@ -326,7 +300,6 @@ pub async fn reset_password(
     Ok(HttpResponse::Ok().json(response))
 }
 
-#[tracing::instrument(skip(user, pool))]
 #[get("/user_profile")]
 pub async fn user_profile(
     user: Identity,
@@ -347,7 +320,6 @@ pub async fn user_profile(
     Ok(HttpResponse::Ok().json(profile))
 }
 
-#[tracing::instrument(skip(user, request, pool, time_source))]
 #[post("/update_profile")]
 pub async fn update_profile(
     user: Identity,
@@ -387,7 +359,6 @@ pub async fn update_profile(
     Ok(HttpResponse::Ok().json(profile))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/delete_user")]
 pub async fn delete_user(
     user: Identity,

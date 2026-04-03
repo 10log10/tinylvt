@@ -6,7 +6,6 @@ use crate::store;
 
 use super::{APIError, get_user_id, get_validated_member};
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_site")]
 pub async fn create_site(
     user: Identity,
@@ -24,7 +23,6 @@ pub async fn create_site(
     Ok(HttpResponse::Ok().json(site.id))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_site")]
 pub async fn get_site(
     user: Identity,
@@ -39,7 +37,6 @@ pub async fn get_site(
     Ok(HttpResponse::Ok().json(site))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/site")]
 pub async fn update_site(
     user: Identity,
@@ -56,7 +53,6 @@ pub async fn update_site(
     Ok(HttpResponse::Ok().json(site))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_site")]
 pub async fn delete_site(
     user: Identity,
@@ -70,7 +66,6 @@ pub async fn delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/soft_delete_site")]
 pub async fn soft_delete_site(
     user: Identity,
@@ -85,7 +80,6 @@ pub async fn soft_delete_site(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/restore_site")]
 pub async fn restore_site(
     user: Identity,
@@ -100,7 +94,6 @@ pub async fn restore_site(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/sites")]
 pub async fn list_sites(
     user: Identity,
@@ -114,7 +107,6 @@ pub async fn list_sites(
 
 // Site Image Routes
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_site_image")]
 pub async fn create_site_image(
     user: Identity,
@@ -129,7 +121,6 @@ pub async fn create_site_image(
     Ok(HttpResponse::Ok().json(site_image_id))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_site_image")]
 pub async fn get_site_image(
     user: Identity,
@@ -144,7 +135,6 @@ pub async fn get_site_image(
 
 /// Returns raw image bytes for use in <img src> tags.
 /// Requires authentication via session cookie.
-#[tracing::instrument(skip(user, pool), ret)]
 #[get("/images/{id}")]
 pub async fn get_site_image_bytes(
     user: Identity,
@@ -163,7 +153,6 @@ pub async fn get_site_image_bytes(
         .body(site_image.image_data))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/update_site_image")]
 pub async fn update_site_image(
     user: Identity,
@@ -178,19 +167,19 @@ pub async fn update_site_image(
     Ok(HttpResponse::Ok().json(site_image))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_site_image")]
 pub async fn delete_site_image(
     user: Identity,
     site_image_id: web::Json<payloads::SiteImageId>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, APIError> {
     let user_id = get_user_id(&user)?;
-    store::delete_site_image(&site_image_id, &user_id, &pool).await?;
+    store::delete_site_image(&site_image_id, &user_id, &pool, &time_source)
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/list_site_images")]
 pub async fn list_site_images(
     user: Identity,
@@ -205,7 +194,6 @@ pub async fn list_site_images(
 
 // Space Routes
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/create_space")]
 pub async fn create_space(
     user: Identity,
@@ -219,7 +207,6 @@ pub async fn create_space(
     Ok(HttpResponse::Ok().json(space.id))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/get_space")]
 pub async fn get_space(
     user: Identity,
@@ -231,7 +218,6 @@ pub async fn get_space(
     Ok(HttpResponse::Ok().json(space))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/space")]
 pub async fn update_space(
     user: Identity,
@@ -251,7 +237,6 @@ pub async fn update_space(
     Ok(HttpResponse::Ok().json(result))
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/spaces_batch")]
 pub async fn update_spaces(
     user: Identity,
@@ -266,7 +251,6 @@ pub async fn update_spaces(
     Ok(HttpResponse::Ok().json(results))
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/delete_space")]
 pub async fn delete_space(
     user: Identity,
@@ -278,7 +262,6 @@ pub async fn delete_space(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/soft_delete_space")]
 pub async fn soft_delete_space(
     user: Identity,
@@ -291,7 +274,6 @@ pub async fn soft_delete_space(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool, time_source), ret)]
 #[post("/restore_space")]
 pub async fn restore_space(
     user: Identity,
@@ -304,7 +286,6 @@ pub async fn restore_space(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[tracing::instrument(skip(user, pool), ret)]
 #[post("/spaces")]
 pub async fn list_spaces(
     user: Identity,

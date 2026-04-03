@@ -11,9 +11,10 @@ edition = "2024"
 
 [features]
 # enable mocking for api by default
-default = ["mock-time", "mock-email"]
+default = ["mock-time", "mock-email", "mock-stripe"]
 mock-time = ["api/mock-time"]
 mock-email = ["api/mock-email"]
+mock-stripe = ["api/mock-stripe"]
 
 [dependencies]
 api = { path = "../api" }
@@ -25,7 +26,7 @@ jiff-sqlx = { workspace = true }
 reqwest = { workspace = true, features = ["cookies"] }
 rust_decimal = { workspace = true }
 secrecy = { workspace = true }
-sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal", "time" ] }
+sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal" ] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }

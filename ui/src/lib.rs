@@ -13,13 +13,13 @@ use components::layout::MainLayout;
 use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
-    CommunityCurrencyPage, CommunityDetailPage, CommunityImagesPage,
-    CommunityInvitesPage, CommunityMembersPage, CommunitySettingsPage,
-    CommunityTreasuryPage, CreateAuctionPage, CreateCommunityPage,
-    CreateSitePage, ForgotPasswordPage, LoggedOutHomePage, LoginPage,
-    NotFoundPage, OrphanedAccountsPage, ProfilePage, ResetPasswordPage,
-    SiteAuctionsPage, SiteOverviewPage, SiteSettingsPage, SiteSpacesPage,
-    TermsPage, VerifyEmailPage, docs,
+    CommunityBillingPage, CommunityCurrencyPage, CommunityDetailPage,
+    CommunityImagesPage, CommunityInvitesPage, CommunityMembersPage,
+    CommunitySettingsPage, CommunityTreasuryPage, CreateAuctionPage,
+    CreateCommunityPage, CreateSitePage, ForgotPasswordPage, LoggedOutHomePage,
+    LoginPage, NotFoundPage, OrphanedAccountsPage, PricingPage, ProfilePage,
+    ResetPasswordPage, SiteAuctionsPage, SiteOverviewPage, SiteSettingsPage,
+    SiteSpacesPage, TermsPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -67,6 +67,8 @@ pub enum Route {
     VerifyEmail,
     #[at("/terms")]
     Terms,
+    #[at("/pricing")]
+    Pricing,
     #[at("/docs")]
     Docs,
     #[at("/docs/currency")]
@@ -105,6 +107,8 @@ pub enum Route {
     OrphanedAccounts { id: CommunityId },
     #[at("/communities/:id/images")]
     CommunityImages { id: CommunityId },
+    #[at("/communities/:id/billing")]
+    CommunityBilling { id: CommunityId },
     #[at("/communities/:id/settings")]
     CommunitySettings { id: CommunityId },
     #[at("/communities/:id/sites/new")]
@@ -135,6 +139,7 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
         Route::Terms => html! { <TermsPage /> },
+        Route::Pricing => html! { <PricingPage /> },
         Route::Docs => html! { <docs::DocsPage /> },
         Route::DocsCurrency => html! { <docs::CurrencyPage /> },
         Route::DocsSetup => html! { <docs::SetupPage /> },
@@ -169,6 +174,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::CommunityImages { id } => {
             html! { <CommunityImagesPage community_id={id} /> }
+        }
+        Route::CommunityBilling { id } => {
+            html! { <CommunityBillingPage community_id={id} /> }
         }
         Route::CommunitySettings { id } => {
             html! { <CommunitySettingsPage community_id={id} /> }

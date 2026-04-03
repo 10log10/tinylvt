@@ -68,6 +68,8 @@ async fn main() -> std::io::Result<()> {
         scheduler.run().await;
     });
 
-    let server = build(&mut config, time_source).await?;
+    let stripe_service = config.create_stripe_service();
+
+    let server = build(&mut config, pool, time_source, stripe_service).await?;
     server.await
 }

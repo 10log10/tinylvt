@@ -368,3 +368,24 @@ pub struct ResetAllBalances {
     pub community_id: crate::CommunityId,
     pub note: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetCommunityStorageUsage {
+    pub community_id: crate::CommunityId,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetSubscriptionInfo {
+    pub community_id: crate::CommunityId,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateCheckoutSession {
+    pub community_id: crate::CommunityId,
+    pub billing_interval: crate::BillingInterval,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreatePortalSession {
+    pub community_id: crate::CommunityId,
+}

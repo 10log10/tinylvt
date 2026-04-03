@@ -116,6 +116,15 @@ pub async fn create_space(
         });
     }
 
+    // Check storage limit before creating
+    super::billing::check_storage_limit(
+        pool,
+        time_source,
+        site.community_id,
+        super::billing::row_estimates::SPACE,
+    )
+    .await?;
+
     let mut tx = pool.begin().await?;
     let space = create_space_tx(details, &mut tx, time_source).await?;
     tx.commit().await?;

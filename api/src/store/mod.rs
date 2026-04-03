@@ -54,6 +54,7 @@ use payloads::{
 use crate::time::TimeSource;
 
 pub mod auction;
+pub mod billing;
 pub mod community;
 pub mod currency;
 pub mod login;
@@ -657,6 +658,27 @@ pub enum StoreError {
     CannotResetDuringActiveAuction,
     #[error("Cannot delete site with financial history")]
     SiteHasFinancialHistory,
+    #[error("Community already has an active subscription")]
+    AlreadySubscribed,
+    #[error("No subscription found for this community")]
+    NoSubscriptionFound,
+    #[error(
+        "Subscription payment is past due. \
+         Please update your payment method."
+    )]
+    SubscriptionPastDue,
+    #[error("Stripe error: {0}")]
+    StripeError(String),
+    #[error(
+        "Storage limit exceeded. Current: {current} bytes, limit: {limit} \
+         bytes, estimated after operation: {estimated_size_after_operation} \
+         bytes"
+    )]
+    StorageLimitExceeded {
+        current: i64,
+        limit: i64,
+        estimated_size_after_operation: i64,
+    },
 }
 
 /// Convert a space name unique constraint violation into a more specific error.

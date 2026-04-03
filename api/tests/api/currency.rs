@@ -24,7 +24,7 @@ async fn run_simple_auction(
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     let mut round_index = 0;
     loop {
@@ -49,7 +49,7 @@ async fn run_simple_auction(
         // Advance time past round end
         app.time_source
             .set(current_round.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
         // Check if auction concluded
         let auction = app.client.get_auction(&auction_id).await?;
@@ -1349,7 +1349,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round (round 0)
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -1392,7 +1392,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Advance time to end of round 0 and process
     app.time_source
         .set(round_0.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Get round 1
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1438,7 +1438,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Advance time to end of round 1 and process
     app.time_source
         .set(round_1.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Get round 2
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1485,7 +1485,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Advance to end of round 2 and process
     app.time_source
         .set(round_2.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Get round 3
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1495,7 +1495,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Advance to end of round 3 and process
     app.time_source
         .set(round_3.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
     // Verify auction concluded
     let auction = app.client.get_auction(&auction_id).await?;

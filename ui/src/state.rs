@@ -1,5 +1,7 @@
-use payloads::{AuctionId, CommunityId, SiteId, SpaceId, responses};
-use std::collections::HashMap;
+use payloads::{
+    AuctionId, CommunityId, CommunityStorageUsage, SiteId, SpaceId, responses,
+};
+use std::collections::{HashMap, HashSet};
 use yewdux::prelude::*;
 
 use crate::hooks::FetchState;
@@ -52,6 +54,10 @@ pub struct State {
 
     // === Members (managed by use_members) ===
     pub members: HashMap<CommunityId, Vec<responses::CommunityMember>>,
+
+    // === Storage Usage (managed by use_storage_usage_cached) ===
+    pub storage_usage: HashMap<CommunityId, CommunityStorageUsage>,
+    pub storage_usage_refetching: HashSet<CommunityId>,
 }
 
 impl State {
@@ -291,6 +297,8 @@ impl State {
         self.clear_auctions_for_site();
         self.clear_individual_auctions();
         self.clear_members();
+        self.storage_usage.clear();
+        self.storage_usage_refetching.clear();
         // Future: clear other user-specific state here
     }
 }

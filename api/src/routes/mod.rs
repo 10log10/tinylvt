@@ -1,4 +1,5 @@
 pub mod auction;
+pub mod billing;
 pub mod community;
 pub mod currency;
 pub mod login;
@@ -100,6 +101,11 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(currency::treasury_credit_operation)
         .service(currency::reset_all_balances)
         .service(currency::update_currency_config)
+        .service(billing::get_community_storage_usage)
+        .service(billing::get_subscription_info)
+        .service(billing::create_checkout_session)
+        .service(billing::create_portal_session)
+        .service(billing::stripe_webhook)
 }
 
 #[get("/health_check")]
@@ -131,7 +137,8 @@ impl ResponseError for APIError {
             Self::NotFound(e) => {
                 HttpResponse::NotFound().body(format!("{self}: {e}"))
             }
-            Self::UnexpectedError(_) => {
+            Self::UnexpectedError(e) => {
+                tracing::error!(error = ?e, "Internal server error");
                 HttpResponse::InternalServerError().body(self.to_string())
             }
         }
@@ -143,6 +150,14 @@ impl From<StoreError> for APIError {
         match e {
             // Database errors
             StoreError::Database(_) => APIError::UnexpectedError(e.into()),
+
+            // External service errors
+            StoreError::StripeError(_) => APIError::UnexpectedError(e.into()),
+
+            // Unexpected / internal errors
+            StoreError::UnexpectedError(_) => {
+                APIError::UnexpectedError(e.into())
+            }
 
             // Database invariant violations (should never happen)
             StoreError::InvalidAccountOwnership => {

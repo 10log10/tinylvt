@@ -3,7 +3,8 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
-use crate::hooks::use_title;
+use crate::components::storage_usage_display::format_bytes;
+use crate::hooks::{use_storage_usage, use_title};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -20,6 +21,7 @@ pub enum ActiveTab {
     Treasury,
     Images,
     OrphanedAccounts,
+    Billing,
     Settings,
 }
 
@@ -30,7 +32,7 @@ struct TabConfig {
     min_role: Option<Role>,
 }
 
-fn get_tab_configs() -> [TabConfig; 8] {
+fn get_tab_configs() -> [TabConfig; 9] {
     [
         TabConfig {
             label: "Sites",
@@ -75,6 +77,12 @@ fn get_tab_configs() -> [TabConfig; 8] {
             min_role: Some(Role::Coleader),
         },
         TabConfig {
+            label: "Billing",
+            tab: ActiveTab::Billing,
+            route: |id| Route::CommunityBilling { id },
+            min_role: Some(Role::Coleader),
+        },
+        TabConfig {
             label: "Settings",
             tab: ActiveTab::Settings,
             route: |id| Route::CommunitySettings { id },
@@ -93,8 +101,78 @@ impl ActiveTab {
             ActiveTab::Treasury => "Treasury",
             ActiveTab::Images => "Images",
             ActiveTab::OrphanedAccounts => "Orphaned Accounts",
+            ActiveTab::Billing => "Billing",
             ActiveTab::Settings => "Settings",
         }
+    }
+}
+
+/// Storage warning badge component for coleader+ users.
+/// Only rendered when user has sufficient permissions.
+#[derive(Properties, PartialEq)]
+struct StorageWarningProps {
+    community_id: payloads::CommunityId,
+}
+
+#[function_component]
+fn StorageWarning(props: &StorageWarningProps) -> Html {
+    let storage_hook = use_storage_usage(props.community_id);
+    let navigator = use_navigator().unwrap();
+
+    // Only show warning if we have data and usage is ≥75%
+    let Some(usage) = storage_hook.data.as_ref() else {
+        return html! {};
+    };
+
+    let percent = usage.usage_percentage();
+
+    if percent < 75.0 {
+        return html! {};
+    }
+
+    let total = usage.usage.total_bytes();
+    let limit = usage.limits.storage_bytes;
+
+    let (bg_class, text_class, icon) = if percent >= 90.0 {
+        (
+            "bg-red-100 dark:bg-red-900/30",
+            "text-red-700 dark:text-red-400",
+            "!",
+        )
+    } else {
+        (
+            "bg-amber-100 dark:bg-amber-900/30",
+            "text-amber-700 dark:text-amber-400",
+            "!",
+        )
+    };
+
+    let onclick = {
+        let community_id = props.community_id;
+        let navigator = navigator.clone();
+        Callback::from(move |_| {
+            navigator.push(&Route::CommunityBilling { id: community_id });
+        })
+    };
+
+    html! {
+        <button
+            {onclick}
+            class={classes!(
+                "flex", "items-center", "gap-1.5", "px-2.5", "py-1",
+                "rounded-md", "text-sm", "font-medium", bg_class, text_class,
+                "hover:opacity-80", "transition-opacity",
+                "border-none", "cursor-pointer"
+            )}
+        >
+            <span class="font-bold">{icon}</span>
+            <span>
+                {"Storage: "}
+                {format_bytes(total)}
+                {"/"}
+                {format_bytes(limit)}
+            </span>
+        </button>
     }
 }
 
@@ -117,13 +195,23 @@ pub fn CommunityTabHeader(props: &Props) -> Html {
             </Link<Route>>
 
             // Header
-            <div>
-                <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
-                    {&props.community.name}
-                </h1>
-                <p class="text-lg text-neutral-600 dark:text-neutral-400 mt-2">
-                    {"Your role: "}{format!("{:?}", props.community.user_role)}
-                </p>
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
+                        {&props.community.name}
+                    </h1>
+                    <p class="text-lg text-neutral-600 dark:text-neutral-400 mt-2">
+                        {"Your role: "}{format!("{:?}", props.community.user_role)}
+                    </p>
+                </div>
+                // Storage warning for coleader+ users
+                {if props.community.user_role.is_ge_coleader() {
+                    html! {
+                        <StorageWarning community_id={props.community.id} />
+                    }
+                } else {
+                    html! {}
+                }}
             </div>
 
             // Tab Navigation

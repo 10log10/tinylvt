@@ -1,12 +1,28 @@
 use crate::Route;
+use crate::hooks::use_push_route;
 use yew::prelude::*;
-use yew_router::prelude::*;
 
-const LINK_CLASSES: &str = "text-sm text-neutral-500 dark:text-neutral-400 \
-     hover:text-neutral-900 dark:hover:text-white";
+const LINK_CLASSES: &str = "text-sm text-neutral-600 dark:text-neutral-400 \
+     hover:text-neutral-900 dark:hover:text-white \
+     cursor-pointer";
 
 #[function_component]
 pub fn Footer() -> Html {
+    let push_route = use_push_route();
+
+    let on_pricing = {
+        let push_route = push_route.clone();
+        Callback::from(move |_: MouseEvent| {
+            push_route.emit(Route::Pricing);
+        })
+    };
+
+    let on_terms = {
+        Callback::from(move |_: MouseEvent| {
+            push_route.emit(Route::Terms);
+        })
+    };
+
     html! {
         <footer class="bg-white dark:bg-neutral-900 \
                         border-t border-neutral-200 \
@@ -14,15 +30,15 @@ pub fn Footer() -> Html {
             <div class="max-w-7xl mx-auto px-4 \
                         sm:px-6 lg:px-8 py-4 \
                         space-y-2">
-                <div class="flex flex-wrap \
-                            justify-center gap-x-6 \
-                            gap-y-1">
-                    <Link<Route>
-                        to={Route::Terms}
-                        classes={LINK_CLASSES}
-                    >
+                <div class="flex flex-wrap justify-center gap-x-6 gap-y-1">
+                    <a onclick={on_pricing}
+                       class={LINK_CLASSES}>
+                        {"Pricing"}
+                    </a>
+                    <a onclick={on_terms}
+                       class={LINK_CLASSES}>
                         {"Terms"}
-                    </Link<Route>>
+                    </a>
                     <a href="https://github.com/10log10/tinylvt"
                        target="_blank"
                        rel="noopener noreferrer"
