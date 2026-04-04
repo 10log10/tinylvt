@@ -55,6 +55,13 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn platform_stats(
+        &self,
+    ) -> Result<responses::PlatformStats, ClientError> {
+        let response = self.empty_get("platform_stats").await?;
+        ok_body(response).await
+    }
+
     pub async fn create_account(
         &self,
         details: &requests::CreateAccount,

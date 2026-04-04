@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::Route;
 use crate::State;
 use crate::components::AuctionInterfaceWalkthrough;
-use crate::hooks::{use_push_route, use_title};
+use crate::hooks::{use_platform_stats, use_push_route, use_title};
 use yew::prelude::*;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
@@ -14,6 +14,7 @@ pub fn LoggedOutHomePage() -> Html {
     let push_route = use_push_route();
     let navigator = use_navigator().unwrap();
     let (state, _dispatch) = use_store::<State>();
+    let stats = use_platform_stats();
 
     let on_learn_more = {
         let push_route = push_route.clone();
@@ -275,6 +276,60 @@ pub fn LoggedOutHomePage() -> Html {
                 >
                     {"Learn How It Works"}
                 </button>
+            </div>
+
+            // Platform stats
+            <div class="max-w-2xl mx-auto">
+                <div class="flex flex-col sm:flex-row gap-6 \
+                    justify-center text-center">
+                    {if let Some(s) = stats.data.as_ref() {
+                        html! {
+                            <>
+                            <div class="flex-1">
+                                <p class="text-3xl font-bold \
+                                    text-neutral-900 \
+                                    dark:text-neutral-100">
+                                    {s.auctions_held.to_string()}
+                                </p>
+                                <p class="text-sm text-neutral-500 \
+                                    dark:text-neutral-400 mt-1">
+                                    {"Auctions held"}
+                                </p>
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-3xl font-bold \
+                                    text-neutral-900 \
+                                    dark:text-neutral-100">
+                                    {s.spaces_allocated.to_string()}
+                                </p>
+                                <p class="text-sm text-neutral-500 \
+                                    dark:text-neutral-400 mt-1">
+                                    {"Spaces allocated"}
+                                </p>
+                            </div>
+                            </>
+                        }
+                    } else {
+                        // Placeholder to reserve space and avoid
+                        // layout shift while loading
+                        html! {
+                            <>
+                            <div class="flex-1 invisible">
+                                <p class="text-3xl font-bold">
+                                    {"\u{00a0}"}
+                                </p>
+                                <p class="text-sm mt-1">{"\u{00a0}"}</p>
+                            </div>
+                            <div class="flex-1 invisible">
+                                <p class="text-3xl font-bold">
+                                    {"\u{00a0}"}
+                                </p>
+                                <p class="text-sm mt-1">{"\u{00a0}"}</p>
+                            </div>
+                            </>
+                        }
+                    }}
+                </div>
             </div>
         </div>
     }

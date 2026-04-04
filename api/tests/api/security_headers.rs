@@ -1,4 +1,5 @@
 use anyhow::Result;
+use payloads::responses;
 
 use test_helpers::spawn_app;
 
@@ -88,6 +89,39 @@ async fn test_health_check_does_not_have_security_headers() -> Result<()> {
         headers.get("expires").is_none(),
         "Health check should not have Expires header"
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_platform_stats_has_cache_headers() -> Result<()> {
+    let app = spawn_app().await;
+
+    let url = format!("{}/api/platform_stats", app.client.address);
+    let response = app.client.inner_client.get(&url).send().await?;
+
+    assert!(response.status().is_success());
+
+    let headers = response.headers();
+    let cache_control = headers
+        .get("cache-control")
+        .expect("Cache-Control header should be present")
+        .to_str()?;
+    assert!(cache_control.contains("public"), "Should contain public");
+    assert!(
+        cache_control.contains("max-age=3600"),
+        "Should contain max-age=3600"
+    );
+
+    // Should not have security no-store headers
+    assert!(
+        !cache_control.contains("no-store"),
+        "Should not contain no-store"
+    );
+
+    let stats: responses::PlatformStats = response.json().await?;
+    assert_eq!(stats.auctions_held, 0);
+    assert_eq!(stats.spaces_allocated, 0);
 
     Ok(())
 }

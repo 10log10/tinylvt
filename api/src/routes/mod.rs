@@ -19,6 +19,7 @@ use crate::store::{self, StoreError};
 pub fn api_services() -> impl HttpServiceFactory {
     web::scope("/api")
         .service(health_check)
+        .service(platform_stats)
         .service(login::login)
         .service(login::login_check)
         .service(login::user_profile)
@@ -111,6 +112,16 @@ pub fn api_services() -> impl HttpServiceFactory {
 #[get("/health_check")]
 pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("healthy")
+}
+
+#[get("/platform_stats")]
+pub async fn platform_stats(
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, APIError> {
+    let stats = store::get_platform_stats(&pool).await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "public, max-age=3600"))
+        .json(stats))
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -767,3 +767,32 @@ pub async fn delete_bid(
 
     Ok(())
 }
+
+pub async fn get_platform_stats(
+    pool: &PgPool,
+) -> Result<payloads::responses::PlatformStats, StoreError> {
+    let auctions_held: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auctions WHERE end_at IS NOT NULL",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let spaces_allocated: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) \
+         FROM round_space_results \
+         WHERE round_id IN ( \
+             SELECT DISTINCT ON (ar.auction_id) ar.id \
+             FROM auction_rounds ar \
+             INNER JOIN auctions a ON a.id = ar.auction_id \
+             WHERE a.end_at IS NOT NULL \
+             ORDER BY ar.auction_id, ar.round_num DESC \
+         )",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(payloads::responses::PlatformStats {
+        auctions_held,
+        spaces_allocated,
+    })
+}

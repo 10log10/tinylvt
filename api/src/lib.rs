@@ -280,7 +280,8 @@ where
 
         Box::pin(async move {
             let is_api_endpoint = req.path().starts_with("/api")
-                && req.path() != "/api/health_check";
+                && req.path() != "/api/health_check"
+                && req.path() != "/api/platform_stats";
 
             let res = service.call(req).await?;
 

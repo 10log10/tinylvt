@@ -478,5 +478,11 @@ fn landing_page_content() -> String {
 <button class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors">Sign Up</button>
 <button class="inline-block px-8 py-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-2 border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded transition-colors">Learn How It Works</button>
 </div>
+<div class="max-w-2xl mx-auto">
+<div class="flex flex-col sm:flex-row gap-6 justify-center text-center">
+<div class="flex-1 invisible"><p class="text-3xl font-bold">&nbsp;</p><p class="text-sm mt-1">&nbsp;</p></div>
+<div class="flex-1 invisible"><p class="text-3xl font-bold">&nbsp;</p><p class="text-sm mt-1">&nbsp;</p></div>
+</div>
+</div>
 </div>"##.to_string()
 }

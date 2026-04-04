@@ -251,3 +251,9 @@ pub struct BalanceResetResult {
     /// Total amount transferred to treasury
     pub total_transferred: Decimal,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlatformStats {
+    pub auctions_held: i64,
+    pub spaces_allocated: i64,
+}
