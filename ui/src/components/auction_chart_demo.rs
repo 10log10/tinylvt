@@ -39,9 +39,7 @@ fn rent_splitting() -> Scenario {
         name: "Rent splitting",
         description: "Three housemates auction bedrooms. \
             Each person's rent adjustment is their auction \
-            price minus their equal share of the total \
-            proceeds, which gives a net-zero set of adjustments \
-            on top of the base rent.",
+            price minus their equal share of the total proceeds.",
         state: EditorState {
             spaces: vec![
                 (master, "Master".into()),
@@ -54,14 +52,14 @@ fn rent_splitting() -> Scenario {
                 (chris, "Chris".into()),
             ],
             values: HashMap::from([
-                ((alex, master), Decimal::new(200, 0)),
-                ((alex, medium), Decimal::new(80, 0)),
+                ((alex, master), Decimal::new(400, 0)),
+                ((alex, medium), Decimal::new(160, 0)),
                 ((alex, small), Decimal::new(0, 0)),
-                ((ben, master), Decimal::new(150, 0)),
-                ((ben, medium), Decimal::new(60, 0)),
+                ((ben, master), Decimal::new(300, 0)),
+                ((ben, medium), Decimal::new(120, 0)),
                 ((ben, small), Decimal::new(0, 0)),
-                ((chris, master), Decimal::new(50, 0)),
-                ((chris, medium), Decimal::new(30, 0)),
+                ((chris, master), Decimal::new(100, 0)),
+                ((chris, medium), Decimal::new(60, 0)),
                 ((chris, small), Decimal::new(0, 0)),
             ]),
             bid_increment: Decimal::new(10, 0),
@@ -85,6 +83,7 @@ fn desk_allocation() -> Scenario {
     let bob = UserId(Uuid::from_u128(11));
     let carol = UserId(Uuid::from_u128(12));
     let dave = UserId(Uuid::from_u128(13));
+    let eve = UserId(Uuid::from_u128(14));
     let window = SpaceId(Uuid::from_u128(200));
     let corner = SpaceId(Uuid::from_u128(201));
     let middle = SpaceId(Uuid::from_u128(202));
@@ -92,9 +91,10 @@ fn desk_allocation() -> Scenario {
 
     Scenario {
         name: "Desk allocation",
-        description: "A team allocates office desks using \
-            quarterly credit budgets of 100 credits each. \
-            Bidding more than 100 on a popular desk means \
+        description: "Five team members compete for four \
+            desks using quarterly credit budgets of 100 \
+            each. With more people than desks, every desk \
+            is worth something. Bidding over 100 means \
             saving up across quarters.",
         state: EditorState {
             spaces: vec![
@@ -108,26 +108,31 @@ fn desk_allocation() -> Scenario {
                 (bob, "Bob".into()),
                 (carol, "Carol".into()),
                 (dave, "Dave".into()),
+                (eve, "Eve".into()),
             ],
             values: HashMap::from([
-                ((alice, window), Decimal::new(150, 0)),
-                ((alice, corner), Decimal::new(80, 0)),
-                ((alice, middle), Decimal::new(20, 0)),
-                ((alice, door), Decimal::new(5, 0)),
-                ((bob, window), Decimal::new(120, 0)),
-                ((bob, corner), Decimal::new(60, 0)),
-                ((bob, middle), Decimal::new(30, 0)),
-                ((bob, door), Decimal::new(10, 0)),
-                ((carol, window), Decimal::new(90, 0)),
-                ((carol, corner), Decimal::new(90, 0)),
-                ((carol, middle), Decimal::new(25, 0)),
-                ((carol, door), Decimal::new(15, 0)),
-                ((dave, window), Decimal::new(30, 0)),
-                ((dave, corner), Decimal::new(25, 0)),
-                ((dave, middle), Decimal::new(20, 0)),
-                ((dave, door), Decimal::new(20, 0)),
+                ((alice, window), Decimal::new(250, 0)),
+                ((alice, corner), Decimal::new(150, 0)),
+                ((alice, middle), Decimal::new(40, 0)),
+                ((alice, door), Decimal::new(10, 0)),
+                ((bob, window), Decimal::new(200, 0)),
+                ((bob, corner), Decimal::new(120, 0)),
+                ((bob, middle), Decimal::new(60, 0)),
+                ((bob, door), Decimal::new(20, 0)),
+                ((carol, window), Decimal::new(180, 0)),
+                ((carol, corner), Decimal::new(180, 0)),
+                ((carol, middle), Decimal::new(50, 0)),
+                ((carol, door), Decimal::new(30, 0)),
+                ((dave, window), Decimal::new(80, 0)),
+                ((dave, corner), Decimal::new(60, 0)),
+                ((dave, middle), Decimal::new(50, 0)),
+                ((dave, door), Decimal::new(40, 0)),
+                ((eve, window), Decimal::new(120, 0)),
+                ((eve, corner), Decimal::new(100, 0)),
+                ((eve, middle), Decimal::new(70, 0)),
+                ((eve, door), Decimal::new(35, 0)),
             ]),
-            bid_increment: Decimal::new(5, 0),
+            bid_increment: Decimal::new(10, 0),
         },
         currency: CurrencySettings {
             mode_config: CurrencyModeConfig::PointsAllocation(Box::new(
