@@ -427,6 +427,17 @@ fn landing_page_content() -> String {
 <div class="lg:min-h-[50rem]"></div>
 </div>
 </div>
+<div class="max-w-3xl mx-auto space-y-4">
+<h2 class="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Why "LVT"?</h2>
+<p class="text-lg text-neutral-600 dark:text-neutral-400">TinyLVT is based on the principles of land value taxation (LVT). Land value taxes:</p>
+<ul class="space-y-2 text-lg text-neutral-600 dark:text-neutral-400 list-disc pl-6">
+<li>allocate scarce resources <span class="italic">("land")</span></li>
+<li>by assessing their rental value <span class="italic">("value")</span></li>
+<li>and capturing and redistributing that value to the community <span class="italic">("tax")</span></li>
+</ul>
+<p class="text-lg text-neutral-600 dark:text-neutral-400">Land value taxes ensure resources are used well and guarantee equal access, even if the resource possession itself is unequal. The redistribution compensates those who are excluded from the resource for their share of its value.</p>
+<p class="text-lg text-neutral-600 dark:text-neutral-400">TinyLVT is a pure implementation of land value taxation. Resource value and allocation are precisely determined with auctions. Distributions are direct payments to each community member.</p>
+</div>
 <div class="max-w-5xl mx-auto space-y-8">
 <div class="text-center space-y-4">
 <h2 class="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">The auction interface</h2>
