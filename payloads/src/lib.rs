@@ -509,9 +509,15 @@ impl CurrencySettings {
         );
 
         // Format with fixed decimal places (e.g., "$10.00" not "$10")
+        // Place negative sign before the symbol: "-$50" not "$-50"
+        let abs = rounded.abs();
         let amount_str =
-            format!("{:.prec$}", rounded, prec = self.minor_units as usize);
-        format!("{}{}", self.symbol, amount_str)
+            format!("{:.prec$}", abs, prec = self.minor_units as usize);
+        if rounded.is_sign_negative() && !rounded.is_zero() {
+            format!("-{}{}", self.symbol, amount_str)
+        } else {
+            format!("{}{}", self.symbol, amount_str)
+        }
     }
 }
 
@@ -670,6 +676,7 @@ pub struct JournalLine {
     pub amount: Decimal,
 }
 
+pub mod auction_sim;
 pub mod billing;
 pub mod requests;
 pub mod responses;

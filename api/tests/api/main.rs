@@ -1,4 +1,5 @@
 mod auction;
+mod auction_sim;
 mod billing;
 mod community;
 mod currency;
