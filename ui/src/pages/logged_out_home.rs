@@ -41,46 +41,30 @@ pub fn LoggedOutHomePage() -> Html {
             <div class="flex flex-col lg:flex-row gap-10 \
                 lg:items-start max-w-6xl mx-auto">
                 // Left column: intro text
-                <div class="lg:w-5/12 space-y-8">
+                <div class="lg:w-5/12 space-y-8 pt-12">
                     // Tagline
-                    <p class="text-2xl sm:text-3xl font-semibold \
+                    <p class="text-4xl sm:text-3xl font-semibold \
                         text-neutral-900 dark:text-neutral-100">
-                        {"Fair allocation for shared spaces, from \
-                        splitting rent among housemates to \
-                        assigning desks in a workspace."}
+                        {"Fair allocation for anything\u{00A0}shared."}
                     </p>
 
-                    // Problem statement
-                    <div class="space-y-4">
-                        <h2 class="text-2xl font-semibold \
-                            text-neutral-900 dark:text-neutral-100">
-                            {"The problem"}
-                        </h2>
-                        <p class="text-lg text-neutral-600 \
-                            dark:text-neutral-400">
-                            {"When housemates share a rental, who \
-                            gets the master bedroom? When a team \
-                            shares an office, who gets the window \
-                            desk? Traditional methods leave someone \
-                            feeling shortchanged."}
-                        </p>
-                    </div>
+                    <p class="text-lg text-neutral-600 \
+                        dark:text-neutral-400">
+                        {"When housemates share a rental, who \
+                        gets the master bedroom? When a team \
+                        shares an office, who gets the window \
+                        desk? Traditional methods leave someone \
+                        feeling shortchanged."}
+                    </p>
 
-                    // Solution
-                    <div class="space-y-4">
-                        <h2 class="text-2xl font-semibold \
-                            text-neutral-900 dark:text-neutral-100">
-                            {"The solution"}
-                        </h2>
-                        <p class="text-lg text-neutral-600 \
-                            dark:text-neutral-400">
-                            {"TinyLVT uses auctions to allocate \
-                            spaces fairly. Everyone bids what each \
-                            space is worth to them. Spaces go to \
-                            those who value them most, and the \
-                            proceeds are shared equally."}
-                        </p>
-                    </div>
+                    <p class="text-lg text-neutral-600 \
+                        dark:text-neutral-400">
+                        {"TinyLVT uses auctions to allocate \
+                        spaces fairly. Everyone bids what each \
+                        space is worth to them. Spaces go to \
+                        those who value them most, and the \
+                        proceeds are shared equally."}
+                    </p>
 
                     // Key insight box
                     <div class="bg-neutral-100 dark:bg-neutral-800 \
