@@ -31,8 +31,8 @@ const TERMS_PAGE: PageMeta = PageMeta {
 };
 
 const LANDING_PAGE: PageMeta = PageMeta {
-    title: "TinyLVT - Fair Allocation for Shared Spaces",
-    description: "TinyLVT uses auctions to allocate shared spaces fairly. \
+    title: "TinyLVT - Fair Allocation for Anything Shared",
+    description: "TinyLVT uses auctions to allocate anything people share. \
         From splitting rent among housemates to assigning desks in a workspace, \
         everyone pays according to actual demand.",
     path: "/",
@@ -406,27 +406,26 @@ fn render_page(
 /// Static landing page content (mirrors LoggedOutHomePage component)
 fn landing_page_content() -> String {
     r##"<div class="space-y-16">
-<div class="text-center space-y-6">
-<h1 class="text-5xl sm:text-6xl font-bold text-neutral-900 dark:text-neutral-100">TinyLVT</h1>
-<p class="text-xl text-neutral-600 dark:text-neutral-400 max-w-2xl mx-auto">Fair allocation for shared spaces, from splitting rent among housemates to assigning desks in a workspace.</p>
-</div>
-<div class="max-w-2xl mx-auto space-y-4">
-<h2 class="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">The problem</h2>
-<p class="text-lg text-neutral-600 dark:text-neutral-400">When housemates share a rental, who gets the master bedroom? When a team shares an office, who gets the window desk? Traditional methods—first-come-first-served, rotation, or awkward negotiations—leave someone feeling shortchanged.</p>
-</div>
-<div class="max-w-2xl mx-auto space-y-4">
-<h2 class="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">The solution</h2>
+<div class="flex flex-col lg:flex-row gap-10 lg:items-start max-w-6xl mx-auto">
+<div class="lg:w-5/12 space-y-8 pt-12">
+<p class="text-4xl sm:text-3xl font-semibold text-neutral-900 dark:text-neutral-100">Fair allocation for anything&nbsp;shared.</p>
+<p class="text-lg text-neutral-600 dark:text-neutral-400">When housemates share a rental, who gets the master bedroom? When a team shares an office, who gets the window desk? Traditional methods leave someone feeling shortchanged.</p>
 <p class="text-lg text-neutral-600 dark:text-neutral-400">TinyLVT uses auctions to allocate spaces fairly. Everyone bids what each space is worth to them. Spaces go to those who value them most, and the proceeds are shared equally.</p>
-</div>
-<div class="max-w-2xl mx-auto">
 <div class="bg-neutral-100 dark:bg-neutral-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
 <p class="text-lg font-medium text-neutral-900 dark:text-neutral-100">You only pay what others would have paid.</p>
 <p class="text-neutral-600 dark:text-neutral-400 mt-2">If you win a space, you pay just enough to outbid the next-highest bidder—not your maximum. This encourages honest bidding and ensures fair prices.</p>
 </div>
-</div>
-<div class="py-4 flex flex-col sm:flex-row gap-4 justify-center">
+<div class="flex flex-col sm:flex-row gap-4 justify-center">
 <button class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors">Sign Up</button>
 <button class="inline-block px-8 py-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-2 border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded transition-colors">Learn How It Works</button>
+</div>
+</div>
+<div class="lg:w-7/12">
+<!-- Placeholder for interactive auction demo (rendered by Yew).
+     Min-height sized for the rent-splitting scenario at max
+     width (~800px) to minimize layout shift when WASM hydrates. -->
+<div class="lg:min-h-[50rem]"></div>
+</div>
 </div>
 <div class="max-w-5xl mx-auto space-y-8">
 <div class="text-center space-y-4">
