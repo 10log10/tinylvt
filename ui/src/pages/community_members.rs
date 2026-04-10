@@ -1,13 +1,14 @@
 use payloads::{CommunityId, Role, responses::CommunityWithRole};
 use yew::prelude::*;
 
+use crate::Route;
 use crate::components::{
     ActiveStatusToggle, ActiveTab, ChangeRoleModal, CommunityPageWrapper,
     CommunityTabHeader, EditCreditLimitModal, MenuItem, OverflowMenu,
     RemoveMemberModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
-use crate::hooks::use_members;
+use crate::hooks::{use_members, use_push_route};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -46,6 +47,16 @@ pub struct MembersContentProps {
 #[function_component]
 fn MembersContent(props: &MembersContentProps) -> Html {
     let members_hook = use_members(props.community.id);
+    let push_route = use_push_route();
+    let can_invite = props.community.user_role.is_ge_moderator();
+    let community_id = props.community.id;
+
+    let on_invite_click = {
+        let push_route = push_route.clone();
+        Callback::from(move |_: MouseEvent| {
+            push_route.emit(Route::CommunityInvites { id: community_id });
+        })
+    };
 
     members_hook.render("members", |members, is_loading, error| {
         html! {
@@ -105,6 +116,26 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                             }).collect::<Html>()}
                         </div>
                     }
+                }}
+
+                {if can_invite {
+                    html! {
+                        <div class="mt-6 flex justify-center">
+                            <button
+                                onclick={on_invite_click.clone()}
+                                class="bg-neutral-900 hover:bg-neutral-800 \
+                                       dark:bg-neutral-100 \
+                                       dark:text-neutral-900 \
+                                       dark:hover:bg-neutral-200 text-white \
+                                       px-4 py-2 rounded-md text-sm \
+                                       font-medium transition-colors"
+                            >
+                                {"Invite Members"}
+                            </button>
+                        </div>
+                    }
+                } else {
+                    html! {}
                 }}
             </div>
         }
