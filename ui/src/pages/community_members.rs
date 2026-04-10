@@ -317,8 +317,12 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                         </p>
                     </div>
                 </div>
-                <div class="flex items-center gap-3 flex-wrap">
-                    // Balance display
+                <div class="flex items-center gap-3 flex-wrap justify-end \
+                            ml-auto">
+                    // Balance display. Width is flexible — balance is the
+                    // leftmost element in this group, so its variable width
+                    // doesn't disturb the alignment of the fixed-width slots
+                    // to its right.
                     {if let Some(balance) = member.balance {
                         html! {
                             <div class="text-right">
@@ -336,25 +340,40 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                         html! {}
                     }}
 
-                    // Active status toggle
-                    {if can_edit_active_status {
-                        html! {
-                            <ActiveStatusToggle
-                                community_id={community.id}
-                                member_user_id={member.user.user_id}
-                                current_status={member.is_active}
-                                on_success={props.on_update.clone()}
-                                disabled={false}
-                            />
-                        }
-                    } else {
-                        html! {}
-                    }}
+                    // Active status toggle slot. Fixed width so its
+                    // presence/absence doesn't shift elements to the left.
+                    // Width accommodates the toggle (w-11) + ml-3 gap +
+                    // "Inactive" label (~13).
+                    <div class="w-28">
+                        {if can_edit_active_status {
+                            html! {
+                                <ActiveStatusToggle
+                                    community_id={community.id}
+                                    member_user_id={member.user.user_id}
+                                    current_status={member.is_active}
+                                    on_success={props.on_update.clone()}
+                                    disabled={false}
+                                />
+                            }
+                        } else {
+                            html! {}
+                        }}
+                    </div>
 
-                    <RoleBadge role={member.role} />
+                    // Role badge slot. Role is always present, but we still
+                    // fix the slot width so badges of different role names
+                    // (e.g. "Member" vs "Moderator") line up consistently
+                    // across rows.
+                    <div class="w-20">
+                        <RoleBadge role={member.role} />
+                    </div>
 
-                    // Overflow menu for admin actions
-                    <OverflowMenu items={menu_items} />
+                    // Overflow menu slot. Fixed width (matches the p-2 + 20px
+                    // icon button) so its absence (when a member has no
+                    // available actions) doesn't pull the role badge right.
+                    <div class="w-9">
+                        <OverflowMenu items={menu_items} />
+                    </div>
                 </div>
             </div>
 
