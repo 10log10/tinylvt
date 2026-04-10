@@ -518,14 +518,10 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         on_enter={props.on_value_enter.clone()}
                         container_ref={props.value_ref.clone()}
                         inputmode={AttrValue::Static("decimal")}
-                        class={classes!("w-20")}
-                        inner_class={classes!(
-                            "font-medium",
-                            "border",
-                            "border-dashed",
-                            "border-neutral-400",
-                            "dark:border-neutral-500"
-                        )}
+                        display_class="w-20 border border-dashed \
+                            border-neutral-400 dark:border-neutral-500 \
+                            hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                        input_class="w-20 font-medium"
                     />
                 </div>
 

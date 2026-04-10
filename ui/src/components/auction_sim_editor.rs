@@ -45,6 +45,11 @@ const ADD_BTN: &str = "\
 const HEADER_BG: &str = "\
     bg-neutral-50 dark:bg-neutral-800/50 rounded";
 
+const HOVER_BORDER: &str = "\
+    border border-transparent \
+    hover:border-neutral-300 \
+    dark:hover:border-neutral-600";
+
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub state: UseStateHandle<EditorState>,
@@ -155,8 +160,14 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                 on_enter={on_enter}
                 on_remove={on_remove}
                 container_ref={container_ref}
-                class={classes!(HEADER_BG)}
-                inner_class={classes!("font-medium", "text-right")}
+                display_class={classes!(
+                    "w-full", HEADER_BG, HOVER_BORDER,
+                    "font-medium", "text-right"
+                )}
+                input_class={classes!(
+                    "w-full",
+                    "font-medium", "text-right"
+                )}
             />
         });
     }
@@ -197,7 +208,10 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                 on_enter={on_enter_space}
                 on_remove={on_remove_space}
                 container_ref={space_ref}
-                class={classes!(HEADER_BG)}
+                display_class={classes!(
+                    "w-full", HEADER_BG, HOVER_BORDER
+                )}
+                input_class={classes!("w-full")}
             />
         });
 
@@ -241,7 +255,12 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                     on_change={on_val}
                     on_enter={on_enter}
                     container_ref={container_ref}
-                    inner_class={classes!("text-right")}
+                    display_class={classes!(
+                        "w-full", HOVER_BORDER, "text-right"
+                    )}
+                    input_class={classes!(
+                        "w-full", "text-right"
+                    )}
                     inputmode={AttrValue::Static("decimal")}
                 />
             });
@@ -317,9 +336,14 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                             props.currency.format_amount(state.bid_increment)
                         }
                         on_change={on_bid_increment}
-                        inner_class={classes!("text-right")}
                         inputmode={AttrValue::Static("decimal")}
-                        class={classes!("w-10")}
+                        display_class={classes!(
+                            "w-10", "text-right",
+                            HOVER_BORDER
+                        )}
+                        input_class={classes!(
+                            "w-10", "text-right"
+                        )}
                     />
                 </div>
             </div>

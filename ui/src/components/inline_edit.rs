@@ -15,11 +15,13 @@ use yew::prelude::*;
 /// mode.
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    /// Current value, used as the input's initial content in edit mode
+    /// Current value, used as the input's initial content
+    /// in edit mode
     pub value: AttrValue,
-    /// Formatted text shown in display mode. When set, overrides `value` for
-    /// display only (e.g. to show a currency symbol). The raw `value` is still
-    /// used as the input content when editing.
+    /// Formatted text shown in display mode. When set,
+    /// overrides `value` for display only (e.g. to show
+    /// a currency symbol). The raw `value` is still used
+    /// as the input content when editing.
     #[prop_or_default]
     pub display_value: Option<AttrValue>,
     /// Text shown when value is empty
@@ -30,12 +32,12 @@ pub struct Props {
     /// If set, shows a ✕ remove button in edit mode
     #[prop_or_default]
     pub on_remove: Option<Callback<()>>,
-    /// Extra CSS classes for the outer container
+    /// Extra CSS classes for the display span
     #[prop_or_default]
-    pub class: Classes,
-    /// Extra CSS classes applied to both display and input
+    pub display_class: Classes,
+    /// Extra CSS classes for the input element
     #[prop_or_default]
-    pub inner_class: Classes,
+    pub input_class: Classes,
     /// HTML input type (default "text")
     #[prop_or(AttrValue::Static("text"))]
     pub input_type: AttrValue,
@@ -54,8 +56,6 @@ pub struct Props {
 
 const DISPLAY_CLASSES: &str = "\
     cursor-pointer px-2 py-1 rounded text-sm \
-    border border-transparent \
-    hover:border-neutral-300 dark:hover:border-neutral-600 \
     transition-colors";
 
 const INPUT_CLASSES: &str = "\
@@ -69,7 +69,7 @@ const INPUT_CLASSES: &str = "\
 const REMOVE_BTN: &str = "\
     text-neutral-400 dark:text-neutral-600 \
     hover:text-neutral-700 dark:hover:text-neutral-400 \
-    text-sm shrink-0 p-1.5 rounded \
+    text-sm shrink-0 px-1.5 py-1 rounded \
     hover:bg-neutral-100 dark:hover:bg-neutral-700 \
     transition-colors";
 
@@ -160,10 +160,7 @@ pub fn InlineEdit(props: &Props) -> Html {
     };
 
     html! {
-        <div class={classes!(
-            "flex", "items-center", "gap-1",
-            props.class.clone()
-        )}>
+        <div class="flex items-center gap-1">
             {if *is_editing {
                 html! {
                     <>
@@ -176,8 +173,7 @@ pub fn InlineEdit(props: &Props) -> Html {
                             onkeydown={on_keydown}
                             class={classes!(
                                 INPUT_CLASSES,
-                                "w-full",
-                                props.inner_class.clone()
+                                props.input_class.clone()
                             )}
                         />
                         {if props.on_remove.is_some() {
@@ -203,8 +199,7 @@ pub fn InlineEdit(props: &Props) -> Html {
                         class={classes!(
                             DISPLAY_CLASSES,
                             empty_style,
-                            "w-full",
-                            props.inner_class.clone()
+                            props.display_class.clone()
                         )}
                     >
                         {display_text}
