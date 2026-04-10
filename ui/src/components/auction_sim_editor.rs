@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use payloads::auction_sim::SimInput;
 use payloads::responses::UserIdentity;
-use payloads::{SpaceId, UserId};
+use payloads::{CurrencySettings, SpaceId, UserId};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 use web_sys::HtmlElement;
@@ -48,6 +48,7 @@ const HEADER_BG: &str = "\
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub state: UseStateHandle<EditorState>,
+    pub currency: CurrencySettings,
 }
 
 /// The editable grid for bidder names, space names, and
@@ -204,9 +205,12 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
         for (bi, (uid, _)) in bidders_snapshot.iter().enumerate() {
             let uid = *uid;
             let row_in_col = si + 1; // row 0 = bidder name
-            let val = values_snapshot
-                .get(&(uid, sid))
-                .map(|d| d.to_string())
+            let raw_val = values_snapshot.get(&(uid, sid));
+            let val = raw_val
+                .map(|d| d.normalize().to_string())
+                .unwrap_or_default();
+            let display_val = raw_val
+                .map(|d| props.currency.format_amount(*d))
                 .unwrap_or_default();
             let on_val = {
                 let state = state.clone();
@@ -233,11 +237,12 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
             cells.push(html! {
                 <InlineEdit
                     value={val}
+                    display_value={display_val}
                     on_change={on_val}
                     on_enter={on_enter}
                     container_ref={container_ref}
                     inner_class={classes!("text-right")}
-                    inputmode={AttrValue::Static("numeric")}
+                    inputmode={AttrValue::Static("decimal")}
                 />
             });
         }
@@ -308,9 +313,12 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                     </label>
                     <InlineEdit
                         value={state.bid_increment.to_string()}
+                        display_value={
+                            props.currency.format_amount(state.bid_increment)
+                        }
                         on_change={on_bid_increment}
                         inner_class={classes!("text-right")}
-                        inputmode={AttrValue::Static("numeric")}
+                        inputmode={AttrValue::Static("decimal")}
                         class={classes!("w-10")}
                     />
                 </div>

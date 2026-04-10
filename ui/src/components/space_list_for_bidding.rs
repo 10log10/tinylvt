@@ -1,8 +1,10 @@
 use payloads::{CurrencySettings, RoundSpaceResult, SpaceId, responses};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
+use web_sys::HtmlElement;
 use yew::prelude::*;
 
+use crate::components::InlineEdit;
 use crate::components::user_identity_display::render_user_name;
 use crate::hooks::FetchState;
 use payloads::responses::UserIdentity;
@@ -143,6 +145,24 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         }
     });
 
+    // NodeRefs for each row's value cell, so Enter
+    // can advance focus to the next row
+    let value_refs = use_memo(space_data.len(), |n| {
+        (0..*n).map(|_| NodeRef::default()).collect::<Vec<_>>()
+    });
+
+    let click_next_value = {
+        let value_refs = value_refs.clone();
+        move |idx: usize| {
+            let next = idx + 1;
+            if next < value_refs.len()
+                && let Some(el) = value_refs[next].cast::<HtmlElement>()
+            {
+                el.click();
+            }
+        }
+    };
+
     let on_sort_click = {
         let sort_field = sort_field.clone();
         let sort_direction = sort_direction.clone();
@@ -243,7 +263,9 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                         </div>
                     }
                 } else {
-                    space_data.iter().map(|(space, price, user_value, surplus, winner)| {
+                    space_data.iter().enumerate().map(|
+                        (idx, (space, price, user_value, surplus, winner))
+                    | {
                         let user_has_bid = props.user_bid_space_ids.contains(&space.space_id);
                         let is_high_bidder = props.current_username.as_ref()
                             .and_then(|username| {
@@ -264,6 +286,13 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                             }
                         } else {
                             false
+                        };
+
+                        let on_value_enter = {
+                            let click_next_value = click_next_value.clone();
+                            Callback::from(move |()| {
+                                click_next_value(idx);
+                            })
                         };
 
                         html! {
@@ -287,6 +316,8 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 winner={winner.clone()}
                                 would_exceed_eligibility={would_exceed_eligibility}
                                 is_deleted={space.deleted_at.is_some()}
+                                value_ref={value_refs[idx].clone()}
+                                on_value_enter={on_value_enter}
                             />
                         }
                     }).collect::<Html>()
@@ -368,15 +399,16 @@ struct SpaceRowProps {
     winner: Option<UserIdentity>,
     would_exceed_eligibility: bool,
     is_deleted: bool,
+    value_ref: NodeRef,
+    on_value_enter: Callback<()>,
 }
 
 #[function_component]
 fn SpaceRow(props: &SpaceRowProps) -> Html {
     let space_id = props.space.space_id;
-    let is_editing = use_state(|| false);
-    let input_value = use_state(String::new);
 
-    // Calculate the bid price (current price + bid increment, or 0 for first bid)
+    // Calculate the bid price (current price + bid increment, or 0 for first
+    // bid)
     let bid_price = match props.price {
         Some(price) => price + props.bid_increment,
         None => Decimal::ZERO,
@@ -389,79 +421,30 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
         })
     };
 
-    let on_value_click = {
-        let is_editing = is_editing.clone();
-        let input_value = input_value.clone();
-        let user_value = props.user_value;
-        Callback::from(move |_| {
-            // Set input to current value when starting edit
-            let initial_text = match user_value {
-                Some(v) => format!("{:.2}", v),
-                None => String::new(),
-            };
-            input_value.set(initial_text);
-            is_editing.set(true);
-        })
-    };
-
-    let on_input_change = {
-        let input_value = input_value.clone();
-        Callback::from(move |e: yew::InputEvent| {
-            let target: web_sys::HtmlInputElement = e.target_unchecked_into();
-            input_value.set(target.value());
-        })
-    };
-
-    let save_value = {
-        let is_editing = is_editing.clone();
-        let input_value = input_value.clone();
-        let on_update_value = props.on_update_value.clone();
-        let on_delete_value = props.on_delete_value.clone();
-        move || {
-            let text = (*input_value).trim();
-            if text.is_empty() {
-                // Empty input means delete the value (set to None)
-                on_delete_value.emit(space_id);
-            } else {
-                // Try to parse as decimal
-                match text.parse::<Decimal>() {
-                    Ok(value) if value >= Decimal::ZERO => {
-                        on_update_value.emit((space_id, value));
-                    }
-                    _ => {
-                        // Invalid input, revert to original value
-                        tracing::warn!(
-                            "Invalid value input: '{}'. Must be \
-                             non-negative number.",
-                            text
-                        );
-                    }
-                }
+    let on_value_change = {
+        let on_update = props.on_update_value.clone();
+        let on_delete = props.on_delete_value.clone();
+        Callback::from(move |v: String| {
+            if v.is_empty() {
+                on_delete.emit(space_id);
+            } else if let Ok(d) = v.parse::<Decimal>()
+                && d >= Decimal::ZERO
+            {
+                on_update.emit((space_id, d));
             }
-            is_editing.set(false);
-        }
-    };
-
-    let on_input_blur = {
-        let save_value = save_value.clone();
-        Callback::from(move |_| {
-            save_value();
+            // Invalid input is silently ignored; InlineEdit reverts to the
+            // prior display value on blur.
         })
     };
 
-    let on_input_keydown = {
-        let save_value = save_value.clone();
-        let is_editing = is_editing.clone();
-        Callback::from(move |e: web_sys::KeyboardEvent| {
-            if e.key() == "Enter" {
-                e.prevent_default();
-                save_value();
-            } else if e.key() == "Escape" {
-                e.prevent_default();
-                // Cancel editing without saving
-                is_editing.set(false);
-            }
-        })
+    let value_str = props
+        .user_value
+        .map(|v| v.normalize().to_string())
+        .unwrap_or_default();
+
+    let display_str = match props.user_value {
+        Some(v) => props.currency.format_amount(v),
+        None => String::default(),
     };
 
     html! {
@@ -476,7 +459,9 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                         {&props.space.space_details.name}
                         {if props.is_deleted {
                             html! {
-                                <span class="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                                <span class="ml-2 text-xs \
+                                      text-amber-600 \
+                                      dark:text-amber-400">
                                     {"(deleted)"}
                                 </span>
                             }
@@ -491,9 +476,15 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 dark:text-neutral-400">
                         {"Points"}
                     </div>
-                    <div class="text-sm font-medium text-neutral-900 \
+                    <div class="text-sm font-medium \
+                                text-neutral-900 \
                                 dark:text-white">
-                        {format!("{:.1}", props.space.space_details.eligibility_points)}
+                        {format!(
+                            "{:.1}",
+                            props.space
+                                .space_details
+                                .eligibility_points
+                        )}
                     </div>
                 </div>
 
@@ -502,11 +493,14 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 dark:text-neutral-400">
                         {"Price"}
                     </div>
-                    <div class="text-sm font-medium text-neutral-900 \
+                    <div class="text-sm font-medium \
+                                text-neutral-900 \
                                 dark:text-white">
                         {match props.price {
-                            Some(price) => props.currency.format_amount(price),
-                            None => "--".to_string(),
+                            Some(price) => {
+                                props.currency.format_amount(price)
+                            }
+                            None => props.currency.placeholder_value(),
                         }}
                     </div>
                 </div>
@@ -516,42 +510,23 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 dark:text-neutral-400">
                         {"Your Value"}
                     </div>
-                    {if *is_editing {
-                        html! {
-                            <input
-                                type="text"
-                                value={(*input_value).clone()}
-                                oninput={on_input_change}
-                                onblur={on_input_blur}
-                                onkeydown={on_input_keydown}
-                                class="w-20 px-2 py-1 text-sm border \
-                                       border-neutral-300 dark:border-neutral-600 \
-                                       rounded bg-white dark:bg-neutral-900 \
-                                       text-neutral-900 dark:text-white \
-                                       focus:outline-none focus:ring-2 \
-                                       focus:ring-neutral-500"
-                                autofocus={true}
-                            />
-                        }
-                    } else {
-                        html! {
-                            <div
-                                onclick={on_value_click}
-                                class="w-20 text-sm font-medium text-neutral-900 \
-                                       dark:text-white cursor-pointer \
-                                       hover:bg-neutral-100 \
-                                       dark:hover:bg-neutral-700 px-2 py-1 \
-                                       rounded transition-colors \
-                                       border border-dashed border-neutral-400 \
-                                       dark:border-neutral-500"
-                            >
-                                {match props.user_value {
-                                    Some(value) => props.currency.format_amount(value),
-                                    None => format!("{}--", props.currency.symbol),
-                                }}
-                            </div>
-                        }
-                    }}
+                    <InlineEdit
+                        value={value_str}
+                        display_value={display_str}
+                        placeholder={props.currency.placeholder_value()}
+                        on_change={on_value_change}
+                        on_enter={props.on_value_enter.clone()}
+                        container_ref={props.value_ref.clone()}
+                        inputmode={AttrValue::Static("decimal")}
+                        class={classes!("w-20")}
+                        inner_class={classes!(
+                            "font-medium",
+                            "border",
+                            "border-dashed",
+                            "border-neutral-400",
+                            "dark:border-neutral-500"
+                        )}
+                    />
                 </div>
 
                 <div>
@@ -571,7 +546,7 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     )}>
                         {match props.surplus {
                             Some(value) => props.currency.format_amount(value),
-                            None => format!("{}--", props.currency.symbol),
+                            None => props.currency.placeholder_value(),
                         }}
                     </div>
                 </div>

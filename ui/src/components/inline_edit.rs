@@ -15,8 +15,13 @@ use yew::prelude::*;
 /// mode.
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    /// Current display value
+    /// Current value, used as the input's initial content in edit mode
     pub value: AttrValue,
+    /// Formatted text shown in display mode. When set, overrides `value` for
+    /// display only (e.g. to show a currency symbol). The raw `value` is still
+    /// used as the input content when editing.
+    #[prop_or_default]
+    pub display_value: Option<AttrValue>,
     /// Text shown when value is empty
     #[prop_or(AttrValue::Static("\u{2014}"))]
     pub placeholder: AttrValue,
@@ -140,13 +145,15 @@ pub fn InlineEdit(props: &Props) -> Html {
         })
     };
 
-    let display_text = if props.value.is_empty() {
+    let display_source = props.display_value.as_ref().unwrap_or(&props.value);
+
+    let display_text = if display_source.is_empty() {
         props.placeholder.to_string()
     } else {
-        props.value.to_string()
+        display_source.to_string()
     };
 
-    let empty_style = if props.value.is_empty() {
+    let empty_style = if display_source.is_empty() {
         "text-neutral-400 dark:text-neutral-600"
     } else {
         "text-neutral-900 dark:text-neutral-100"

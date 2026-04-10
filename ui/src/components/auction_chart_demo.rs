@@ -238,7 +238,10 @@ fn AuctionChartDemoInner(props: &InnerProps) -> Html {
                     for each space."}
                 </p>
             </div>
-            <AuctionSimEditor state={state.clone()} />
+            <AuctionSimEditor
+                state={state.clone()}
+                currency={props.currency.clone()}
+            />
 
             <div>
                 <h4 class="text-sm font-semibold \

@@ -500,6 +500,11 @@ impl CurrencySettings {
         self.mode_config.debts_callable()
     }
 
+    /// Placeholder text for empty currency inputs (e.g. "$—")
+    pub fn placeholder_value(&self) -> String {
+        format!("{}\u{2014}", self.symbol)
+    }
+
     /// Format an amount using the currency symbol and minor units
     pub fn format_amount(&self, amount: rust_decimal::Decimal) -> String {
         // Round to the appropriate number of decimal places
