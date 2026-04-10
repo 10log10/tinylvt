@@ -3,7 +3,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{Event, FocusEvent, SubmitEvent};
 use yew::prelude::*;
 
-use crate::components::{ActiveTab, CommunityPageWrapper, CommunityTabHeader};
+use crate::components::{
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, CopyButton,
+};
 use crate::hooks::use_issued_invites;
 
 #[derive(Properties, PartialEq)]
@@ -307,7 +309,7 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
                                             <label class="block text-xs font-medium text-green-700 dark:text-green-400">
                                                 {"Invite Link:"}
                                             </label>
-                                            <div>
+                                            <div class="flex items-center gap-2">
                                                 <input
                                                     type="text"
                                                     value={link.clone()}
@@ -318,12 +320,10 @@ fn InviteMemberModal(props: &InviteMemberModalProps) -> Html {
                                                                 input.select();
                                                             }
                                                     })}
-                                                    class="w-full px-2 py-1 text-xs border border-green-300 dark:border-green-600 rounded bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 font-mono cursor-pointer"
+                                                    class="flex-1 min-w-0 px-2 py-1 text-xs border border-green-300 dark:border-green-600 rounded bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200 font-mono cursor-pointer"
                                                     title="Click to select all, then copy"
                                                 />
-                                                <p class="text-xs text-green-600 dark:text-green-400 mt-1">
-                                                    {"Click the link above to select all, then copy (Ctrl+C / Cmd+C)"}
-                                                </p>
+                                                <CopyButton text={link.clone()} />
                                             </div>
                                         </div>
                                     }
@@ -497,6 +497,14 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
         zoned.strftime("%B %d, %Y at %l:%M %p").to_string()
     };
 
+    // Build the full invite URL for sharing/copying.
+    let invite_link = {
+        let window = web_sys::window().unwrap();
+        let location = window.location();
+        let origin = location.origin().unwrap();
+        format!("{}/accept-invite/{}", origin, invite.id)
+    };
+
     let on_delete_click = {
         let is_deleting = is_deleting.clone();
         let delete_error = delete_error.clone();
@@ -583,18 +591,13 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
 
             <div class="text-sm text-neutral-600 dark:text-neutral-400">
                 <p class="mb-2">{format!("Created on {}", created_date)}</p>
-                <div class="flex items-center space-x-2">
+                <div class="flex items-center gap-2">
                     <label class="text-xs font-medium text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
                         {"Invite Link:"}
                     </label>
                     <input
                         type="text"
-                        value={{
-                            let window = web_sys::window().unwrap();
-                            let location = window.location();
-                            let origin = location.origin().unwrap();
-                            format!("{}/accept-invite/{}", origin, invite.id)
-                        }}
+                        value={invite_link.clone()}
                         readonly={true}
                         onfocus={Callback::from(move |e: FocusEvent| {
                             if let Some(target) = e.target()
@@ -602,9 +605,10 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
                                     input.select();
                                 }
                         })}
-                        class="flex-1 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
+                        class="flex-1 min-w-0 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
                         title="Click to select all, then copy"
                     />
+                    <CopyButton text={invite_link} />
                 </div>
             </div>
         </div>

@@ -36,7 +36,9 @@ web-sys = { version = "0.3.77", features = [
     "File",
     "FileList",
     "FileReader",
-    "Event"
+    "Event",
+    "Navigator",
+    "Clipboard"
 ] }
 yew = { version = "0.21.0", features = ["csr"] }
 yew-router = "0.18.0"
