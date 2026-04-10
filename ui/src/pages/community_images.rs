@@ -129,16 +129,22 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
         })
     };
 
+    // Rename error state
+    let rename_error = use_state(|| None::<String>);
+
     // Handle rename
     let on_rename = {
         let refetch = images_hook.refetch.clone();
         let success_message = success_message.clone();
+        let rename_error = rename_error.clone();
 
         Callback::from(move |(image_id, new_name): (SiteImageId, String)| {
             let refetch = refetch.clone();
             let success_message = success_message.clone();
+            let rename_error = rename_error.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
+                rename_error.set(None);
                 let api_client = get_api_client();
                 let request = requests::UpdateSiteImage {
                     id: image_id,
@@ -153,8 +159,10 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
                         refetch.emit(());
                     }
                     Err(e) => {
-                        // TODO: Could show error in the card itself
-                        tracing::error!("Failed to rename image: {}", e);
+                        rename_error.set(Some(format!(
+                            "Failed to rename image: {}",
+                            e
+                        )));
                     }
                 }
             });
@@ -186,6 +194,20 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
                                 border border-green-200 dark:border-green-800">
                         <p class="text-sm text-green-700 dark:text-green-400">
                             {success}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
+
+            // Rename error message
+            {if let Some(error) = &*rename_error {
+                html! {
+                    <div class="p-3 rounded-md bg-red-50 dark:bg-red-900/20
+                                border border-red-200 dark:border-red-800">
+                        <p class="text-sm text-red-700 dark:text-red-400">
+                            {error}
                         </p>
                     </div>
                 }

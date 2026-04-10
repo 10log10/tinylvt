@@ -359,6 +359,9 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
     let auction_id = props.auction.auction_id;
     let current_round_num = props.current_round.round_details.round_num;
 
+    // Error state for bid actions
+    let bid_error = use_state(|| None::<String>);
+
     // Fetch all rounds to find the previous one (for prices)
     let rounds_hook = use_auction_rounds(auction_id);
 
@@ -458,6 +461,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
         let eligibility_refetch = eligibility_hook.refetch.clone();
         let rounds_refetch = rounds_hook.refetch.clone();
         let user_bids_refetch = user_bids_hook.refetch.clone();
+        let bid_error = bid_error.clone();
 
         Callback::from(move |space_id: SpaceId| {
             let round_id = round_id;
@@ -465,8 +469,10 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             let eligibility_refetch = eligibility_refetch.clone();
             let rounds_refetch = rounds_refetch.clone();
             let user_bids_refetch = user_bids_refetch.clone();
+            let bid_error = bid_error.clone();
 
             yew::platform::spawn_local(async move {
+                bid_error.set(None);
                 let api_client = crate::get_api_client();
                 match api_client.create_bid(&space_id, &round_id).await {
                     Ok(_) => {
@@ -475,13 +481,10 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                         eligibility_refetch.emit(());
                         rounds_refetch.emit(());
                         user_bids_refetch.emit(());
-                        tracing::info!(
-                            "Successfully placed bid on {:?}",
-                            space_id
-                        );
                     }
                     Err(e) => {
-                        tracing::error!("Failed to place bid: {}", e);
+                        bid_error
+                            .set(Some(format!("Failed to place bid: {}", e)));
                     }
                 }
             });
@@ -495,6 +498,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
         let eligibility_refetch = eligibility_hook.refetch.clone();
         let rounds_refetch = rounds_hook.refetch.clone();
         let user_bids_refetch = user_bids_hook.refetch.clone();
+        let bid_error = bid_error.clone();
 
         Callback::from(move |space_id: SpaceId| {
             let round_id = round_id;
@@ -502,8 +506,10 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
             let eligibility_refetch = eligibility_refetch.clone();
             let rounds_refetch = rounds_refetch.clone();
             let user_bids_refetch = user_bids_refetch.clone();
+            let bid_error = bid_error.clone();
 
             yew::platform::spawn_local(async move {
+                bid_error.set(None);
                 let api_client = crate::get_api_client();
                 match api_client.delete_bid(&space_id, &round_id).await {
                     Ok(_) => {
@@ -512,13 +518,10 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                         eligibility_refetch.emit(());
                         rounds_refetch.emit(());
                         user_bids_refetch.emit(());
-                        tracing::info!(
-                            "Successfully removed bid on {:?}",
-                            space_id
-                        );
                     }
                     Err(e) => {
-                        tracing::error!("Failed to remove bid: {}", e);
+                        bid_error
+                            .set(Some(format!("Failed to remove bid: {}", e)));
                     }
                 }
             });
@@ -583,6 +586,22 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 on_update={on_proxy_update}
                 is_loading={false}
             />
+
+            // Bid action error
+            {if let Some(error) = &*bid_error {
+                html! {
+                    <div class="p-3 rounded-md bg-red-50 \
+                                dark:bg-red-900/20 border \
+                                border-red-200 dark:border-red-800">
+                        <p class="text-sm text-red-700 \
+                                  dark:text-red-400">
+                            {error}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
 
             // Space list for bidding
             <SpaceListForBidding
