@@ -922,12 +922,17 @@ async fn setup_database() -> Result<(PgPool, String), Error> {
     Ok((conn, new_db))
 }
 
-/// Drop all databases whose names look like UUIDs (leftover test
-/// databases from previous runs).
+/// Drop all UUID-named databases that have no active connections
+/// (leftover test databases from previous runs). Databases with
+/// active connections (e.g. the dev-server) are left alone.
 async fn drop_stale_test_databases(conn: &PgPool) {
     let stale: Vec<String> = sqlx::query_scalar(
         "SELECT datname::text FROM pg_database \
-         WHERE datname ~ '^[0-9a-f]{8}-'",
+         WHERE datname ~ '^[0-9a-f]{8}-' \
+         AND datname NOT IN (\
+             SELECT DISTINCT datname FROM pg_stat_activity \
+             WHERE datname IS NOT NULL\
+         )",
     )
     .fetch_all(conn)
     .await
@@ -938,14 +943,6 @@ async fn drop_stale_test_databases(conn: &PgPool) {
     }
     tracing::info!("Dropping {} stale test databases", stale.len());
     for db in &stale {
-        // Terminate any lingering connections first
-        let _ = sqlx::query(
-            "SELECT pg_terminate_backend(pid) \
-             FROM pg_stat_activity WHERE datname = $1",
-        )
-        .bind(db)
-        .execute(conn)
-        .await;
         let _ = sqlx::query(&format!(r#"DROP DATABASE IF EXISTS "{db}";"#))
             .execute(conn)
             .await;
