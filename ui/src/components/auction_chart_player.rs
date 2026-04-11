@@ -239,7 +239,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
             <div class="flex flex-wrap items-center justify-between">
                 <span class="text-sm font-medium \
                     text-neutral-700 dark:text-neutral-300 \
-                    w-[4.5rem] shrink-0">
+                    w-20 shrink-0">
                     {label}
                 </span>
 

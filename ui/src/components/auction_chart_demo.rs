@@ -24,7 +24,12 @@ struct Scenario {
 }
 
 fn scenarios() -> Vec<Scenario> {
-    vec![rent_splitting(), desk_allocation(), street_fair()]
+    vec![
+        rent_splitting(),
+        rent_splitting_large(),
+        desk_allocation(),
+        street_fair(),
+    ]
 }
 
 fn rent_splitting() -> Scenario {
@@ -61,6 +66,92 @@ fn rent_splitting() -> Scenario {
                 ((chris, master), Decimal::new(100, 0)),
                 ((chris, medium), Decimal::new(60, 0)),
                 ((chris, small), Decimal::new(0, 0)),
+            ]),
+            bid_increment: Decimal::new(10, 0),
+        },
+        currency: CurrencySettings {
+            mode_config: CurrencyModeConfig::DistributedClearing(IOUConfig {
+                default_credit_limit: None,
+                debts_callable: true,
+            }),
+            name: "dollars".into(),
+            symbol: "$".into(),
+            minor_units: 0,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
+    }
+}
+
+fn rent_splitting_large() -> Scenario {
+    let dana = UserId(Uuid::from_u128(4));
+    let eli = UserId(Uuid::from_u128(5));
+    let fran = UserId(Uuid::from_u128(6));
+    let gabe = UserId(Uuid::from_u128(7));
+    let hana = UserId(Uuid::from_u128(8));
+    let suite = SpaceId(Uuid::from_u128(110));
+    let balcony = SpaceId(Uuid::from_u128(111));
+    let quiet = SpaceId(Uuid::from_u128(112));
+    let garden = SpaceId(Uuid::from_u128(113));
+    let compact = SpaceId(Uuid::from_u128(114));
+
+    // Dana: wants the biggest/nicest room, willing to pay
+    // Eli: values outdoor access (balcony, garden)
+    // Fran: light sleeper, prizes the quiet room
+    // Gabe: budget-conscious, fairly flat preferences
+    // Hana: wants natural light and space, suite or balcony
+    Scenario {
+        name: "Rent splitting (large)",
+        description: "Five housemates auction bedrooms that \
+            differ in size, noise, and outdoor access. \
+            Different lifestyle priorities create varied \
+            bidding patterns.",
+        state: EditorState {
+            spaces: vec![
+                (suite, "Suite".into()),
+                (balcony, "Balcony".into()),
+                (quiet, "Quiet".into()),
+                (garden, "Garden".into()),
+                (compact, "Compact".into()),
+            ],
+            bidders: vec![
+                (dana, "Dana".into()),
+                (eli, "Eli".into()),
+                (fran, "Fran".into()),
+                (gabe, "Gabe".into()),
+                (hana, "Hana".into()),
+            ],
+            values: HashMap::from([
+                // Dana: suite-focused
+                ((dana, suite), Decimal::new(500, 0)),
+                ((dana, balcony), Decimal::new(250, 0)),
+                ((dana, quiet), Decimal::new(150, 0)),
+                ((dana, garden), Decimal::new(100, 0)),
+                ((dana, compact), Decimal::new(0, 0)),
+                // Eli: outdoor-focused
+                ((eli, suite), Decimal::new(200, 0)),
+                ((eli, balcony), Decimal::new(400, 0)),
+                ((eli, quiet), Decimal::new(50, 0)),
+                ((eli, garden), Decimal::new(350, 0)),
+                ((eli, compact), Decimal::new(0, 0)),
+                // Fran: quiet-focused
+                ((fran, suite), Decimal::new(180, 0)),
+                ((fran, balcony), Decimal::new(80, 0)),
+                ((fran, quiet), Decimal::new(420, 0)),
+                ((fran, garden), Decimal::new(120, 0)),
+                ((fran, compact), Decimal::new(0, 0)),
+                // Gabe: budget-conscious, flat preferences
+                ((gabe, suite), Decimal::new(160, 0)),
+                ((gabe, balcony), Decimal::new(120, 0)),
+                ((gabe, quiet), Decimal::new(100, 0)),
+                ((gabe, garden), Decimal::new(80, 0)),
+                ((gabe, compact), Decimal::new(0, 0)),
+                // Hana: wants light and space
+                ((hana, suite), Decimal::new(380, 0)),
+                ((hana, balcony), Decimal::new(350, 0)),
+                ((hana, quiet), Decimal::new(100, 0)),
+                ((hana, garden), Decimal::new(200, 0)),
+                ((hana, compact), Decimal::new(0, 0)),
             ]),
             bid_increment: Decimal::new(10, 0),
         },
