@@ -41,7 +41,3 @@ collective or something closer to a traditional rental market.
 2. **[Community Setup](/docs/setup)** — Create your community, sites, and
    spaces
 3. **[Auctions](/docs/auctions)** — Learn how bidding and allocation work
-
----
-
-*Need help? Visit the [Help page](/help) for support options.*

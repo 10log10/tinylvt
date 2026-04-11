@@ -11,10 +11,10 @@ and whether real money is involved.
 
 | Mode | Best for | Real money? |
 |------|----------|-------------|
-| **Points Allowance** | Internal allocation without money | No |
-| **Distributed Clearing** | True common ownership with trusted members | Optional |
-| **Deferred Payment** | Treasury-controlled funds | Optional |
-| **Prepaid Credits** | Untrusted members or commercial use | Yes |
+| **Points Allowance**     | Internal allocation without money   | No  |
+| **Distributed Clearing** | True common ownership with trusted members | Yes |
+| **Deferred Payment** | Treasury-controlled funds | Yes |
+| **Prepaid Credits**      | Untrusted members or commercial use | Yes |
 
 ## Points Allowance
 
