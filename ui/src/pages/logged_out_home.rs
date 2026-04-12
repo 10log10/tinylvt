@@ -39,7 +39,7 @@ pub fn LoggedOutHomePage() -> Html {
             // Two-column layout: intro text + demo
             // Desktop: side by side. Mobile: stacked.
             <div class="flex flex-col lg:flex-row gap-10 \
-                lg:items-start max-w-6xl mx-auto">
+                lg:items-start max-w-7xl mx-auto">
                 // Left column: intro text
                 <div class="lg:w-5/12 space-y-8 pt-12">
                     // Tagline

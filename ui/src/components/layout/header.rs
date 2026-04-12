@@ -81,7 +81,7 @@ pub struct HeaderLeftProps {
 fn HeaderLeft(props: &HeaderLeftProps) -> Html {
     html! {
         <div class="flex items-center gap-4 sm:gap-8">
-            <Link<Route> to={Route::Landing} classes="text-xl font-semibold text-neutral-900 dark:text-white hover:text-neutral-700 dark:hover:text-neutral-300">
+            <Link<Route> to={Route::Landing} classes="text-xl font-black text-neutral-900 dark:text-white hover:text-neutral-700 dark:hover:text-neutral-300">
                 {"TinyLVT"}
             </Link<Route>>
             <NavigationMenu authenticated={props.authenticated} />
