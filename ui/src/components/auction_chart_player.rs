@@ -28,10 +28,9 @@ pub struct Props {
 /// Frame 0 ("Round 0"): no high bidders, round 0's bids
 /// Frame 1 ("Round 1"): round 0's results, round 1's bids
 /// ...
-/// Frame N ("Round N"): round N-1's results, round N's bids (none)
-/// Frame N+1 ("Concluded"): round N's results, no bids
+/// Frame N ("Round N"): round N-1's results, no new bids
 ///
-/// Total frames = rounds.len() + 1
+/// Total frames = rounds.len()
 #[function_component]
 pub fn AuctionChartPlayer(props: &Props) -> Html {
     let current_frame = use_state(|| 0_usize);
@@ -41,7 +40,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
     // when we swap the token.
     let cancel_ref = use_mut_ref(|| Rc::new(Cell::new(false)));
 
-    let num_frames = props.rounds.len() + 1;
+    let num_frames = props.rounds.len();
 
     // If we were on the last frame (concluded) and the number
     // of rounds changed, stay on the new last frame. Also clamp
@@ -100,7 +99,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
         // Frame 0: no previous results
         Vec::new()
     } else {
-        // Frames 1..=N+1: show results from round (frame - 1)
+        // Frames 1..=N: show results from round (frame - 1)
         props
             .rounds
             .get(frame - 1)
@@ -109,23 +108,12 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
     };
 
     // Current round's bids
-    let bids = if frame < props.rounds.len() {
-        props.rounds[frame].bids.clone()
-    } else {
-        // Final "Concluded" frame: no bids
-        Default::default()
-    };
+    let bids = props.rounds[frame].bids.clone();
 
-    let is_concluded = frame >= props.rounds.len();
-
-    let label = if is_concluded {
-        "Concluded".to_string()
-    } else {
-        format!(
-            "Round {}",
-            props.rounds.get(frame).map(|r| r.round_num).unwrap_or(0)
-        )
-    };
+    let label = format!(
+        "Round {}",
+        props.rounds.get(frame).map(|r| r.round_num).unwrap_or(0)
+    );
 
     let at_start = frame == 0;
     let at_end = frame >= num_frames - 1;
