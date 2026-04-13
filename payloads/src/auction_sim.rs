@@ -80,24 +80,27 @@ pub fn simulate_auction(input: &SimInput) -> Vec<SimRound> {
             }
 
             // Calculate surplus for each space (in name order)
-            let mut space_surpluses: Vec<(SpaceId, Decimal)> = Vec::new();
+            // Tuples: (space_id, surplus, value)
+            let mut space_surpluses: Vec<(SpaceId, Decimal, Decimal)> =
+                Vec::new();
             for (space_id, _name) in &spaces {
                 if let Some(&user_value) =
                     input.user_values.get(&(bidder.user_id, *space_id))
                 {
                     let surplus = user_value - bid_price(space_id);
                     if surplus >= Decimal::ZERO {
-                        space_surpluses.push((*space_id, surplus));
+                        space_surpluses.push((*space_id, surplus, user_value));
                     }
                 }
             }
 
-            // Stable sort by surplus descending (preserves name
-            // order for ties)
-            space_surpluses.sort_by(|a, b| b.1.cmp(&a.1));
+            // Sort by surplus descending, then value descending
+            // to break ties
+            space_surpluses
+                .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
 
             // Bid on the top space
-            if let Some((space_id, _)) = space_surpluses.first() {
+            if let Some((space_id, _, _)) = space_surpluses.first() {
                 bids.entry(*space_id).or_default().push(bidder.clone());
             }
         }

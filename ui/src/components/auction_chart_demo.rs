@@ -29,6 +29,7 @@ fn scenarios() -> Vec<Scenario> {
         rent_splitting_large(),
         desk_allocation(),
         street_fair(),
+        chore_avoidance(),
     ]
 }
 
@@ -287,6 +288,58 @@ fn street_fair() -> Scenario {
                 },
             ),
             name: "credits".into(),
+            symbol: "$".into(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
+    }
+}
+
+fn chore_avoidance() -> Scenario {
+    let nina = UserId(Uuid::from_u128(30));
+    let omar = UserId(Uuid::from_u128(31));
+    let pat = UserId(Uuid::from_u128(32));
+    let dishes = SpaceId(Uuid::from_u128(400));
+    let vacuum = SpaceId(Uuid::from_u128(401));
+    let bathroom = SpaceId(Uuid::from_u128(402));
+
+    Scenario {
+        name: "Chore avoidance",
+        description: "Three housemates auction chores. Each person\u{2019}s \
+            value is what they\u{2019}d pay to have that chore over others. \
+            The person least averse to a chore ends up doing it, compensated \
+            by the others.",
+        state: EditorState {
+            spaces: vec![
+                (dishes, "Dishes".into()),
+                (vacuum, "Vacuum".into()),
+                (bathroom, "Clean bathroom".into()),
+            ],
+            bidders: vec![
+                (nina, "Nina".into()),
+                (omar, "Omar".into()),
+                (pat, "Pat".into()),
+            ],
+            values: HashMap::from([
+                ((nina, dishes), Decimal::new(50, 0)),
+                ((nina, vacuum), Decimal::new(40, 0)),
+                ((nina, bathroom), Decimal::new(0, 0)),
+                ((omar, dishes), Decimal::new(20, 0)),
+                ((omar, vacuum), Decimal::new(30, 0)),
+                ((omar, bathroom), Decimal::new(0, 0)),
+                ((pat, dishes), Decimal::new(18, 0)),
+                ((pat, vacuum), Decimal::new(12, 0)),
+                ((pat, bathroom), Decimal::new(0, 0)),
+            ]),
+            bid_increment: Decimal::new(1, 0),
+        },
+        currency: CurrencySettings {
+            mode_config: CurrencyModeConfig::DistributedClearing(IOUConfig {
+                default_credit_limit: None,
+                debts_callable: true,
+            }),
+            name: "dollars".into(),
             symbol: "$".into(),
             minor_units: 2,
             balances_visible_to_members: true,

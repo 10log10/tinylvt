@@ -103,7 +103,7 @@ pub fn AuctionSettlement(props: &Props) -> Html {
             // Winner adjustments
             <div class="space-y-1">
                 {for winner_entries.iter().map(|entry| {
-                    let adjustment = entry.total_price - share;
+                    let adjustment = share - entry.total_price;
                     let spaces_str = entry.space_names.join(", ");
                     html! {
                         <div class="flex items-center \
@@ -125,9 +125,9 @@ pub fn AuctionSettlement(props: &Props) -> Html {
                                 "tabular-nums",
                                 "whitespace-nowrap", MUTED
                             )}>
-                                {fmt(entry.total_price)}
-                                {" \u{2212} "}
                                 {fmt(share)}
+                                {" \u{2212} "}
+                                {fmt(entry.total_price)}
                                 {" = "}
                             </span>
                             <span class={classes!(
@@ -163,15 +163,14 @@ pub fn AuctionSettlement(props: &Props) -> Html {
                                 "tabular-nums",
                                 "whitespace-nowrap", MUTED
                             )}>
-                                {"0 \u{2212} "}
                                 {fmt(share)}
-                                {" = "}
+                                {" \u{2212} 0 = "}
                             </span>
                             <span class={classes!(
                                 "tabular-nums",
                                 "whitespace-nowrap", BOLD
                             )}>
-                                {format_adjustment(-share)}
+                                {format_adjustment(share)}
                             </span>
                         </div>
                     }

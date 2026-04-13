@@ -1137,7 +1137,8 @@ async fn process_user_proxy_bidding(
 
     // Calculate surpluses for spaces where user has set values
     // user_values is already ordered by space name in mock-time mode
-    let mut space_surpluses: Vec<(SpaceId, Decimal)> = Vec::new();
+    // Tuples: (space_id, surplus, value)
+    let mut space_surpluses: Vec<(SpaceId, Decimal, Decimal)> = Vec::new();
     for user_value_entry in &user_values {
         let space_id = &user_value_entry.space_id;
         // Get current price from the most recent completed round results, add
@@ -1158,7 +1159,11 @@ async fn process_user_proxy_bidding(
         );
 
         if surplus >= Decimal::ZERO {
-            space_surpluses.push((user_value_entry.space_id, surplus));
+            space_surpluses.push((
+                user_value_entry.space_id,
+                surplus,
+                user_value_entry.value,
+            ));
         }
     }
 
@@ -1167,13 +1172,12 @@ async fn process_user_proxy_bidding(
         space_surpluses.len()
     );
 
-    // Sort by surplus (highest to lowest)
-    // Use stable sort to preserve space name ordering from the query
-    space_surpluses.sort_by(|a, b| b.1.cmp(&a.1));
+    // Sort by surplus descending, then value descending to break ties
+    space_surpluses.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
 
     // Try bidding on spaces in surplus order until we hit max_items
     let mut successful_bids = 0;
-    for (space_id, surplus) in space_surpluses {
+    for (space_id, surplus, _value) in space_surpluses {
         if successful_bids + num_spaces_already_winning
             >= settings.max_items as usize
         {
