@@ -338,11 +338,11 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                         on_change={on_bid_increment}
                         inputmode={AttrValue::Static("decimal")}
                         display_class={classes!(
-                            "w-10", "text-right",
+                            "w-16", "text-right",
                             HOVER_BORDER
                         )}
                         input_class={classes!(
-                            "w-10", "text-right"
+                            "w-16", "text-right"
                         )}
                     />
                 </div>
