@@ -345,6 +345,7 @@ fn render_page(
     <meta name="twitter:title" content="{title}">
     <meta name="twitter:description" content="{description}">
 
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     {css_link}
     {preload_links}
     <script>
