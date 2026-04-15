@@ -12,14 +12,15 @@ mod utils;
 use components::layout::MainLayout;
 use hooks::use_authentication;
 use pages::{
-    AcceptInvitePage, AuctionDetailPage, AuctionRoundsPage, CommunitiesPage,
-    CommunityBillingPage, CommunityCurrencyPage, CommunityDetailPage,
-    CommunityImagesPage, CommunityInvitesPage, CommunityMembersPage,
-    CommunitySettingsPage, CommunityTreasuryPage, CreateAuctionPage,
-    CreateCommunityPage, CreateSitePage, ForgotPasswordPage, LoggedOutHomePage,
-    LoginPage, NotFoundPage, OrphanedAccountsPage, PricingPage, ProfilePage,
-    ResetPasswordPage, SiteAuctionsPage, SiteOverviewPage, SiteSettingsPage,
-    SiteSpacesPage, TermsPage, VerifyEmailPage, docs,
+    AcceptInvitePage, AuctionDetailPage, AuctionGuidePage, AuctionRoundsPage,
+    CommunitiesPage, CommunityBillingPage, CommunityCurrencyPage,
+    CommunityDetailPage, CommunityImagesPage, CommunityInvitesPage,
+    CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
+    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
+    LoggedOutHomePage, LoginPage, NotFoundPage, OrphanedAccountsPage,
+    PricingPage, ProfilePage, ResetPasswordPage, SiteAuctionsPage,
+    SiteOverviewPage, SiteSettingsPage, SiteSpacesPage, TermsPage,
+    VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -81,6 +82,8 @@ pub enum Route {
     DocsDeskAllocation,
     #[at("/docs/rent-splitting")]
     DocsRentSplitting,
+    #[at("/auction-guide")]
+    AuctionGuide,
     #[at("/profile")]
     Profile,
     #[at("/forgot_password")]
@@ -146,6 +149,7 @@ fn switch(routes: Route) -> Html {
         Route::DocsAuctions => html! { <docs::AuctionsPage /> },
         Route::DocsDeskAllocation => html! { <docs::DeskAllocationPage /> },
         Route::DocsRentSplitting => html! { <docs::RentSplittingPage /> },
+        Route::AuctionGuide => html! { <AuctionGuidePage /> },
         Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
         Route::ResetPassword => html! { <ResetPasswordPage /> },

@@ -59,7 +59,7 @@ pub use annotated_screenshot::{
     AnnotatedScreenshot, Annotation, AnnotationLayout,
 };
 pub use auction_chart::AuctionChart;
-pub use auction_chart_demo::AuctionChartDemo;
+pub use auction_chart_demo::{AuctionChartDemo, AuctionScenarioPlayer};
 pub use auction_chart_player::AuctionChartPlayer;
 pub use auction_interface_walkthrough::AuctionInterfaceWalkthrough;
 pub use auction_page_wrapper::{AuctionContext, AuctionPageWrapper};

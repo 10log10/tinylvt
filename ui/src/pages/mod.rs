@@ -1,5 +1,6 @@
 pub mod accept_invite;
 pub mod auction_detail;
+pub mod auction_guide;
 pub mod auction_rounds;
 pub mod communities;
 pub mod community_billing;
@@ -31,6 +32,7 @@ pub mod verify_email;
 
 pub use accept_invite::AcceptInvitePage;
 pub use auction_detail::AuctionDetailPage;
+pub use auction_guide::AuctionGuidePage;
 pub use auction_rounds::AuctionRoundsPage;
 pub use communities::CommunitiesPage;
 pub use community_billing::CommunityBillingPage;

@@ -16,11 +16,12 @@ use crate::components::{
     AuctionChartPlayer, AuctionSettlement, AuctionSimEditor,
 };
 
-struct Scenario {
-    name: &'static str,
-    description: &'static str,
-    state: EditorState,
-    currency: CurrencySettings,
+#[derive(Clone, PartialEq)]
+pub struct Scenario {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub state: EditorState,
+    pub currency: CurrencySettings,
 }
 
 fn scenarios() -> Vec<Scenario> {
@@ -83,7 +84,7 @@ fn rent_splitting() -> Scenario {
     }
 }
 
-fn rent_splitting_large() -> Scenario {
+pub fn rent_splitting_large() -> Scenario {
     let dana = UserId(Uuid::from_u128(4));
     let eli = UserId(Uuid::from_u128(5));
     let fran = UserId(Uuid::from_u128(6));
@@ -169,7 +170,7 @@ fn rent_splitting_large() -> Scenario {
     }
 }
 
-fn desk_allocation() -> Scenario {
+pub fn desk_allocation() -> Scenario {
     let alice = UserId(Uuid::from_u128(10));
     let bob = UserId(Uuid::from_u128(11));
     let carol = UserId(Uuid::from_u128(12));
@@ -295,16 +296,16 @@ fn street_fair() -> Scenario {
     }
 }
 
-/// Inner component keyed by scenario selection, so
-/// switching scenarios fully resets state and hooks.
+/// Renders an auction scenario: editable values, animated
+/// rounds, and (for distributed-clearing mode) settlement.
 #[derive(Properties, PartialEq)]
-struct InnerProps {
-    initial_state: EditorState,
-    currency: CurrencySettings,
+pub struct AuctionScenarioPlayerProps {
+    pub initial_state: EditorState,
+    pub currency: CurrencySettings,
 }
 
 #[function_component]
-fn AuctionChartDemoInner(props: &InnerProps) -> Html {
+pub fn AuctionScenarioPlayer(props: &AuctionScenarioPlayerProps) -> Html {
     let state = use_state(|| props.initial_state.clone());
 
     let sim_input = state.to_sim_input();
@@ -439,7 +440,7 @@ pub fn AuctionChartDemo() -> Html {
             <p class="text-sm text-neutral-500 dark:text-neutral-500 mb-4">
                 {scenario.description}
             </p>
-            <AuctionChartDemoInner
+            <AuctionScenarioPlayer
                 key={*selected}
                 initial_state={scenario.state.clone()}
                 currency={scenario.currency.clone()}

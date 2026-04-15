@@ -9,12 +9,12 @@ use yew_router::Routable;
 /// Wrapper that intercepts clicks on internal links and routes them
 /// through yew_router instead of triggering full page loads.
 #[derive(Properties, PartialEq)]
-struct MarkdownContentProps {
-    html: &'static str,
+pub(crate) struct MarkdownContentProps {
+    pub html: &'static str,
 }
 
 #[function_component]
-fn MarkdownContent(props: &MarkdownContentProps) -> Html {
+pub(crate) fn MarkdownContent(props: &MarkdownContentProps) -> Html {
     let push_route = use_push_route();
 
     let onclick = {

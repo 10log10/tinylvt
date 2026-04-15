@@ -192,8 +192,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
         })
     };
 
-    let button_base =
-        "px-3 py-1.5 text-sm font-medium rounded transition-colors";
+    let button_base = "px-3 py-1.5 text-sm font-medium rounded";
     let button_enabled = "bg-neutral-200 dark:bg-neutral-700 \
         text-neutral-700 dark:text-neutral-300 \
         hover:bg-neutral-300 dark:hover:bg-neutral-600";
