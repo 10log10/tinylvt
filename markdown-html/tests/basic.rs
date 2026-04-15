@@ -42,6 +42,36 @@ fn test_list() {
 }
 
 #[test]
+fn test_file_section_intro() {
+    let html = markdown_html!(
+        file: "tests/fixtures/sections.md",
+        section: "intro"
+    );
+    assert!(html.contains("<h1>Intro</h1>"));
+    assert!(html.contains("intro section"));
+    assert!(!html.contains("Body"));
+}
+
+#[test]
+fn test_file_section_body() {
+    let html = markdown_html!(
+        file: "tests/fixtures/sections.md",
+        section: "body"
+    );
+    assert!(html.contains("<h2>Body</h2>"));
+    assert!(html.contains("<strong>body</strong>"));
+    assert!(!html.contains("Intro"));
+}
+
+// Confirms the emitted block expression is valid in const context, which
+// matches the `const TERMS_HTML: &str = markdown_html!(...)` call site in
+// ui/src/pages/terms.rs.
+const _INTRO_HTML: &str = markdown_html!(
+    file: "tests/fixtures/sections.md",
+    section: "intro"
+);
+
+#[test]
 fn test_multiline() {
     let html = markdown_html!(
         r#"
