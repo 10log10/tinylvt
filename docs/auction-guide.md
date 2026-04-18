@@ -6,7 +6,7 @@ Three roommates need to divide bedrooms. One room is bigger, one has a balcony, 
 
 An auction solves this problem elegantly. Each person bids for the rooms they want. The highest bid for each room wins and the proceeds are shared equally. The person who gets the best room pays more rent, and the person who gets the worst room pays less. Nobody has to argue about what's fair, since the bids determine it exactly.
 
-This guide walks through how these **cooperative auctions** work, starting from the basics and building up to multi-item auctions, settlement mechanics, and less-obvious applications like group decision-making. Each section includes an interactive simulation you can experiment with.
+This guide walks through how these **cooperative auctions** work, starting from the basics and building up to multi-item auctions, settlement mechanics, and less-obvious applications like group decision-making. Each auction has an interactive simulation you can experiment with.
 
 ## Regular Auctions
 

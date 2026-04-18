@@ -131,6 +131,7 @@ fn three_room_sequence_auction() -> Scenario {
 
 fn three_room_less_competition() -> Scenario {
     let mut scenario = three_room_sequence_auction();
+    scenario.name = "Three-room auction (less competition)";
     let large = scenario.state.spaces[0].0;
     let medium = scenario.state.spaces[1].0;
     let small = scenario.state.spaces[2].0;
