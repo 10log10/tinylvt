@@ -6,7 +6,7 @@ Three roommates need to divide bedrooms. One room is bigger, one has a balcony, 
 
 An auction solves this problem elegantly. Each person bids for the rooms they want. The highest bid for each room wins and the proceeds are shared equally. The person who gets the best room pays more rent, and the person who gets the worst room pays less. Nobody has to argue about what's fair, since the bids determine it exactly.
 
-This guide walks through how these *cooperative auctions* work, starting from the basics and building up to multi-item auctions, settlement mechanics, and less-obvious applications like group decision-making. Each section includes an interactive simulation you can experiment with.
+This guide walks through how these **cooperative auctions** work, starting from the basics and building up to multi-item auctions, settlement mechanics, and less-obvious applications like group decision-making. Each section includes an interactive simulation you can experiment with.
 
 ## Regular Auctions
 
@@ -44,7 +44,7 @@ Alex and Ben are housemates, and they need to decide who is going to have the bi
 
 <!-- @@section:after_single_room_auction -->
 
-The cooperative auction is the same as a regular auction, but with an extra *equalization* step. Here, the equalization step takes the auction proceeds and redistributes them to Alex and Ben equally. Knowing that they'll get half of their payment back, each bids twice what they would be willing to pay the other person to have the room.
+The cooperative auction is the same as a regular auction, but with an extra **equalization** step. Here, the equalization step takes the auction proceeds and redistributes them to Alex and Ben equally. Knowing that they'll get half of their payment back, each bids twice what they would be willing to pay the other person to have the room.
 
 Alex wins the space for a net payment of $25, whereas Ben is excluded from the space but gains $25. Alex obtains the space at a loss of $50 relative to if he hadn't won the space.
 
@@ -80,7 +80,7 @@ A year later, Alex and Ben take on a third housemate, Cam, and move into a large
 
 <!-- @@section:after_three_room_sequence_auction -->
 
-Now that there's more than one desirable space, the method of choosing what to bid on starts to matter. In the simulator, bidders are modeled as wanting to get the best deal, defined as the largest difference between the bidders' value for a space and its current price. This difference is called the bidder's *surplus* for a space at a given price. Bidders do not always behave this way, and real ascending auctions have time during each round so bidders can change their values in response to new information or manually place their bids.
+Now that there's more than one desirable space, the method of choosing what to bid on starts to matter. In the simulator, bidders are modeled as wanting to get the best deal, defined as the largest difference between the bidders' value for a space and its current price. This difference is called the bidder's **surplus** for a space at a given price. Bidders do not always behave this way, and real ascending auctions have time during each round so bidders can change their values in response to new information or manually place their bids.
 
 This flexibility to shift bidding between rooms during the auction is why all the rooms are auctioned together. Separate auctions for each room wouldn't allow the bidders to properly respond to competition.
 
@@ -134,7 +134,7 @@ Here's an example of a desk auction where the community uses "credits" that are 
 
 Ascending auctions are optimal only if bidders don't have preferences that are interdependent between items.
 
-As an example of this interdependence, suppose that two coworkers want to sit next to each other, and so bid for adjacent desks. They might initially become high bidders for a pair of desks before facing competition. When outbid, they can switch to bidding for different desks, but this may only happen for one desk at a time. Thus they might only be able to release one of the desks, leaving them with a desk they don't want. In ascending auctions this phenomenon is called the *exposure problem*.
+As an example of this interdependence, suppose that two coworkers want to sit next to each other, and so bid for adjacent desks. They might initially become high bidders for a pair of desks before facing competition. When outbid, they can switch to bidding for different desks, but this may only happen for one desk at a time. Thus they might only be able to release one of the desks, leaving them with a desk they don't want. In ascending auctions this phenomenon is called the **exposure problem**.
 
 One solution in ascending auctions is to combine some items together in bundles that are bid on as a unit. Then the people that want a pair of desks are able to bid for those bundles without the risk of the exposure problem.
 
@@ -160,12 +160,12 @@ TinyLVT exists to make cooperative auctions easier to use. To run a cooperative 
 
 ## Terminology and Further Reading
 
-An ascending auction for a single item is called an *English auction*. An ascending auction for multiple items is called a *Simultaneous Ascending Auction (SAA)*.
+An ascending auction for a single item is called an **English auction**. An ascending auction for multiple items is called a **Simultaneous Ascending Auction (SAA)**.
 
-When a bidder values a set of items more than the sum of the values of the individual items, their valuation is called *superadditive* (or the items are *complements*). Ascending auctions do not handle superadditive valuations well. The auctions that do are combinatorial auctions, but since the space of solutions grows rapidly with the auction size, they quickly become computationally intractable.
+When a bidder values a set of items more than the sum of the values of the individual items, their valuation is called **superadditive** (or the items are **complements**). Ascending auctions do not handle superadditive valuations well. The auctions that do are combinatorial auctions, but since the space of solutions grows rapidly with the auction size, they quickly become computationally intractable.
 
-The combinatorial auction that preserves truthful bidding as a dominant strategy even when items are complements is the *Vickrey-Clarke-Groves (VCG) auction*. When bidder demand is not superadditive, SAAs approximate VCG auctions.
+The combinatorial auction that preserves truthful bidding as a dominant strategy even when items are complements is the **Vickrey-Clarke-Groves (VCG) auction**. When bidder demand is not superadditive, SAAs approximate VCG auctions.
 
-Decision auctions are related to *quadratic voting*, which is a voting system where people can choose where to allocate their voting budget across the issues they care about. The cost of each additional unit of preference expression on an issue scales quadratically, which makes the marginal cost of expressing a strong preference higher than expressing several mild ones. This creates incentives for coalitions to trade votes across issues. Decision auctions instead have a linear cost, so participants do best by bidding on the issues they care about directly.
+Decision auctions are related to **quadratic voting**, which is a voting system where people can choose where to allocate their voting budget across the issues they care about. The cost of each additional unit of preference expression on an issue scales quadratically, which makes the marginal cost of expressing a strong preference higher than expressing several mild ones. This creates incentives for coalitions to trade votes across issues. Decision auctions instead have a linear cost, so participants do best by bidding on the issues they care about directly.
 
-Equalization through equal redistribution of auction revenue is studied in the mechanism design literature under the term *redistribution mechanisms* (Cavallo, Guo-Conitzer). The standard construction uses counterfactual-revenue redistribution, which is strategyproof but redistributes zero when the number of bidders equals the number of items plus one. TinyLVT uses naive equal-split instead, which achieves full budget balance at all group sizes at the cost of a minor incentive to over-report: the second-highest bidder on an item can grow their rebate by bidding above their true value, as long as they stay below the winner's. The tradeoff favors full redistribution in small communities where budget balance matters more than incentive-compatibility subtleties.
+Equalization through equal redistribution of auction revenue is studied in the mechanism design literature under the term **redistribution mechanisms** (Cavallo, Guo-Conitzer). The standard construction uses counterfactual-revenue redistribution, which is strategyproof but redistributes zero when the number of bidders equals the number of items plus one. TinyLVT uses naive equal-split instead, which achieves full budget balance at all group sizes at the cost of a minor incentive to over-report: the second-highest bidder on an item can grow their rebate by bidding above their true value, as long as they stay below the winner's. The tradeoff favors full redistribution in small communities where budget balance matters more than incentive-compatibility subtleties.
