@@ -365,7 +365,7 @@ fn render_page(
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 <div class="flex flex-wrap justify-between items-center gap-2 min-h-16 py-2">
 <div class="flex items-center gap-4 sm:gap-8">
-<a href="/" class="text-xl font-semibold text-neutral-900 dark:text-white hover:text-neutral-700 dark:hover:text-neutral-300">TinyLVT</a>
+<a href="/" class="text-xl font-black text-neutral-900 dark:text-white hover:text-neutral-700 dark:hover:text-neutral-300">TinyLVT</a>
 <nav class="flex gap-4 sm:gap-6">
 <a href="/docs" class="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Docs</a>
 </nav>
@@ -407,7 +407,7 @@ fn render_page(
 /// Static landing page content (mirrors LoggedOutHomePage component)
 fn landing_page_content() -> String {
     r##"<div class="space-y-16">
-<div class="flex flex-col lg:flex-row gap-10 lg:items-start max-w-6xl mx-auto">
+<div class="flex flex-col lg:flex-row gap-10 lg:items-start max-w-7xl mx-auto">
 <div class="lg:w-5/12 space-y-8 pt-12">
 <p class="text-4xl sm:text-3xl font-semibold text-neutral-900 dark:text-neutral-100">Fair allocation for anything&nbsp;shared.</p>
 <p class="text-lg text-neutral-600 dark:text-neutral-400">When housemates share a rental, who gets the master bedroom? When a team shares an office, who gets the window desk? Traditional methods leave someone feeling shortchanged.</p>
