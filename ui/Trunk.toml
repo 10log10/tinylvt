@@ -2,3 +2,11 @@
 
 [tools]
 tailwindcss = "3.4.17"
+
+# Markdown files under `docs/` are embedded at compile time via the
+# `markdown_html!` macro (`include_bytes!`). They live outside the `ui/` crate,
+# so trunk's default watcher misses them; add the docs dir explicitly. Pair
+# this with `TRUNK_WATCH_ENABLE_COOLDOWN=true` to avoid duplicate builds from
+# editor save sequences (see DEV.md).
+[watch]
+watch = [".", "../docs"]

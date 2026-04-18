@@ -33,7 +33,7 @@ cargo run -p dev-server
 In a separate terminal, run the frontend:
 
 ```bash
-cd ui && BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com trunk serve
+cd ui && BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com TRUNK_WATCH_ENABLE_COOLDOWN=true trunk serve
 ```
 
 The dev-server:

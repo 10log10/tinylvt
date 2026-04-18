@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     info!("🎯 Development server ready!");
     info!("   API: http://127.0.0.1:{}", app.port);
     info!(
-        "   UI:  cd ui && BACKEND_URL=http://127.0.0.1:{} trunk serve",
+        "   UI:  cd ui && BACKEND_URL=http://127.0.0.1:{} TRUNK_WATCH_ENABLE_COOLDOWN=true trunk serve",
         app.port
     );
     info!("");

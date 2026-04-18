@@ -1,14 +1,17 @@
 # Getting Started with TinyLVT
 
-TinyLVT helps communities allocate shared spaces fairly through
-**auction-based allocation**.
+TinyLVT helps communities allocate shared spaces fairly through **cooperative
+auctions**.
 
 ## How It Works
 
 1. Communities create **sites** with multiple **spaces**
 2. During periodic auctions, members bid on spaces they want to use
-3. The auction ensures fair pricing based on actual demand
-4. Auction proceeds can be redistributed to achieve common ownership
+3. Auctions determine allocation and pricing based on actual demand
+4. Proceeds are redistributed ensure equal access
+
+For a detailed introduction to the auction mechanics, see the [Interactive
+Guide to Cooperative Auctions](/auction-guide).
 
 ## Key Concepts
 
