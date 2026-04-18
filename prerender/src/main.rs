@@ -16,11 +16,31 @@ struct PageMeta {
     path: &'static str,
 }
 
-/// Docs page definition
+/// How to wrap the rendered markdown content.
+#[derive(Clone, Copy)]
+enum PageLayout {
+    /// Docs page with the docs sidebar visible.
+    DocsWithSidebar,
+    /// No wrapping; the content provides its own layout.
+    Raw,
+}
+
+/// Docs page definition (uses the sidebar layout)
 struct DocsPage {
     meta: PageMeta,
     markdown_file: &'static str,
     output_file: &'static str,
+}
+
+/// A standalone markdown page without the docs sidebar.
+/// Used for longer-form narratives and the terms page.
+struct MarkdownPage {
+    meta: PageMeta,
+    markdown_file: &'static str,
+    output_file: &'static str,
+    /// Tailwind max-width class for the content container
+    /// (e.g. "max-w-3xl" for terms, "max-w-4xl" for the guide).
+    max_width_class: &'static str,
 }
 
 const TERMS_PAGE: PageMeta = PageMeta {
@@ -101,6 +121,27 @@ const DOCS_PAGES: &[DocsPage] = &[
     },
 ];
 
+const MARKDOWN_PAGES: &[MarkdownPage] = &[
+    MarkdownPage {
+        meta: TERMS_PAGE,
+        markdown_file: "terms.md",
+        output_file: "terms/index.html",
+        max_width_class: "max-w-3xl",
+    },
+    MarkdownPage {
+        meta: PageMeta {
+            title: "Interactive Guide to Cooperative Auctions - TinyLVT",
+            description: "An interactive guide to how cooperative auctions \
+                work, with live simulations covering rent splitting, desk \
+                allocation, and group decisions.",
+            path: "/auction-guide",
+        },
+        markdown_file: "auction-guide.md",
+        output_file: "auction-guide/index.html",
+        max_width_class: "max-w-4xl",
+    },
+];
+
 /// Assets extracted from Trunk's index.html output
 struct TrunkAssets {
     /// The CSS link tag (includes integrity hash)
@@ -138,15 +179,18 @@ fn main() -> Result<()> {
     // Generate landing page
     generate_landing_page(output_dir, &assets)?;
 
-    // Generate terms page
-    generate_terms_page(docs_dir, output_dir, &assets)?;
+    // Generate standalone markdown pages (terms, auction guide, etc.)
+    for page in MARKDOWN_PAGES {
+        generate_markdown_page(docs_dir, output_dir, page, &assets)?;
+    }
 
-    // Generate docs pages
+    // Generate docs pages (with sidebar)
     for page in DOCS_PAGES {
         generate_docs_page(docs_dir, output_dir, page, &assets)?;
     }
 
-    println!("Done! Generated {} pages.", DOCS_PAGES.len() + 2);
+    let total = DOCS_PAGES.len() + MARKDOWN_PAGES.len() + 1;
+    println!("Done! Generated {} pages.", total);
     Ok(())
 }
 
@@ -216,7 +260,7 @@ fn generate_landing_page(
     assets: &TrunkAssets,
 ) -> Result<()> {
     let content = landing_page_content();
-    let html = render_page(&LANDING_PAGE, &content, assets, false);
+    let html = render_page(&LANDING_PAGE, &content, assets, PageLayout::Raw);
 
     let output_path = output_dir.join("landing.html");
     fs::write(&output_path, html)?;
@@ -225,25 +269,28 @@ fn generate_landing_page(
     Ok(())
 }
 
-/// Generate the terms page HTML
-fn generate_terms_page(
+/// Generate a standalone markdown page (no docs sidebar)
+fn generate_markdown_page(
     docs_dir: &Path,
     output_dir: &Path,
+    page: &MarkdownPage,
     assets: &TrunkAssets,
 ) -> Result<()> {
-    let markdown_path = docs_dir.join("terms.md");
+    let markdown_path = docs_dir.join(page.markdown_file);
     let markdown = fs::read_to_string(&markdown_path).with_context(|| {
         format!("Failed to read {}", markdown_path.display())
     })?;
     let content = format!(
-        r#"<div class="max-w-3xl mx-auto px-4 py-8"><div class="prose dark:prose-invert max-w-none">{}</div></div>"#,
-        render_markdown(&markdown)
+        r#"<div class="{} mx-auto px-4 py-8"><div class="prose dark:prose-invert max-w-none">{}</div></div>"#,
+        page.max_width_class,
+        render_markdown(&markdown),
     );
-    let html = render_page(&TERMS_PAGE, &content, assets, false);
+    let html = render_page(&page.meta, &content, assets, PageLayout::Raw);
 
-    let terms_dir = output_dir.join("terms");
-    fs::create_dir_all(&terms_dir)?;
-    let output_path = terms_dir.join("index.html");
+    let output_path = output_dir.join(page.output_file);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     fs::write(&output_path, html)?;
     println!("  Generated: {}", output_path.display());
 
@@ -263,7 +310,8 @@ fn generate_docs_page(
     })?;
 
     let content = render_markdown(&markdown);
-    let html = render_page(&page.meta, &content, assets, true);
+    let html =
+        render_page(&page.meta, &content, assets, PageLayout::DocsWithSidebar);
 
     let output_path = output_dir.join(page.output_file);
     if let Some(parent) = output_path.parent() {
@@ -292,10 +340,10 @@ fn render_page(
     meta: &PageMeta,
     content: &str,
     assets: &TrunkAssets,
-    is_docs: bool,
+    layout: PageLayout,
 ) -> String {
-    let content_wrapper = if is_docs {
-        format!(
+    let content_wrapper = match layout {
+        PageLayout::DocsWithSidebar => format!(
             r#"<div class="flex min-h-0">
 <aside class="hidden md:block w-64 flex-shrink-0 border-r border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
 <nav class="py-4">
@@ -319,9 +367,8 @@ fn render_page(
 </div>
 </div>"#,
             content
-        )
-    } else {
-        content.to_string()
+        ),
+        PageLayout::Raw => content.to_string(),
     };
 
     format!(

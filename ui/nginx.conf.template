@@ -71,6 +71,11 @@ http {
             try_files /terms/index.html /index.html;
         }
 
+        # Pre-rendered auction guide page
+        location = /auction-guide {
+            try_files /auction-guide/index.html /index.html;
+        }
+
         # Pre-rendered docs pages for SEO
         # Serves pre-rendered HTML if it exists, otherwise falls back to SPA
         location ~ ^/docs(?:/(.+?))?/?$ {

@@ -158,49 +158,49 @@ pub fn AuctionGuidePage() -> Html {
         <div class="max-w-4xl mx-auto px-4 py-8 space-y-10">
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "intro"
             )} />
 
             <ScenarioCard scenario={bike_auction()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_bike_auction"
             )} />
 
             <ScenarioCard scenario={bigger_room_auction()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_single_room_auction"
             )} />
 
             <ScenarioCard scenario={three_room_sequence_auction()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_three_room_sequence_auction"
             )} />
 
             <ScenarioCard scenario={rent_splitting_large()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_large_auction"
             )} />
 
             <ScenarioCard scenario={three_room_less_competition()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_three_room_less_competition_auction"
             )} />
 
             <ScenarioCard scenario={desk_allocation()} />
 
             <MarkdownContent html={markdown_html!(
-                file: "ui/src/pages/auction_guide.md",
+                file: "docs/auction-guide.md",
                 section: "after_desk_auction"
             )} />
 
