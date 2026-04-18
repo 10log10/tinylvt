@@ -29,7 +29,6 @@ async fn ensure_trunk_build(
                 .arg("build")
                 .current_dir("ui")
                 .env("BACKEND_URL", &backend_url)
-                .env("SUPPORT_EMAIL", &support_email)
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
                 .status();
@@ -313,7 +312,6 @@ async fn start_frontend_with_retry(
             .arg(port.to_string())
             .current_dir("ui")
             .env("BACKEND_URL", backend_url)
-            .env("SUPPORT_EMAIL", support_email)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

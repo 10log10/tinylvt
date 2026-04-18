@@ -11,11 +11,6 @@
 #     - Default: Falls back to same-origin (browser's current origin)
 #     - Example: --build-arg BACKEND_URL=https://api.tinylvt.com
 #
-#   SUPPORT_EMAIL (required)
-#     - The support email address displayed in the UI help page
-#     - Embedded in the WASM bundle at compile time
-#     - Example: --build-arg SUPPORT_EMAIL=support@example.com
-#
 # Runtime (-e or --env):
 #   BACKEND_URL (required for production)
 #     - The backend API URL injected into nginx CSP header at container start
@@ -27,7 +22,6 @@
 #   Build:
 #     docker build -f ui/Dockerfile \
 #       --build-arg BACKEND_URL=https://api.example.com \
-#       --build-arg SUPPORT_EMAIL=support@example.com \
 #       -t tinylvt-ui .
 #
 #   Run:
@@ -73,14 +67,13 @@ COPY screenshots ./screenshots
 COPY prerender ./prerender
 COPY docs ./docs
 
-# Build-time arguments: BACKEND_URL and SUPPORT_EMAIL embedded in WASM bundle
+# Build-time arguments: BACKEND_URL embedded in WASM bundle
 ARG BACKEND_URL
-ARG SUPPORT_EMAIL
 
 # Build the UI in release mode
 # Note: data-wasm-opt="0" in index.html skips wasm-opt (binaryen 108 compatibility)
 WORKDIR /build/ui
-RUN BACKEND_URL=${BACKEND_URL} SUPPORT_EMAIL=${SUPPORT_EMAIL} trunk build --release
+RUN BACKEND_URL=${BACKEND_URL} trunk build --release
 
 # Build and run the prerender tool to generate static HTML pages for SEO
 # Debug mode is faster to compile and the tool only runs once

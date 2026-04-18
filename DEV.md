@@ -33,7 +33,7 @@ cargo run -p dev-server
 In a separate terminal, run the frontend:
 
 ```bash
-cd ui && BACKEND_URL=http://localhost:8000 SUPPORT_EMAIL=support@tinylvt.com TRUNK_WATCH_ENABLE_COOLDOWN=true trunk serve
+cd ui && BACKEND_URL=http://localhost:8000 TRUNK_WATCH_ENABLE_COOLDOWN=true trunk serve
 ```
 
 The dev-server:
@@ -70,7 +70,7 @@ cargo run --release
 ```bash
 # Build static files
 cd ui
-BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk build --release
+BACKEND_URL=https://api.tinylvt.com trunk build --release
 
 # Serve with nginx, Apache, or static hosting service
 # Files are built to ui/dist/
@@ -101,7 +101,6 @@ BACKEND_URL=https://api.tinylvt.com SUPPORT_EMAIL=support@tinylvt.com trunk buil
 
 ### Frontend (UI Build)
 - `BACKEND_URL`: Backend API URL (optional, defaults to same-origin)
-- `SUPPORT_EMAIL`: Support email address displayed in the help page (required)
 
 Use `cargo watch -x ...` in place of `cargo ...` to watch for filesystem changes.
 
@@ -147,7 +146,6 @@ Quality depends on the image content. 50 seems fine for screenshots that lack an
 ```
 docker build -f ui/Dockerfile \
     --build-arg BACKEND_URL=http://localhost:8000 \
-    --build-arg SUPPORT_EMAIL=support@tinylvt.com \
     -t tinylvt-ui .
 ```
 
