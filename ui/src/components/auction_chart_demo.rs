@@ -39,7 +39,7 @@ fn scenarios() -> Vec<Scenario> {
 fn rent_splitting() -> Scenario {
     let alex = UserId(Uuid::from_u128(1));
     let ben = UserId(Uuid::from_u128(2));
-    let chris = UserId(Uuid::from_u128(3));
+    let cam = UserId(Uuid::from_u128(3));
     let master = SpaceId(Uuid::from_u128(100));
     let medium = SpaceId(Uuid::from_u128(101));
     let small = SpaceId(Uuid::from_u128(102));
@@ -58,7 +58,7 @@ fn rent_splitting() -> Scenario {
             bidders: vec![
                 (alex, "Alex".into()),
                 (ben, "Ben".into()),
-                (chris, "Chris".into()),
+                (cam, "Cam".into()),
             ],
             values: HashMap::from([
                 ((alex, master), Decimal::new(400, 0)),
@@ -67,9 +67,9 @@ fn rent_splitting() -> Scenario {
                 ((ben, master), Decimal::new(300, 0)),
                 ((ben, medium), Decimal::new(120, 0)),
                 ((ben, small), Decimal::new(0, 0)),
-                ((chris, master), Decimal::new(100, 0)),
-                ((chris, medium), Decimal::new(60, 0)),
-                ((chris, small), Decimal::new(0, 0)),
+                ((cam, master), Decimal::new(100, 0)),
+                ((cam, medium), Decimal::new(60, 0)),
+                ((cam, small), Decimal::new(0, 0)),
             ]),
             bid_increment: Decimal::new(10, 0),
         },

@@ -92,7 +92,7 @@ fn bigger_room_auction() -> Scenario {
 fn three_room_sequence_auction() -> Scenario {
     let alex = UserId(Uuid::from_u128(20));
     let ben = UserId(Uuid::from_u128(21));
-    let chris = UserId(Uuid::from_u128(22));
+    let cam = UserId(Uuid::from_u128(22));
     let large = SpaceId(Uuid::from_u128(300));
     let medium = SpaceId(Uuid::from_u128(301));
     let small = SpaceId(Uuid::from_u128(302));
@@ -109,7 +109,7 @@ fn three_room_sequence_auction() -> Scenario {
             bidders: vec![
                 (alex, "Alex".into()),
                 (ben, "Ben".into()),
-                (chris, "Chris".into()),
+                (cam, "Cam".into()),
             ],
             values: HashMap::from([
                 ((alex, large), Decimal::new(150, 0)),
@@ -118,9 +118,9 @@ fn three_room_sequence_auction() -> Scenario {
                 ((ben, large), Decimal::new(110, 0)),
                 ((ben, medium), Decimal::new(80, 0)),
                 ((ben, small), Decimal::new(0, 0)),
-                ((chris, large), Decimal::new(60, 0)),
-                ((chris, medium), Decimal::new(30, 0)),
-                ((chris, small), Decimal::new(0, 0)),
+                ((cam, large), Decimal::new(60, 0)),
+                ((cam, medium), Decimal::new(30, 0)),
+                ((cam, small), Decimal::new(0, 0)),
             ]),
             bid_increment: Decimal::new(10, 0),
         },
@@ -134,19 +134,19 @@ fn three_room_less_competition() -> Scenario {
     let large = scenario.state.spaces[0].0;
     let medium = scenario.state.spaces[1].0;
     let small = scenario.state.spaces[2].0;
-    let chris = scenario.state.bidders[2].0;
+    let cam = scenario.state.bidders[2].0;
     scenario
         .state
         .values
-        .insert((chris, large), Decimal::new(0, 0));
+        .insert((cam, large), Decimal::new(0, 0));
     scenario
         .state
         .values
-        .insert((chris, medium), Decimal::new(0, 0));
+        .insert((cam, medium), Decimal::new(0, 0));
     scenario
         .state
         .values
-        .insert((chris, small), Decimal::new(50, 0));
+        .insert((cam, small), Decimal::new(50, 0));
     scenario
 }
 
