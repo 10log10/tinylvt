@@ -9,6 +9,7 @@ use web_sys::HtmlElement;
 use yew::prelude::*;
 
 use crate::components::InlineEdit;
+use crate::utils::capitalize;
 
 #[derive(Clone, PartialEq)]
 pub struct EditorState {
@@ -54,6 +55,7 @@ const HOVER_BORDER: &str = "\
 pub struct Props {
     pub state: UseStateHandle<EditorState>,
     pub currency: CurrencySettings,
+    pub item_term: &'static str,
 }
 
 /// The editable grid for bidder names, space names, and
@@ -269,11 +271,12 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
 
     let on_add_space = {
         let state = state.clone();
+        let item_term = props.item_term;
         Callback::from(move |_: MouseEvent| {
             let mut s = (*state).clone();
             let n = s.spaces.len() + 1;
-            s.spaces
-                .push((SpaceId(Uuid::new_v4()), format!("Space {}", n)));
+            let default_name = format!("{} {}", capitalize(item_term), n);
+            s.spaces.push((SpaceId(Uuid::new_v4()), default_name));
             state.set(s);
         })
     };
@@ -317,7 +320,7 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                     onclick={on_add_space}
                     class={ADD_BTN}
                 >
-                    {"+ Space"}
+                    {format!("+ {}", capitalize(props.item_term))}
                 </button>
                 <button
                     onclick={on_add_bidder}

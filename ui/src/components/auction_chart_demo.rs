@@ -22,6 +22,9 @@ pub struct Scenario {
     pub description: &'static str,
     pub state: EditorState,
     pub currency: CurrencySettings,
+    /// Singular noun for the thing being allocated
+    /// (e.g. "space", "item", "decision", "chore").
+    pub item_term: &'static str,
 }
 
 fn scenarios() -> Vec<Scenario> {
@@ -81,6 +84,7 @@ fn rent_splitting() -> Scenario {
             balances_visible_to_members: true,
             new_members_default_active: true,
         },
+        item_term: "room",
     }
 }
 
@@ -167,6 +171,7 @@ pub fn rent_splitting_large() -> Scenario {
             balances_visible_to_members: true,
             new_members_default_active: true,
         },
+        item_term: "room",
     }
 }
 
@@ -240,6 +245,7 @@ pub fn desk_allocation() -> Scenario {
             balances_visible_to_members: true,
             new_members_default_active: true,
         },
+        item_term: "desk",
     }
 }
 
@@ -293,6 +299,7 @@ fn street_fair() -> Scenario {
             balances_visible_to_members: true,
             new_members_default_active: true,
         },
+        item_term: "booth",
     }
 }
 
@@ -302,6 +309,7 @@ fn street_fair() -> Scenario {
 pub struct AuctionScenarioPlayerProps {
     pub initial_state: EditorState,
     pub currency: CurrencySettings,
+    pub item_term: &'static str,
 }
 
 #[function_component]
@@ -326,13 +334,16 @@ pub fn AuctionScenarioPlayer(props: &AuctionScenarioPlayerProps) -> Html {
                 </h4>
                 <p class="text-xs text-neutral-500 \
                     dark:text-neutral-500 mb-3">
-                    {"The maximum each bidder would pay \
-                    for each space."}
+                    {format!(
+                        "The maximum each bidder would pay for each {}.",
+                        props.item_term,
+                    )}
                 </p>
             </div>
             <AuctionSimEditor
                 state={state.clone()}
                 currency={props.currency.clone()}
+                item_term={props.item_term}
             />
 
             <div>
@@ -352,6 +363,7 @@ pub fn AuctionScenarioPlayer(props: &AuctionScenarioPlayerProps) -> Html {
                 spaces={sim_input.spaces.clone()}
                 rounds={rounds.clone()}
                 currency={props.currency.clone()}
+                item_term={props.item_term}
                 autoplay={true}
             />
 
@@ -444,6 +456,7 @@ pub fn AuctionChartDemo() -> Html {
                 key={*selected}
                 initial_state={scenario.state.clone()}
                 currency={scenario.currency.clone()}
+                item_term={scenario.item_term}
             />
         </div>
     }

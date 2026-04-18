@@ -19,6 +19,7 @@ pub struct Props {
     pub spaces: Vec<(SpaceId, String)>,
     pub rounds: Vec<SimRound>,
     pub currency: CurrencySettings,
+    pub item_term: &'static str,
     #[prop_or(false)]
     pub autoplay: bool,
 }
@@ -306,6 +307,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
                 bids={bids}
                 x_max={x_max}
                 currency={props.currency.clone()}
+                item_term={props.item_term}
             />
         </div>
     }

@@ -63,6 +63,7 @@ fn bike_auction() -> Scenario {
             bid_increment: Decimal::new(10, 0),
         },
         currency: prepaid_config(),
+        item_term: "item",
     }
 }
 
@@ -84,6 +85,7 @@ fn bigger_room_auction() -> Scenario {
             bid_increment: Decimal::new(5, 0),
         },
         currency: distributed_config(),
+        item_term: "room",
     }
 }
 
@@ -123,6 +125,7 @@ fn three_room_sequence_auction() -> Scenario {
             bid_increment: Decimal::new(10, 0),
         },
         currency: distributed_config(),
+        item_term: "room",
     }
 }
 
@@ -231,6 +234,7 @@ fn ScenarioCard(props: &ScenarioCardProps) -> Html {
             <AuctionScenarioPlayer
                 initial_state={s.state.clone()}
                 currency={s.currency.clone()}
+                item_term={s.item_term}
             />
         </div>
     }

@@ -5,6 +5,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::components::user_identity_display::render_user_name;
+use crate::utils::capitalize;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -18,6 +19,7 @@ pub struct Props {
     /// Maximum price for scaling bar widths
     pub x_max: Decimal,
     pub currency: CurrencySettings,
+    pub item_term: &'static str,
 }
 
 // Desktop grid: space | bar | price | high-bid | new-bids
@@ -47,7 +49,7 @@ pub fn AuctionChart(props: &Props) -> Html {
             <div class={classes!(
                 HEADING_CLASSES, "sm:text-right"
             )}>
-                {"Space"}
+                {capitalize(props.item_term)}
             </div>
             // Bar heading (hidden on mobile)
             <div class="hidden sm:block" />

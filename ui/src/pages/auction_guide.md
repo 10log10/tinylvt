@@ -4,7 +4,7 @@
 
 Three roommates need to divide bedrooms. One room is bigger, one has a balcony, and one is next to the kitchen. They could argue about it, draw straws, or let whoever moved in first claim the best room. None of these are satisfying. Someone always feels shortchanged.
 
-An auction solves this in a straightforward way. Each person bids for the rooms they want. The highest bid for each room wins, and the proceeds are shared equally. The person who getes the best room pays more rent, and the person who gets the worst room pays less. Nobody has to argue about what's fair, since the bids determine it exactly.
+An auction solves this problem in a straightforward way. Each person bids for the rooms they want. The highest bid for each room wins, and the proceeds are shared equally. The person who gets the best room pays more rent, and the person who gets the worst room pays less. Nobody has to argue about what's fair, since the bids determine it exactly.
 
 This guide walks through how these *cooperative auctions* work, starting from the basics and building up to multi-item auctinos, settlement mechanics, and less-obvious applications like group decision-making. Each section includes an interactive simulation you can experiment with.
 
@@ -15,8 +15,6 @@ We'll start with a simple case: one item and two bidders. Pat is selling her bik
 We'll be using ascending auctions, where prices rise across multiple rounds, since this format is economically efficient (items go to the people who value them most), computationally tractable, and easy to interpret. Prices start at zero, and each round they increase by a fixed bid increment.
 
 In the top of the simulator, we define the things available for auction, the bidders who are participating, and the amount that each bidder would pay to have each item. Here, Nina is willing to pay up to $150 for the bike, and Omar is willing to pay up to $100.
-
-(Note that in the simulator, an item is called a "space". The semantics don't match this example but they'll match later examples on space allocation.)
 
 <!-- @@section:after_bike_auction -->
 
