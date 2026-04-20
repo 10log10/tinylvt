@@ -9,7 +9,7 @@ use yew_router::prelude::*;
 use yewdux::prelude::*;
 
 #[function_component]
-pub fn LoggedOutHomePage() -> Html {
+pub fn LandingPage() -> Html {
     use_title("TinyLVT");
     let push_route = use_push_route();
     let navigator = use_navigator().unwrap();

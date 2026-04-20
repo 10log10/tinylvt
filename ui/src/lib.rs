@@ -17,10 +17,9 @@ use pages::{
     CommunityDetailPage, CommunityImagesPage, CommunityInvitesPage,
     CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
     CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
-    LoggedOutHomePage, LoginPage, NotFoundPage, OrphanedAccountsPage,
-    PricingPage, ProfilePage, ResetPasswordPage, SiteAuctionsPage,
-    SiteOverviewPage, SiteSettingsPage, SiteSpacesPage, TermsPage,
-    VerifyEmailPage, docs,
+    LandingPage, LoginPage, NotFoundPage, OrphanedAccountsPage, PricingPage,
+    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteOverviewPage,
+    SiteSettingsPage, SiteSpacesPage, TermsPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -137,7 +136,7 @@ pub enum Route {
 
 fn switch(routes: Route) -> Html {
     match routes {
-        Route::Landing => html! { <LoggedOutHomePage /> },
+        Route::Landing => html! { <LandingPage /> },
         Route::Home => html! { <Redirect<Route> to={Route::Communities} /> },
         Route::Login => html! { <LoginPage /> },
         Route::VerifyEmail => html! { <VerifyEmailPage /> },
