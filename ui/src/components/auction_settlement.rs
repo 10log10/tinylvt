@@ -101,41 +101,47 @@ pub fn AuctionSettlement(props: &Props) -> Html {
             </div>
 
             // Winner adjustments
-            <div class="space-y-1">
+            <div class="space-y-2 sm:space-y-1">
                 {for winner_entries.iter().map(|entry| {
                     let adjustment = share - entry.total_price;
                     let spaces_str = entry.space_names.join(", ");
                     html! {
-                        <div class="flex items-center \
-                            gap-3 text-sm">
-                            <span class={classes!(
-                                "w-20", "truncate", LABEL
-                            )}>
-                                {render_user_name(&entry.user)}
-                            </span>
-                            <span class={MUTED}>
-                                {"\u{2192}"}
-                            </span>
-                            <span class={classes!(
-                                "w-28", "truncate", LABEL
-                            )}>
-                                {spaces_str}
-                            </span>
-                            <span class={classes!(
-                                "tabular-nums",
-                                "whitespace-nowrap", MUTED
-                            )}>
-                                {fmt(share)}
-                                {" \u{2212} "}
-                                {fmt(entry.total_price)}
-                                {" = "}
-                            </span>
-                            <span class={classes!(
-                                "tabular-nums",
-                                "whitespace-nowrap", BOLD
-                            )}>
-                                {format_adjustment(adjustment)}
-                            </span>
+                        <div class="flex flex-col sm:flex-row \
+                            sm:items-center sm:gap-3 text-sm">
+                            <div class="flex items-center \
+                                gap-2 sm:gap-3 min-w-0 \
+                                sm:flex-none">
+                                <span class={classes!(
+                                    "sm:w-20", "truncate", LABEL
+                                )}>
+                                    {render_user_name(&entry.user)}
+                                </span>
+                                <span class={MUTED}>
+                                    {"\u{2192}"}
+                                </span>
+                                <span class={classes!(
+                                    "sm:w-28", "truncate", LABEL
+                                )}>
+                                    {spaces_str}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class={classes!(
+                                    "tabular-nums",
+                                    "whitespace-nowrap", MUTED
+                                )}>
+                                    {fmt(share)}
+                                    {" \u{2212} "}
+                                    {fmt(entry.total_price)}
+                                    {" = "}
+                                </span>
+                                <span class={classes!(
+                                    "tabular-nums",
+                                    "whitespace-nowrap", BOLD
+                                )}>
+                                    {format_adjustment(adjustment)}
+                                </span>
+                            </div>
                         </div>
                     }
                 })}
@@ -143,35 +149,41 @@ pub fn AuctionSettlement(props: &Props) -> Html {
                 // Non-winners receive their share
                 {for non_winners.iter().map(|&bidder| {
                     html! {
-                        <div class="flex items-center \
-                            gap-3 text-sm">
-                            <span class={classes!(
-                                "w-20", "truncate", LABEL
-                            )}>
-                                {render_user_name(bidder)}
-                            </span>
-                            <span class={MUTED}>
-                                {"\u{2192}"}
-                            </span>
-                            <span class={classes!(
-                                "w-28", "truncate",
-                                "italic", MUTED
-                            )}>
-                                {"none"}
-                            </span>
-                            <span class={classes!(
-                                "tabular-nums",
-                                "whitespace-nowrap", MUTED
-                            )}>
-                                {fmt(share)}
-                                {" \u{2212} 0 = "}
-                            </span>
-                            <span class={classes!(
-                                "tabular-nums",
-                                "whitespace-nowrap", BOLD
-                            )}>
-                                {format_adjustment(share)}
-                            </span>
+                        <div class="flex flex-col sm:flex-row \
+                            sm:items-center sm:gap-3 text-sm">
+                            <div class="flex items-center \
+                                gap-2 sm:gap-3 min-w-0 \
+                                sm:flex-none">
+                                <span class={classes!(
+                                    "sm:w-20", "truncate", LABEL
+                                )}>
+                                    {render_user_name(bidder)}
+                                </span>
+                                <span class={MUTED}>
+                                    {"\u{2192}"}
+                                </span>
+                                <span class={classes!(
+                                    "sm:w-28", "truncate",
+                                    "italic", MUTED
+                                )}>
+                                    {"none"}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class={classes!(
+                                    "tabular-nums",
+                                    "whitespace-nowrap", MUTED
+                                )}>
+                                    {fmt(share)}
+                                    {" \u{2212} 0 = "}
+                                </span>
+                                <span class={classes!(
+                                    "tabular-nums",
+                                    "whitespace-nowrap", BOLD
+                                )}>
+                                    {format_adjustment(share)}
+                                </span>
+                            </div>
                         </div>
                     }
                 })}
