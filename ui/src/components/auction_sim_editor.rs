@@ -65,7 +65,7 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
     let state = &props.state;
 
     let grid_template = format!(
-        "grid-template-columns: 8rem repeat({}, minmax(5rem, 1fr))",
+        "grid-template-columns: auto repeat({}, minmax(5rem, 1fr))",
         state.bidders.len()
     );
 
@@ -163,12 +163,18 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                 on_remove={on_remove}
                 container_ref={container_ref}
                 display_class={classes!(
-                    "w-full", HEADER_BG, HOVER_BORDER,
-                    "font-medium", "text-right"
+                    "w-full",
+                    "sm:min-w-20",
+                    HEADER_BG,
+                    HOVER_BORDER,
+                    "font-medium",
+                    "text-right",
                 )}
                 input_class={classes!(
                     "w-full",
-                    "font-medium", "text-right"
+                    "sm:min-w-28",
+                    "font-medium",
+                    "text-right",
                 )}
             />
         });
@@ -211,9 +217,16 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
                 on_remove={on_remove_space}
                 container_ref={space_ref}
                 display_class={classes!(
-                    "w-full", HEADER_BG, HOVER_BORDER
+                    "w-full",
+                    "sm:min-w-20",
+                    "whitespace-nowrap",
+                    HEADER_BG,
+                    HOVER_BORDER,
                 )}
-                input_class={classes!("w-full")}
+                input_class={classes!(
+                    "w-full",
+                    "sm:min-w-28",
+                )}
             />
         });
 
@@ -308,7 +321,7 @@ pub fn AuctionSimEditor(props: &Props) -> Html {
         <div class="space-y-2">
             <div class="overflow-x-auto">
                 <div
-                    class="grid gap-1 items-center p-0.5"
+                    class="grid gap-1 items-center p-0.5 w-max min-w-full"
                     style={grid_template}
                 >
                     {for cells.into_iter()}

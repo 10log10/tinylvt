@@ -59,7 +59,7 @@ const DISPLAY_CLASSES: &str = "\
     transition-colors";
 
 const INPUT_CLASSES: &str = "\
-    px-2 py-1 text-sm border \
+    min-w-0 px-2 py-1 text-sm border \
     border-neutral-300 dark:border-neutral-600 \
     rounded bg-white dark:bg-neutral-800 \
     text-neutral-900 dark:text-neutral-100 \
@@ -159,53 +159,51 @@ pub fn InlineEdit(props: &Props) -> Html {
         "text-neutral-900 dark:text-neutral-100"
     };
 
-    html! {
-        <div class="flex items-center gap-1">
-            {if *is_editing {
-                html! {
-                    <>
-                        <input
-                            ref={input_ref}
-                            type={props.input_type.clone()}
-                            inputmode={props.inputmode.clone()}
-                            value={props.value.clone()}
-                            onblur={on_blur}
-                            onkeydown={on_keydown}
-                            class={classes!(
-                                INPUT_CLASSES,
-                                props.input_class.clone()
-                            )}
-                        />
-                        {if props.on_remove.is_some() {
-                            html! {
-                                <button
-                                    onmousedown={on_remove_click}
-                                    class={REMOVE_BTN}
-                                    title="Remove"
-                                >
-                                    {"\u{2715}"}
-                                </button>
-                            }
-                        } else {
-                            html! {}
-                        }}
-                    </>
-                }
-            } else {
-                html! {
-                    <div
-                        ref={props.container_ref.clone()}
-                        onclick={on_display_click}
-                        class={classes!(
-                            DISPLAY_CLASSES,
-                            empty_style,
-                            props.display_class.clone()
-                        )}
+    if *is_editing {
+        let input = html! {
+            <input
+                ref={input_ref}
+                type={props.input_type.clone()}
+                inputmode={props.inputmode.clone()}
+                value={props.value.clone()}
+                size="1"
+                onblur={on_blur}
+                onkeydown={on_keydown}
+                class={classes!(
+                    INPUT_CLASSES,
+                    props.input_class.clone()
+                )}
+            />
+        };
+        if props.on_remove.is_some() {
+            html! {
+                <div class="flex items-center gap-1">
+                    {input}
+                    <button
+                        onmousedown={on_remove_click}
+                        class={REMOVE_BTN}
+                        title="Remove"
                     >
-                        {display_text}
-                    </div>
-                }
-            }}
-        </div>
+                        {"\u{2715}"}
+                    </button>
+                </div>
+            }
+        } else {
+            input
+        }
+    } else {
+        html! {
+            <div
+                ref={props.container_ref.clone()}
+                onclick={on_display_click}
+                class={classes!(
+                    DISPLAY_CLASSES,
+                    empty_style,
+                    props.display_class.clone()
+                )}
+            >
+                {display_text}
+            </div>
+        }
     }
 }
