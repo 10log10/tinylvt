@@ -77,9 +77,9 @@ pub fn LandingPage() -> Html {
                         <p class="text-neutral-600 dark:text-neutral-400 \
                             mt-2">
                             {"If you win a space, you pay just enough \
-                            to outbid the next-highest bidder\u{2014}not \
-                            your maximum. This encourages honest bidding \
-                            and ensures fair prices."}
+                            to outbid the next-highest bidder, not \
+                            your maximum. This pricing encourages honest \
+                            bidding."}
                         </p>
                     </div>
 
