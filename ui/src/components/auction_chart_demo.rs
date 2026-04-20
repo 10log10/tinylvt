@@ -40,7 +40,7 @@ fn rent_splitting() -> Scenario {
     let alex = UserId(Uuid::from_u128(1));
     let ben = UserId(Uuid::from_u128(2));
     let cam = UserId(Uuid::from_u128(3));
-    let master = SpaceId(Uuid::from_u128(100));
+    let large = SpaceId(Uuid::from_u128(100));
     let medium = SpaceId(Uuid::from_u128(101));
     let small = SpaceId(Uuid::from_u128(102));
 
@@ -51,7 +51,7 @@ fn rent_splitting() -> Scenario {
             price minus their equal share of the total proceeds.",
         state: EditorState {
             spaces: vec![
-                (master, "Master".into()),
+                (large, "Large".into()),
                 (medium, "Medium".into()),
                 (small, "Small".into()),
             ],
@@ -61,13 +61,13 @@ fn rent_splitting() -> Scenario {
                 (cam, "Cam".into()),
             ],
             values: HashMap::from([
-                ((alex, master), Decimal::new(400, 0)),
+                ((alex, large), Decimal::new(400, 0)),
                 ((alex, medium), Decimal::new(160, 0)),
                 ((alex, small), Decimal::new(0, 0)),
-                ((ben, master), Decimal::new(300, 0)),
+                ((ben, large), Decimal::new(300, 0)),
                 ((ben, medium), Decimal::new(120, 0)),
                 ((ben, small), Decimal::new(0, 0)),
-                ((cam, master), Decimal::new(100, 0)),
+                ((cam, large), Decimal::new(100, 0)),
                 ((cam, medium), Decimal::new(60, 0)),
                 ((cam, small), Decimal::new(0, 0)),
             ]),

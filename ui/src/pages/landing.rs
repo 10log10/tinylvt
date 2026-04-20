@@ -51,7 +51,7 @@ pub fn LandingPage() -> Html {
                     <p class="text-lg text-neutral-600 \
                         dark:text-neutral-400">
                         {"When housemates share a rental, who \
-                        gets the master bedroom? When a team \
+                        gets the bigger bedroom? When a team \
                         shares an office, who gets the window \
                         desk? Traditional methods leave someone \
                         feeling shortchanged."}
