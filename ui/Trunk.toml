@@ -9,4 +9,4 @@ tailwindcss = "3.4.17"
 # this with `TRUNK_WATCH_ENABLE_COOLDOWN=true` to avoid duplicate builds from
 # editor save sequences (see DEV.md).
 [watch]
-watch = [".", "../docs"]
+watch = [".", "../docs", "../payloads"]
