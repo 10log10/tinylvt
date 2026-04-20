@@ -101,93 +101,152 @@ pub fn AuctionSettlement(props: &Props) -> Html {
             </div>
 
             // Winner adjustments
-            <div class="space-y-2 sm:space-y-1">
+            //
+            // Mobile (<sm): each row stacks — first the
+            // "name → space" line, then a math grid below.
+            // Desktop (sm+): a single grid holds all rows so
+            // names, spaces, and numeric columns align.
+            <div class={classes!(
+                "space-y-2", "sm:space-y-0",
+                "sm:grid",
+                "sm:grid-cols-[auto_auto_1fr_auto_auto_auto_auto_auto]",
+                "sm:gap-x-2", "sm:gap-y-1",
+                "sm:items-center", "text-sm"
+            )}>
                 {for winner_entries.iter().map(|entry| {
                     let adjustment = share - entry.total_price;
                     let spaces_str = entry.space_names.join(", ");
                     html! {
-                        <div class="flex flex-col sm:flex-row \
-                            sm:items-center sm:gap-3 text-sm">
-                            <div class="flex items-center \
-                                gap-2 sm:gap-3 min-w-0 \
-                                sm:flex-none">
-                                <span class={classes!(
-                                    "sm:w-20", "truncate", LABEL
-                                )}>
-                                    {render_user_name(&entry.user)}
-                                </span>
-                                <span class={MUTED}>
-                                    {"\u{2192}"}
-                                </span>
-                                <span class={classes!(
-                                    "sm:w-28", "truncate", LABEL
-                                )}>
-                                    {spaces_str}
-                                </span>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class={classes!(
-                                    "tabular-nums",
-                                    "whitespace-nowrap", MUTED
-                                )}>
-                                    {fmt(share)}
-                                    {" \u{2212} "}
-                                    {fmt(entry.total_price)}
-                                    {" = "}
-                                </span>
-                                <span class={classes!(
-                                    "tabular-nums",
-                                    "whitespace-nowrap", BOLD
-                                )}>
-                                    {format_adjustment(adjustment)}
-                                </span>
-                            </div>
-                        </div>
+                        <SettlementRow
+                            name={render_user_name(&entry.user)}
+                            space={html!{spaces_str}}
+                            space_muted={false}
+                            share={fmt(share)}
+                            subtrahend={fmt(entry.total_price)}
+                            adjustment={format_adjustment(adjustment)}
+                        />
                     }
                 })}
 
                 // Non-winners receive their share
                 {for non_winners.iter().map(|&bidder| {
                     html! {
-                        <div class="flex flex-col sm:flex-row \
-                            sm:items-center sm:gap-3 text-sm">
-                            <div class="flex items-center \
-                                gap-2 sm:gap-3 min-w-0 \
-                                sm:flex-none">
-                                <span class={classes!(
-                                    "sm:w-20", "truncate", LABEL
-                                )}>
-                                    {render_user_name(bidder)}
-                                </span>
-                                <span class={MUTED}>
-                                    {"\u{2192}"}
-                                </span>
-                                <span class={classes!(
-                                    "sm:w-28", "truncate",
-                                    "italic", MUTED
-                                )}>
-                                    {"none"}
-                                </span>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class={classes!(
-                                    "tabular-nums",
-                                    "whitespace-nowrap", MUTED
-                                )}>
-                                    {fmt(share)}
-                                    {" \u{2212} 0 = "}
-                                </span>
-                                <span class={classes!(
-                                    "tabular-nums",
-                                    "whitespace-nowrap", BOLD
-                                )}>
-                                    {format_adjustment(share)}
-                                </span>
-                            </div>
-                        </div>
+                        <SettlementRow
+                            name={render_user_name(bidder)}
+                            space={html!{
+                                <span class="italic">{"none"}</span>
+                            }}
+                            space_muted={true}
+                            share={fmt(share)}
+                            subtrahend={fmt(Decimal::ZERO)}
+                            adjustment={format_adjustment(share)}
+                        />
                     }
                 })}
             </div>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct SettlementRowProps {
+    name: Html,
+    space: Html,
+    space_muted: bool,
+    share: String,
+    subtrahend: String,
+    adjustment: String,
+}
+
+/// One row of the settlement table.
+///
+/// On mobile the wrapper is a flex column: the "name → space"
+/// line sits above a 5-column math grid whose columns align
+/// across rows. On `sm+`, the wrapper becomes `display: contents`
+/// so its eight children flow directly into the parent grid,
+/// aligning names, spaces, and numeric columns across rows.
+#[function_component]
+fn SettlementRow(props: &SettlementRowProps) -> Html {
+    let space_class = if props.space_muted { MUTED } else { LABEL };
+
+    html! {
+        <div class="flex flex-col gap-1 sm:contents">
+            // Mobile-only: "name → space" line
+            <div class="flex items-center gap-2 min-w-0 sm:hidden">
+                <span class={classes!("truncate", LABEL)}>
+                    {props.name.clone()}
+                </span>
+                <span class={MUTED}>{"\u{2192}"}</span>
+                <span class={classes!("truncate", space_class)}>
+                    {props.space.clone()}
+                </span>
+            </div>
+
+            // Mobile-only: math grid, columns align across rows
+            <div class={classes!(
+                "grid",
+                "grid-cols-[1fr_auto_1fr_auto_1fr]",
+                "gap-x-1", "items-center", "sm:hidden"
+            )}>
+                <span class={classes!(
+                    "tabular-nums", "text-right", MUTED
+                )}>
+                    {props.share.clone()}
+                </span>
+                <span class={MUTED}>{"\u{2212}"}</span>
+                <span class={classes!(
+                    "tabular-nums", "text-right", MUTED
+                )}>
+                    {props.subtrahend.clone()}
+                </span>
+                <span class={MUTED}>{"="}</span>
+                <span class={classes!(
+                    "tabular-nums", "text-right", BOLD
+                )}>
+                    {props.adjustment.clone()}
+                </span>
+            </div>
+
+            // Desktop-only (sm+): eight cells flow into parent
+            // grid via `sm:contents` on the wrapper. Each child
+            // below is hidden on mobile.
+            <span class={classes!(
+                "hidden", "sm:inline", "truncate", LABEL
+            )}>
+                {props.name.clone()}
+            </span>
+            <span class={classes!("hidden", "sm:inline", MUTED)}>
+                {"\u{2192}"}
+            </span>
+            <span class={classes!(
+                "hidden", "sm:inline", "truncate", space_class
+            )}>
+                {props.space.clone()}
+            </span>
+            <span class={classes!(
+                "hidden", "sm:inline", "tabular-nums",
+                "text-right", "whitespace-nowrap", MUTED
+            )}>
+                {props.share.clone()}
+            </span>
+            <span class={classes!("hidden", "sm:inline", MUTED)}>
+                {"\u{2212}"}
+            </span>
+            <span class={classes!(
+                "hidden", "sm:inline", "tabular-nums",
+                "text-right", "whitespace-nowrap", MUTED
+            )}>
+                {props.subtrahend.clone()}
+            </span>
+            <span class={classes!("hidden", "sm:inline", MUTED)}>
+                {"="}
+            </span>
+            <span class={classes!(
+                "hidden", "sm:inline", "tabular-nums",
+                "text-right", "whitespace-nowrap", BOLD
+            )}>
+                {props.adjustment.clone()}
+            </span>
         </div>
     }
 }
