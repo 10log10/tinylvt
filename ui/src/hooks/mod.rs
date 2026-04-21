@@ -27,8 +27,8 @@
 //!
 //! All hook return types provide this helper method:
 //!
-//! - `is_initial_loading() -> bool` - Returns true when loading with no data
-//!   or error (initial page load that should block the UI)
+//! - `is_initial_loading() -> bool` - Returns true when loading with no data or
+//!   error (initial page load that should block the UI)
 //!
 //! ## State Combinations
 //!
@@ -51,8 +51,7 @@
 //!
 //! ### `data: Some(T), error: Some(e), is_loading: false`
 //! **Operation failed but have stale data.**
-//! - Show: Data + error banner (e.g., "Failed to refresh", "Failed to
-//!   update")
+//! - Show: Data + error banner (e.g., "Failed to refresh", "Failed to update")
 //! - Action: Allow user to retry or dismiss error
 //!
 //! ### `data: None, error: Some(e), is_loading: false`

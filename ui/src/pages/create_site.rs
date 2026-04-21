@@ -129,8 +129,9 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                 },
                 // Default values for MVP - auctions will be manually created
                 possession_period: jiff::Span::new().days(7), // Default 7 days
-                auction_lead_time: jiff::Span::new().hours(24), // Default 24 hours
-                proxy_bidding_lead_time: jiff::Span::new().hours(12), // Default 12 hours
+                auction_lead_time: jiff::Span::new().hours(24), /* Default 24
+                                                               * hours */
+                proxy_bidding_lead_time: jiff::Span::new().hours(12), /* Default 12 hours */
                 open_hours: None,
                 auto_schedule: false, // MVP uses manual auction creation
                 timezone,

@@ -177,8 +177,9 @@ pub(crate) async fn get_user_identities(
 
 /// Helper to enrich a collection of items with user identities
 ///
-/// Given a collection of items, extracts user IDs, batch loads their identities,
-/// and maps each item to a result using the provided mapper function.
+/// Given a collection of items, extracts user IDs, batch loads their
+/// identities, and maps each item to a result using the provided mapper
+/// function.
 pub(crate) async fn with_user_identities<T, R, F>(
     items: Vec<T>,
     get_user_id: impl Fn(&T) -> UserId,

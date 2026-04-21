@@ -470,7 +470,8 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_1 = &rounds[1];
 
-    // Get round 0 results - Alice should have won space_a and Bob should have won space_b
+    // Get round 0 results - Alice should have won space_a and Bob should have
+    // won space_b
     let results = app
         .client
         .list_round_space_results_for_round(&round_0.round_id)
@@ -495,7 +496,8 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .await;
     assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
 
-    // But she can bid on space_b (though it will fail due to insufficient eligibility)
+    // But she can bid on space_b (though it will fail due to insufficient
+    // eligibility)
     let result = app
         .client
         .create_bid(&space_b.space_id, &round_1.round_id)
@@ -510,7 +512,8 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .await;
     assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
 
-    // But he can bid on space_a since he has enough eligibility (15 points * 2 = 30 points > 25 points needed)
+    // But he can bid on space_a since he has enough eligibility (15 points * 2
+    // = 30 points > 25 points needed)
     app.client
         .create_bid(&space_a.space_id, &round_1.round_id)
         .await?;

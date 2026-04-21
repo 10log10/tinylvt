@@ -1,2 +1,6 @@
 edition = "2024"
 max_width = 80
+
+# The require nightly: `cargo +nightly fmt`
+wrap_comments = true
+comment_width = 80

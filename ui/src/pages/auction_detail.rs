@@ -189,7 +189,8 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
     }
 
     let Some(current_round) = current_round_opt else {
-        // No rounds exist yet - show countdown with proxy bidding and space list
+        // No rounds exist yet - show countdown with proxy bidding and space
+        // list
         let spaces = spaces_hook.data.as_ref().cloned().unwrap_or_default();
         let settings_opt = proxy_bidding_hook
             .settings
@@ -378,8 +379,8 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
     // Prices are stored in round_space_results for the PREVIOUS round
     // (when the scheduler processes a round, it stores results FOR that round,
-    // then creates the next round). So we need to fetch prices from round_num - 1.
-    // For round 0, there is no previous round, so we pass None.
+    // then creates the next round). So we need to fetch prices from round_num -
+    // 1. For round 0, there is no previous round, so we pass None.
     let prices_round_id = if current_round_num == 0 {
         None
     } else {

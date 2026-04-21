@@ -75,7 +75,8 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let _round = &rounds[0];
 
-    // Run the auction to completion by repeatedly advancing time and scheduling ticks
+    // Run the auction to completion by repeatedly advancing time and scheduling
+    // ticks
     let mut rounds_processed = 0;
     const MAX_ROUNDS: usize = 20; // Safety limit to prevent infinite loops
 

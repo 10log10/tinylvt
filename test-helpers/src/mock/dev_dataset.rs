@@ -9,7 +9,8 @@ use rust_decimal::Decimal;
 
 use super::TZ;
 
-/// Comprehensive development dataset that creates a realistic TinyLVT environment
+/// Comprehensive development dataset that creates a realistic TinyLVT
+/// environment
 pub struct DevDataset {
     pub alice_community_id: CommunityId,
     pub bob_community_id: CommunityId,
@@ -23,7 +24,8 @@ pub struct DevDataset {
 }
 
 impl DevDataset {
-    /// Creates the complete development dataset with realistic hierarchical data
+    /// Creates the complete development dataset with realistic hierarchical
+    /// data
     pub async fn create(app: &TestApp) -> Result<Self> {
         app.time_source.set(Timestamp::now());
 
@@ -57,9 +59,11 @@ impl DevDataset {
         ) = create_ongoing_auction_with_rounds(app, &coworking_site.site_id)
             .await?;
 
-        // === Bob's Community (Secondary community for multi-community testing) ===
+        // === Bob's Community (Secondary community for multi-community testing)
+        // ===
         tracing::info!("Creating Bob's secondary community");
-        // Bob already exists from three-person community, so just login and create
+        // Bob already exists from three-person community, so just login and
+        // create
         app.login_bob().await?;
         let bob_community_body = requests::CreateCommunity {
             name: "Tech Startup Collective".into(),
@@ -175,8 +179,9 @@ async fn create_coworking_site(
         },
         possession_period: Span::new().hours(12), // How long the site is open
         auction_lead_time: Span::new().hours(24), // 1 day advance booking
-        proxy_bidding_lead_time: Span::new().hours(12), // Half day for proxy bids
-        open_hours: None,                               // Not for MVP
+        proxy_bidding_lead_time: Span::new().hours(12), /* Half day for proxy
+                                                   * bids */
+        open_hours: None, // Not for MVP
         auto_schedule: true,
         timezone: Some(TZ.to_string()),
         site_image_id: None,
@@ -201,8 +206,9 @@ async fn create_meetup_site(
             "Premium conference rooms with full AV setup".to_string(),
         ),
         default_auction_params: AuctionParams {
-            round_duration: Span::new().minutes(10), // Longer rounds for bigger decisions
-            bid_increment: Decimal::new(500, 2),     // $5.00 - higher stakes
+            round_duration: Span::new().minutes(10), /* Longer rounds for
+                                                      * bigger decisions */
+            bid_increment: Decimal::new(500, 2), // $5.00 - higher stakes
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),
@@ -214,8 +220,9 @@ async fn create_meetup_site(
         },
         possession_period: Span::new().hours(4), // 4-hour meeting blocks
         auction_lead_time: Span::new().hours(48), // 2 days advance for planning
-        proxy_bidding_lead_time: Span::new().hours(24), // 1 day for proxy decisions
-        open_hours: None,                               // Not for MVP
+        proxy_bidding_lead_time: Span::new().hours(24), /* 1 day for proxy
+                                                  * decisions */
+        open_hours: None, // Not for MVP
         auto_schedule: true,
         timezone: Some(TZ.to_string()),
         site_image_id: None,

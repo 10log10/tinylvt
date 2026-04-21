@@ -333,8 +333,9 @@ async fn delete_user_leader_blocked() -> anyhow::Result<()> {
 }
 
 /// User with transaction history (but no auction history) should be anonymized.
-/// The FK constraint chain is: users -> accounts (CASCADE) -> entry_lines (RESTRICT)
-/// So if the user's account has any entry_lines, the cascade is blocked.
+/// The FK constraint chain is: users -> accounts (CASCADE) -> entry_lines
+/// (RESTRICT). So if the user's account has any entry_lines, the cascade is
+/// blocked.
 #[tokio::test]
 async fn delete_user_with_transaction_history() -> anyhow::Result<()> {
     let app = spawn_app().await;

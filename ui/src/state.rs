@@ -41,15 +41,16 @@ pub struct State {
     pub communities: FetchState<Vec<responses::CommunityWithRole>>,
 
     // === Sites (canonical store - managed by use_sites + use_site) ===
-    pub individual_sites: HashMap<SiteId, responses::Site>, // Single source of truth
-    pub sites_by_community: HashMap<CommunityId, Vec<SiteId>>, // Community index
+    pub individual_sites: HashMap<SiteId, responses::Site>, /* Single source
+                                                             * of truth */
+    pub sites_by_community: HashMap<CommunityId, Vec<SiteId>>, /* Community index */
 
     // === Spaces (canonical store - managed by use_spaces) ===
-    pub individual_spaces: HashMap<SpaceId, responses::Space>, // Single source of truth
+    pub individual_spaces: HashMap<SpaceId, responses::Space>, /* Single source of truth */
     pub spaces_by_site: HashMap<SiteId, Vec<SpaceId>>,         // Site index
 
     // === Auctions (canonical store - managed by use_auctions) ===
-    pub individual_auctions: HashMap<AuctionId, responses::Auction>, // Single source of truth
+    pub individual_auctions: HashMap<AuctionId, responses::Auction>, /* Single source of truth */
     pub auctions_by_site: HashMap<SiteId, Vec<AuctionId>>, // Site index
 
     // === Members (managed by use_members) ===
@@ -143,8 +144,8 @@ impl State {
 
     pub fn clear_sites_for_community(&mut self) {
         self.sites_by_community.clear();
-        // Note: We don't clear individual_sites here as they might be used by use_site
-        // Individual sites will be cleared on logout
+        // Note: We don't clear individual_sites here as they might be used by
+        // use_site. Individual sites will be cleared on logout
     }
 
     pub fn has_site_loaded(&self, site_id: SiteId) -> bool {
@@ -199,8 +200,8 @@ impl State {
 
     pub fn clear_spaces_for_site(&mut self) {
         self.spaces_by_site.clear();
-        // Note: We don't clear individual_spaces here as they might be used by other components
-        // Individual spaces will be cleared on logout
+        // Note: We don't clear individual_spaces here as they might be used by
+        // other components. Individual spaces will be cleared on logout
     }
 
     #[allow(dead_code)]
@@ -260,8 +261,8 @@ impl State {
 
     pub fn clear_auctions_for_site(&mut self) {
         self.auctions_by_site.clear();
-        // Note: We don't clear individual_auctions here as they might be used by other components
-        // Individual auctions will be cleared on logout
+        // Note: We don't clear individual_auctions here as they might be used
+        // by other components. Individual auctions will be cleared on logout
     }
 
     pub fn clear_individual_auctions(&mut self) {

@@ -55,7 +55,8 @@ pub struct TestApp {
 
 /// Email testing utilities for TestApp
 impl TestApp {
-    /// Create a test account without marking email as verified (for testing email verification flow)
+    /// Create a test account without marking email as verified (for testing
+    /// email verification flow)
     pub async fn create_unverified_user(
         &self,
         credentials: &payloads::requests::CreateAccount,
@@ -136,7 +137,8 @@ impl TestApp {
         // 2. Check email is not verified
         assert!(!self.is_email_verified(&credentials.email).await?);
 
-        // 3. Get verification token from database (simulating extracting from email)
+        // 3. Get verification token from database (simulating extracting from
+        //    email)
         let token = self
             .get_verification_token_from_db(&credentials.email)
             .await?;
@@ -275,7 +277,8 @@ impl TestApp {
         Ok(self.client.invite_member(&details).await?)
     }
 
-    /// Creates a link-based invite (no email) for testing invite link acceptance
+    /// Creates a link-based invite (no email) for testing invite link
+    /// acceptance
     pub async fn create_link_invite(
         &self,
     ) -> anyhow::Result<payloads::InviteId> {
@@ -805,8 +808,10 @@ fn site_image_details_a_update_expected(
         image_data: original.image_data,
         mime_type: "image/png".into(),
         file_size,
-        created_at: jiff::Timestamp::now(), // This will be overridden in the test
-        updated_at: jiff::Timestamp::now(), // This will be overridden in the test
+        created_at: jiff::Timestamp::now(), /* This will be overridden in the
+                                             * test */
+        updated_at: jiff::Timestamp::now(), /* This will be overridden in the
+                                             * test */
     }
 }
 

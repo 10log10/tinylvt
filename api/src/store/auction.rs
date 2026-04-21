@@ -551,7 +551,8 @@ pub async fn create_bid_tx(
         .await?
         .ok_or(StoreError::NoEligibility)?;
 
-        // Get all spaces this user is currently bidding on or winning in this round
+        // Get all spaces this user is currently bidding on or winning in this
+        // round
         let active_spaces = sqlx::query_scalar::<_, SpaceId>(
             "SELECT space_id FROM (
                 SELECT space_id FROM bids

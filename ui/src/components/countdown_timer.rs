@@ -59,7 +59,8 @@ pub fn CountdownTimer(props: &Props) -> Html {
                 }
             });
 
-            // Cleanup: signal cancellation when effect re-runs or component unmounts
+            // Cleanup: signal cancellation when effect re-runs or component
+            // unmounts
             move || {
                 cancelled.store(true, Ordering::Relaxed);
             }

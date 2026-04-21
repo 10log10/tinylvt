@@ -69,7 +69,8 @@ async fn test_health_check_does_not_have_security_headers() -> Result<()> {
     // Arrange
     let app = spawn_app().await;
 
-    // Get health check - this is not an authenticated endpoint and should not have security headers
+    // Get health check - this is not an authenticated endpoint and should not
+    // have security headers
     let url = format!("{}/api/health_check", app.client.address);
     let response = app.client.inner_client.get(&url).send().await?;
 

@@ -187,7 +187,8 @@ async fn list_sites() -> anyhow::Result<()> {
             round_duration: jiff::Span::new().hours(2), // Different duration
             bid_increment: rust_decimal::Decimal::new(200, 2), // $2.00
             activity_rule_params: payloads::ActivityRuleParams {
-                eligibility_progression: vec![(1, 0.8)], // 80% eligibility required
+                eligibility_progression: vec![(1, 0.8)], /* 80% eligibility
+                                                          * required */
             },
         },
         possession_period: jiff::Span::new().days(14), // 14 days

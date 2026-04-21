@@ -461,8 +461,8 @@ struct CreateEntryParams<'a> {
 /// 5. Updates balance_cached for all accounts
 ///
 /// Special entry types:
-/// - AuctionSettlement: Multiple lines per account allowed, skips credit
-///   checks (locked balance already includes debits)
+/// - AuctionSettlement: Multiple lines per account allowed, skips credit checks
+///   (locked balance already includes debits)
 /// - BalanceReset: Accounts are pre-locked, credit checks skipped
 ///
 /// Must be called within a transaction. The caller is responsible for
@@ -505,7 +505,8 @@ async fn create_entry(
 
     let now = time_source.now();
 
-    // Skip validation and credit checks for auction settlement and balance reset
+    // Skip validation and credit checks for auction settlement and balance
+    // reset
     // - Auction settlement: locked balance already includes debits
     // - Balance reset: accounts are pre-locked and credit checks will pass
     let skip_checks = matches!(
@@ -731,7 +732,8 @@ pub async fn create_auction_settlement_entry(
             idempotency_key,
             lines,
             auction_id: Some(auction_id),
-            initiated_by_id: None, // No initiated_by_id for automated settlements
+            initiated_by_id: None, /* No initiated_by_id for automated
+                                    * settlements */
             note: None,
         },
         time_source,
@@ -1386,7 +1388,8 @@ pub async fn create_transfer(
             idempotency_key,
             lines,
             auction_id: None,
-            initiated_by_id: None, // No initiated_by_id for member-to-member transfers
+            initiated_by_id: None, /* No initiated_by_id for member-to-member
+                                    * transfers */
             note,
         },
         time_source,

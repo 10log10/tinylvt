@@ -411,7 +411,8 @@ pub async fn delete_site(
             if db_err.is_foreign_key_violation() =>
         {
             // FK violation means site has auctions with financial history:
-            // sites → auctions (CASCADE) → journal_entries.auction_id (RESTRICT)
+            // sites → auctions (CASCADE) → journal_entries.auction_id
+            // (RESTRICT)
             Err(StoreError::SiteHasFinancialHistory)
         }
         Err(e) => Err(e.into()),

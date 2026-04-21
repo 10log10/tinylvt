@@ -369,7 +369,8 @@ pub fn SiteSettingsForm(props: &SiteSettingsFormProps) -> Html {
 
         Callback::from(move |_| {
             if site.deleted_at.is_some() {
-                // Already soft-deleted, show confirmation modal for permanent delete
+                // Already soft-deleted, show confirmation modal for permanent
+                // delete
                 show_delete_modal.set(true);
             } else {
                 // Not deleted yet, show confirmation modal for soft delete

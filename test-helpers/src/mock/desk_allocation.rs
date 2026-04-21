@@ -308,7 +308,8 @@ async fn create_desk_auction_with_bidding(
     //   end_at = auction_start + N * round_duration
     //
     // We want real_now to fall within round (N-1), so:
-    //   auction_start + (N-1) * round_duration < real_now < auction_start + N * round_duration
+    //   auction_start + (N-1) * round_duration < real_now < auction_start + N *
+    // round_duration
     //
     // To have ~10 seconds remaining:
     //   real_now = auction_start + N * round_duration - 10
@@ -350,7 +351,8 @@ async fn create_desk_auction_with_bidding(
     // Desk 4 (Entrance):   Budget, always affordable
     //
     // - Alice: Saved up for window desk (D1=180), fallback quiet (D2=110)
-    // - Bob: Flexible, values all but won't overpay (D1=140, D2=120, D3=70, D4=45)
+    // - Bob: Flexible, values all but won't overpay (D1=140, D2=120, D3=70,
+    //   D4=45)
     // - Charlie: Really wants quiet corner (D2=150), fallback window (D1=130)
     // - Diana: Budget conscious, prefers cheaper desks (D3=65, D4=55)
     // - Eve: Collaboration focused (D3=85, D4=35)

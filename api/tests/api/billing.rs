@@ -378,7 +378,8 @@ async fn test_cache_used_when_far_from_limit() -> anyhow::Result<()> {
         transaction_bytes, 0,
         "Cache should not have been recalculated - transaction_bytes should be 0"
     );
-    // image_bytes should be slightly more than half_limit due to the image we added
+    // image_bytes should be slightly more than half_limit due to the image we
+    // added
     assert!(
         image_bytes > half_limit,
         "image_bytes should have been incremented by image delta"

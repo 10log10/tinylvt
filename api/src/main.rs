@@ -9,7 +9,8 @@ use api::{
 
 /// TinyLVT API Server
 ///
-/// Environment variables can be set directly or loaded from a .env file in the project root.
+/// Environment variables can be set directly or loaded from a .env file in the
+/// project root.
 ///
 /// Required environment variables:
 /// - DATABASE_URL: PostgreSQL connection string

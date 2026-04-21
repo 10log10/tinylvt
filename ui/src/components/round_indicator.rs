@@ -51,7 +51,8 @@ pub fn RoundIndicator(props: &Props) -> Html {
                     let was_concluded = *round_concluded;
                     let is_concluded = now >= round_end_at;
 
-                    // If round just concluded (and we haven't called callback yet)
+                    // If round just concluded (and we haven't called callback
+                    // yet)
                     if is_concluded
                         && !was_concluded
                         && !callback_called.get()
@@ -69,7 +70,8 @@ pub fn RoundIndicator(props: &Props) -> Html {
                 }
             });
 
-            // Cleanup: signal cancellation when effect re-runs or component unmounts
+            // Cleanup: signal cancellation when effect re-runs or component
+            // unmounts
             move || {
                 cancelled.store(true, Ordering::Relaxed);
             }

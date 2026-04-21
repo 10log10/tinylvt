@@ -134,7 +134,8 @@ pub struct Config {
     pub ip: String,
     /// set to 0 to get an os-assigned port
     pub port: u16,
-    /// List of allowed CORS origins. Use "*" to allow any origin (development only)
+    /// List of allowed CORS origins. Use "*" to allow any origin (development
+    /// only)
     pub allowed_origins: Vec<String>,
     /// Email service API key (e.g., Resend API key)
     pub email_api_key: SecretBox<String>,

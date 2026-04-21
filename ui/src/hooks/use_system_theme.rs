@@ -54,8 +54,8 @@ pub fn use_system_theme() {
                 )
                 .unwrap();
 
-            // Return cleanup function
-            // Note: Rust retains ownership of the closure, JS only has a pointer to it
+            // Return cleanup function. Note: Rust retains ownership of the
+            // closure, JS only has a pointer to it
             move || {
                 let _ = media_query.remove_event_listener_with_callback(
                     "change",

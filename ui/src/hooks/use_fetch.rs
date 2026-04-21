@@ -29,8 +29,8 @@ impl<T: Clone> FetchHookReturn<T> {
     /// The render function receives:
     /// - `data`: The fetched data
     /// - `is_loading`: True if a refetch is in progress
-    /// - `error`: Error from a failed refetch (data from previous fetch
-    ///   still shown)
+    /// - `error`: Error from a failed refetch (data from previous fetch still
+    ///   shown)
     ///
     /// # Arguments
     ///

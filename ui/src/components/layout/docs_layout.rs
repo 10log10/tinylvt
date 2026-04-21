@@ -101,7 +101,8 @@ fn MobileDrawer(props: &MobileDrawerProps) -> Html {
         let backdrop_ref = backdrop_ref.clone();
 
         Callback::from(move |e: MouseEvent| {
-            // Only close if clicking directly on backdrop, not on drawer content
+            // Only close if clicking directly on backdrop, not on drawer
+            // content
             if let Some(backdrop_element) =
                 backdrop_ref.cast::<web_sys::Element>()
                 && let Some(target) = e.target()

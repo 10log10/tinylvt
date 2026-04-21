@@ -52,7 +52,8 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
         });
     }
 
-    // Shared login callback that handles the login API call and state management
+    // Shared login callback that handles the login API call and state
+    // management
     let perform_login = {
         let error_message = error_message.clone();
         let is_loading = is_loading.clone();
@@ -191,7 +192,8 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                         return;
                     }
 
-                    // For account creation, create account first then auto-login
+                    // For account creation, create account first then
+                    // auto-login
                     let create_account_request = requests::CreateAccount {
                         email,
                         username: username.clone(),
@@ -212,7 +214,8 @@ pub fn LoginForm(props: &LoginFormProps) -> Html {
                             .await
                         {
                             Ok(_) => {
-                                // Account created successfully, now log them in automatically using shared logic
+                                // Account created successfully, now log them in
+                                // automatically using shared logic
                                 let login_credentials =
                                     requests::LoginCredentials {
                                         username: create_account_request

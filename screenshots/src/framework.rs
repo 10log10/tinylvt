@@ -152,7 +152,8 @@ impl ScreenshotEnvironment {
             "document.documentElement.classList.remove('dark');"
         };
         self.browser.execute(script, vec![]).await?;
-        // Wait for transition-colors animations to complete (typically 150-300ms)
+        // Wait for transition-colors animations to complete (typically
+        // 150-300ms)
         sleep(Duration::from_millis(300)).await;
         Ok(())
     }

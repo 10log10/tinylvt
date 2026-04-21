@@ -3,36 +3,36 @@
 //! ## Design Decisions
 //!
 //! ### Token Management
-//! - **Auto-generated UUIDs**: The database automatically generates UUIDs
-//!   for tokens using `DEFAULT gen_random_uuid()`. This ensures consistent
-//!   UUID generation and reduces network overhead.
-//! - **Single-use tokens**: All tokens (email verification, password
-//!   reset) are marked as used after consumption and cannot be reused.
-//! - **Time-based expiration**: Tokens have database-enforced expiration
-//!   times. Email verification tokens expire after 24 hours, password
-//!   reset tokens after 1 hour.
+//! - **Auto-generated UUIDs**: The database automatically generates UUIDs for
+//!   tokens using `DEFAULT gen_random_uuid()`. This ensures consistent UUID
+//!   generation and reduces network overhead.
+//! - **Single-use tokens**: All tokens (email verification, password reset) are
+//!   marked as used after consumption and cannot be reused.
+//! - **Time-based expiration**: Tokens have database-enforced expiration times.
+//!   Email verification tokens expire after 24 hours, password reset tokens
+//!   after 1 hour.
 //!
 //! ### Time Source Dependency
 //! - **Mocked time for testing**: Functions that need current time
 //!   (`consume_token`, `cleanup_expired_tokens`) accept a `TimeSource`
-//!   parameter instead of creating their own. This allows time to be
-//!   mocked during tests.
-//! - **Consistent time handling**: All time-sensitive operations use the
-//!   same `TimeSource` instance passed from the application routes.
+//!   parameter instead of creating their own. This allows time to be mocked
+//!   during tests.
+//! - **Consistent time handling**: All time-sensitive operations use the same
+//!   `TimeSource` instance passed from the application routes.
 //!
 //! ### Database Triggers
-//! - **Auto-updated timestamps**: The database has triggers that
-//!   automatically update `updated_at` fields, so application code doesn't
-//!   need to manually set these values.
-//! - **Consistent audit trail**: All modifications are tracked at the
-//!   database level for reliability.
+//! - **Auto-updated timestamps**: The database has triggers that automatically
+//!   update `updated_at` fields, so application code doesn't need to manually
+//!   set these values.
+//! - **Consistent audit trail**: All modifications are tracked at the database
+//!   level for reliability.
 //!
 //! ### Type Safety
-//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it
-//!   can be used directly with sqlx queries without accessing the inner
-//!   UUID value (`.0`).
-//! - **UserId binding**: Similar pattern for all ID types to ensure type
-//!   safety at the query level.
+//! - **TokenId with sqlx::Type**: TokenId implements sqlx::Type, so it can be
+//!   used directly with sqlx queries without accessing the inner UUID value
+//!   (`.0`).
+//! - **UserId binding**: Similar pattern for all ID types to ensure type safety
+//!   at the query level.
 
 use derive_more::Display;
 use jiff::Span;

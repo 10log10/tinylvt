@@ -158,7 +158,8 @@ async fn process_next_auction(
             Ok(true)
         }
         Err(e) => {
-            // Record the failure in a separate transaction before releasing lock
+            // Record the failure in a separate transaction before releasing
+            // lock
             let _ = handle_auction_processing_failure(
                 auction_id,
                 pool,
@@ -396,8 +397,8 @@ async fn update_round_space_results_within_tx(
 
         let (new_value, winning_user_id) = if bid_count > 0 {
             // With any bids, increase the value if there was a previous value
-            // In mock-time mode, use deterministic ordering for reproducible tests
-            // Need to use username since ids are nondeterministic
+            // In mock-time mode, use deterministic ordering for reproducible
+            // tests. Need to use username since ids are nondeterministic.
             #[cfg(feature = "mock-time")]
             let query = "SELECT b.user_id FROM bids b
                 JOIN users u ON b.user_id = u.id
@@ -424,7 +425,8 @@ async fn update_round_space_results_within_tx(
 
             let new_value = match prev_result {
                 Some(prev) => prev.value + auction_params.bid_increment,
-                None => rust_decimal::Decimal::ZERO, // Start at zero in first round
+                None => rust_decimal::Decimal::ZERO, /* Start at zero in
+                                                      * first round */
             };
 
             (new_value, winner)
@@ -588,8 +590,8 @@ pub async fn add_subsequent_rounds_for_auction(
 /// 1. New bids placed in the just-concluded round
 /// 2. Standing high bids from the round before that
 ///
-/// This accounts for the natural alternating pattern of bidding where bidders don't
-/// need to rebid on spaces they're already winning. For example:
+/// This accounts for the natural alternating pattern of bidding where bidders
+/// don't need to rebid on spaces they're already winning. For example:
 ///
 /// Round X-1:
 /// - Bidder A bids on a space
@@ -608,8 +610,9 @@ pub async fn add_subsequent_rounds_for_auction(
 /// When calculating eligibility for round X+1, we need to count:
 /// - New bids placed in round X
 /// - Standing high bids from round X-1
-/// This ensures bidders maintain eligibility even in rounds where they don't need
-/// to place new bids because they're already winning from the previous round.
+/// This ensures bidders maintain eligibility even in rounds where they don't
+/// need to place new bids because they're already winning from the previous
+/// round.
 ///
 /// The eligibility calculation takes the total eligibility points from these
 /// spaces and divides by the eligibility threshold. For example, if the
@@ -619,7 +622,8 @@ pub async fn add_subsequent_rounds_for_auction(
 /// After the first round, eligibility cannot increase. For example, if a user
 /// has 20 points of eligibility after round 1:
 /// - If they bid on 15 points of spaces in round 2, eligibility stays at 20
-/// - If they bid on 5 points of spaces in round 2, eligibility drops to 10 (5 / 0.5)
+/// - If they bid on 5 points of spaces in round 2, eligibility drops to 10 (5 /
+///   0.5)
 #[tracing::instrument(skip(tx))]
 pub async fn update_user_eligibilities(
     auction: &store::Auction,
@@ -636,7 +640,8 @@ pub async fn update_user_eligibilities(
     .await
     .context("failed to get available spaces for site")?;
 
-    // Get all users who either bid in the previous round or had a winning bid in the round before that
+    // Get all users who either bid in the previous round or had a winning bid
+    // in the round before that
     let bidding_users = sqlx::query_scalar::<_, payloads::UserId>(
         "SELECT DISTINCT user_id 
          FROM (
@@ -657,7 +662,8 @@ pub async fn update_user_eligibilities(
     .context("failed to get users who bid or had standing high bids")?;
 
     for user_id in bidding_users {
-        // Get all spaces this user bid on in the previous round OR was winning from two rounds ago
+        // Get all spaces this user bid on in the previous round OR was winning
+        // from two rounds ago
         let active_spaces = sqlx::query_scalar::<_, payloads::SpaceId>(
             "SELECT space_id FROM (
                 SELECT space_id FROM bids 
@@ -691,7 +697,8 @@ pub async fn update_user_eligibilities(
         let mut new_eligibility =
             total_points / previous_round.eligibility_threshold;
 
-        // If not first round (round_num > 0), get previous eligibility and ensure no increase
+        // If not first round (round_num > 0), get previous eligibility and
+        // ensure no increase
         if previous_round.round_num > 0 {
             let prev_eligibility = sqlx::query_scalar::<_, f64>(
                 "SELECT eligibility FROM user_eligibilities 
@@ -862,7 +869,8 @@ async fn process_next_active_round(
                 e
             );
 
-            // Record the failure in a separate transaction before releasing lock
+            // Record the failure in a separate transaction before releasing
+            // lock
             let _ = handle_proxy_bidding_failure(round_id, pool, time_source)
                 .await
                 .map_err(|err| {
@@ -1006,7 +1014,8 @@ async fn process_proxy_bidding_for_round(
     tracing::info!("Found {} spaces", spaces.len());
 
     // Get the most recent completed round results to determine current prices
-    // We look at the round with the highest round_num that is less than the current round
+    // We look at the round with the highest round_num that is less than the
+    // current round
     let prev_round_space_results =
         sqlx::query_as::<_, store::RoundSpaceResult>(
             "SELECT *
