@@ -61,14 +61,14 @@ fn rent_splitting() -> Scenario {
                 (cam, "Cam".into()),
             ],
             values: HashMap::from([
-                ((alex, large), Decimal::new(400, 0)),
-                ((alex, medium), Decimal::new(160, 0)),
+                ((alex, large), Decimal::new(150, 0)),
+                ((alex, medium), Decimal::new(100, 0)),
                 ((alex, small), Decimal::new(0, 0)),
-                ((ben, large), Decimal::new(300, 0)),
-                ((ben, medium), Decimal::new(120, 0)),
+                ((ben, large), Decimal::new(110, 0)),
+                ((ben, medium), Decimal::new(80, 0)),
                 ((ben, small), Decimal::new(0, 0)),
-                ((cam, large), Decimal::new(100, 0)),
-                ((cam, medium), Decimal::new(60, 0)),
+                ((cam, large), Decimal::new(60, 0)),
+                ((cam, medium), Decimal::new(30, 0)),
                 ((cam, small), Decimal::new(0, 0)),
             ]),
             bid_increment: Decimal::new(10, 0),
@@ -361,7 +361,9 @@ pub fn AuctionScenarioPlayer(props: &AuctionScenarioPlayerProps) -> Html {
             </div>
             <AuctionChartPlayer
                 spaces={sim_input.spaces.clone()}
+                bidders={sim_input.bidders.clone()}
                 rounds={rounds.clone()}
+                bid_increment={sim_input.bid_increment}
                 currency={props.currency.clone()}
                 item_term={props.item_term}
                 autoplay={true}

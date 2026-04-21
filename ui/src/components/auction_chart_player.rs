@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use payloads::auction_sim::SimRound;
-use payloads::{CurrencySettings, SpaceId};
+use payloads::{CurrencySettings, SpaceId, responses};
 use rust_decimal::Decimal;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
@@ -11,13 +11,20 @@ use yew::platform::spawn_local;
 use yew::prelude::*;
 
 use crate::components::AuctionChart;
+use crate::components::subway_diagram::SubwayDiagram;
 
 const TOTAL_ANIMATION_MS: u64 = 10_000;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub spaces: Vec<(SpaceId, String)>,
+    /// Global bidder ordering, used for consistent lane
+    /// positioning in the subway diagram.
+    pub bidders: Vec<responses::UserIdentity>,
     pub rounds: Vec<SimRound>,
+    /// Bid increment, forwarded to the subway diagram for
+    /// tooltip price computation.
+    pub bid_increment: Decimal,
     pub currency: CurrencySettings,
     pub item_term: &'static str,
     #[prop_or(false)]
@@ -308,6 +315,15 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
                 x_max={x_max}
                 currency={props.currency.clone()}
                 item_term={props.item_term}
+            />
+
+            <SubwayDiagram
+                spaces={props.spaces.clone()}
+                bidders={props.bidders.clone()}
+                rounds={props.rounds.clone()}
+                frame={frame}
+                bid_increment={props.bid_increment}
+                currency={props.currency.clone()}
             />
         </div>
     }

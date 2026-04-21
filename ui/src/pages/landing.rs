@@ -112,8 +112,10 @@ pub fn LandingPage() -> Html {
                     </div>
                 </div>
 
-                // Right column: auction demo
-                <div class="lg:w-7/12">
+                // Right column: auction demo. min-w-0 prevents the nested
+                // subway SVG's min-width from pushing this flex cell wider than
+                // w-7/12 allows.
+                <div class="lg:w-7/12 min-w-0">
                     <AuctionChartDemo />
                 </div>
             </div>

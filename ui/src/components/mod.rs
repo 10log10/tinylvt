@@ -45,6 +45,7 @@ pub mod site_page_wrapper;
 pub mod site_tab_header;
 pub mod space_list_for_bidding;
 pub mod storage_usage_display;
+pub mod subway_diagram;
 pub mod text_input;
 pub mod timestamp_display;
 pub mod transaction_list;

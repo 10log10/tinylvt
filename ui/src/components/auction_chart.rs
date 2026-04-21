@@ -30,10 +30,13 @@ pub struct Props {
 //   sm+: auto 1fr auto auto auto
 //   <sm: 1fr auto auto auto (no bar column; bar on its own row)
 
+// Price column uses minmax(4rem, auto): stays wide enough for typical values so
+// the bar column doesn't reflow as digit counts grow, but can still expand for
+// unusually large prices.
 const GRID_CLASSES: &str = "\
     grid gap-x-3 gap-y-1 items-center \
-    grid-cols-[1fr_auto_auto_6rem] \
-    sm:grid-cols-[auto_1fr_auto_auto_6rem]";
+    grid-cols-[1fr_minmax(4rem,auto)_auto_6rem] \
+    sm:grid-cols-[auto_1fr_minmax(4rem,auto)_auto_6rem]";
 
 const HEADING_CLASSES: &str = "\
     text-xs font-medium text-neutral-500 \
@@ -53,7 +56,7 @@ pub fn AuctionChart(props: &Props) -> Html {
             </div>
             // Bar heading (hidden on mobile)
             <div class="hidden sm:block" />
-            <div class={classes!(HEADING_CLASSES, "text-right")}>
+            <div class={classes!(HEADING_CLASSES, "-ml-2", "text-right")}>
                 {"Price"}
             </div>
             <div class={HEADING_CLASSES}>
@@ -106,7 +109,7 @@ pub fn AuctionChart(props: &Props) -> Html {
                         </div>
 
                         // Price
-                        <div class="text-sm \
+                        <div class="-ml-2 text-sm \
                             text-neutral-600 dark:text-neutral-400 \
                             text-right tabular-nums">
                             {if let Some(r) = result {
