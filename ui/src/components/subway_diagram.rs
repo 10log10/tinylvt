@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use payloads::auction_sim::SimRound;
 use payloads::{CurrencySettings, SpaceId, UserId, responses};
 use rust_decimal::Decimal;
+use wasm_bindgen::JsCast;
+use web_sys::{HtmlInputElement, WheelEvent};
 use yew::prelude::*;
 
 use crate::components::user_identity_display::{
@@ -30,12 +32,14 @@ pub struct Props {
     pub currency: CurrencySettings,
 }
 
-// Layout constants (SVG user units).
+// Layout constants (SVG user units). COL_W is not a constant — it's driven by
+// the user-controllable horizontal-scale slider so that the time axis can
+// stretch or compress while the vertical geometry (band heights, text, dots)
+// stays the same.
 const LEFT_PAD: f64 = 80.0;
 const RIGHT_PAD: f64 = 0.0;
 const TOP_PAD: f64 = 28.0;
 const BOTTOM_PAD: f64 = 6.0;
-const COL_W: f64 = 36.0;
 const SEGMENT_STROKE_WIDTH: f64 = 10.0;
 const LANE_SPACING: f64 = SEGMENT_STROKE_WIDTH;
 const BAND_PAD: f64 = 16.0;
@@ -57,8 +61,48 @@ const BIDDER_PALETTE: &[&str] = &[
     "#BBBBBB", // grey
 ];
 
+// Bounds for the user-controllable horizontal scale slider, in viewBox user
+// units per round. Larger values stretch the time axis; vertical dimensions
+// are unaffected, so text/dots stay the same rendered size.
+const MIN_COL_W: f64 = 12.0;
+const MAX_COL_W: f64 = 72.0;
+const DEFAULT_COL_W: f64 = 36.0;
+
 #[function_component]
 pub fn SubwayDiagram(props: &Props) -> Html {
+    // User-controlled horizontal scale: viewBox units per round.
+    let col_w = use_state(|| DEFAULT_COL_W);
+
+    // Ref on the scroll container so we can preserve the user's visual center
+    // when col_w changes. The onInput handler snapshots the horizontal center
+    // as a fraction of the SVG's rendered width into pending_center_fraction; a
+    // use_effect_with triggered by col_w then reads the new rendered width and
+    // rewrites scrollLeft to put that same fraction back at the viewport
+    // center.
+    let scroll_container_ref = use_node_ref();
+    let pending_center_fraction = use_mut_ref(|| None::<f64>);
+
+    {
+        let scroll_container_ref = scroll_container_ref.clone();
+        let pending = pending_center_fraction.clone();
+        use_effect_with(*col_w, move |_| {
+            let fraction = pending.borrow_mut().take();
+            if let Some(fraction) = fraction
+                && let Some(container) =
+                    scroll_container_ref.cast::<web_sys::HtmlElement>()
+                && let Some(svg_el) = container.first_element_child()
+            {
+                let svg_width = svg_el.get_bounding_client_rect().width();
+                let viewport_w = container.client_width() as f64;
+                let target_center = fraction * svg_width;
+                container.set_scroll_left(
+                    (target_center - viewport_w / 2.0).max(0.0) as i32,
+                );
+            }
+            || ()
+        });
+    }
+
     // Per-space lane order: bidders who ever bid on that space, filtered from
     // props.bidders to preserve global ordering.
     let lane_order: HashMap<SpaceId, Vec<UserId>> =
@@ -89,7 +133,8 @@ pub fn SubwayDiagram(props: &Props) -> Html {
 
     let num_rounds = props.rounds.len();
     let svg_height = TOP_PAD + band_heights.iter().sum::<f64>() + BOTTOM_PAD;
-    let svg_width = LEFT_PAD + (num_rounds as f64).max(1.0) * COL_W + RIGHT_PAD;
+    let svg_width =
+        LEFT_PAD + (num_rounds as f64).max(1.0) * *col_w + RIGHT_PAD;
 
     let viewbox = format!("0 0 {} {}", svg_width, svg_height);
 
@@ -183,6 +228,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         &compute_segments(&props.rounds, last_frame),
         &lane_y_map,
         &bidder_info,
+        *col_w,
     );
     let dots = render_dots(
         &presence,
@@ -190,12 +236,19 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         &bidder_info,
         &bidder_names,
         &props.currency,
+        *col_w,
     );
 
-    // Round axis labels (top) + vertical gridlines.
+    // Round axis labels (top) + vertical gridlines. Gridlines always draw per
+    // round, but labels skip rounds when col_w is too small to fit the digit
+    // width without overlap. Stride depends on the widest label's digit count
+    // and the current col_w.
+    let max_round_num =
+        props.rounds.iter().map(|r| r.round_num).max().unwrap_or(0);
+    let label_stride = label_stride_for(max_round_num, *col_w);
     let axis = (0..num_rounds)
         .map(|r| {
-            let x = round_x(r);
+            let x = round_x(r, *col_w);
             let round_num = props.rounds[r].round_num;
             let grid_class = if r <= props.frame {
                 "stroke-neutral-300 dark:stroke-neutral-700"
@@ -209,6 +262,21 @@ pub fn SubwayDiagram(props: &Props) -> Html {
                 "fill-neutral-400 dark:fill-neutral-600 text-xs \
                 tabular-nums"
             };
+            let show_label = round_num % label_stride == 0;
+            let label = if show_label {
+                html! {
+                    <text
+                        x={x.to_string()}
+                        y={(TOP_PAD - 8.0).to_string()}
+                        text-anchor="middle"
+                        class={label_class}
+                    >
+                        {round_num.to_string()}
+                    </text>
+                }
+            } else {
+                Html::default()
+            };
             html! {
                 <>
                     <line
@@ -219,14 +287,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
                         class={grid_class}
                         stroke-width="1"
                     />
-                    <text
-                        x={x.to_string()}
-                        y={(TOP_PAD - 8.0).to_string()}
-                        text-anchor="middle"
-                        class={label_class}
-                    >
-                        {round_num.to_string()}
-                    </text>
+                    {label}
                 </>
             }
         })
@@ -234,33 +295,75 @@ pub fn SubwayDiagram(props: &Props) -> Html {
 
     let legend = render_legend(&props.bidders, &bidder_info);
 
-    // Rendered-size bounds on the diagram, in rem so they scale with the user's
-    // font-size preference. Min: each round stays at least
-    // MIN_RENDERED_COL_W_REM wide so text and dots are legible; if the
-    // container is narrower, the wrapper scrolls horizontally. Max: prevents
-    // short auctions from stretching huge in a wide container; when capped,
-    // mx-auto centers the SVG within its cell. pad_rem converts the
-    // viewBox-unit paddings (LEFT_PAD + RIGHT_PAD) into rem, assuming the
-    // default 1rem = 16px mapping.
-    const MIN_RENDERED_COL_W_REM: f64 = 2.0;
-    const MAX_RENDERED_COL_W_REM: f64 = 4.0;
-    let pad_rem = (LEFT_PAD + RIGHT_PAD) / 16.0;
-    let svg_min_rem =
-        pad_rem + num_rounds.max(1) as f64 * MIN_RENDERED_COL_W_REM;
-    let svg_max_rem =
-        pad_rem + num_rounds.max(1) as f64 * MAX_RENDERED_COL_W_REM;
-    let svg_style = format!(
-        "min-width: {:.2}rem; max-width: {:.2}rem",
-        svg_min_rem, svg_max_rem,
-    );
+    // SVG rendered height is fixed in rem, and width flows from the viewBox
+    // aspect ratio. Since col_w grows the viewBox horizontally without touching
+    // vertical geometry, the rendered height stays constant while the rendered
+    // width expands/compresses with the slider. The svg_height viewBox units
+    // map to pixels assuming the default 1rem = 16px, so dividing by 16 gives
+    // us rem.
+    let svg_height_rem = svg_height / 16.0;
+    let svg_style = format!("height: {:.2}rem", svg_height_rem);
+
+    let on_scale_change = {
+        let col_w = col_w.clone();
+        let scroll_container_ref = scroll_container_ref.clone();
+        let pending = pending_center_fraction.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(input) = e
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+                && let Ok(v) = input.value().parse::<f64>()
+            {
+                // Snapshot where the viewport is currently centered, as a
+                // fraction of the SVG's rendered width. The effect keyed on
+                // col_w will restore that center after the re-render.
+                if let Some(container) =
+                    scroll_container_ref.cast::<web_sys::HtmlElement>()
+                    && let Some(svg_el) = container.first_element_child()
+                {
+                    let svg_width = svg_el.get_bounding_client_rect().width();
+                    if svg_width > 0.0 {
+                        let center_px = container.scroll_left() as f64
+                            + container.client_width() as f64 / 2.0;
+                        *pending.borrow_mut() = Some(center_px / svg_width);
+                    }
+                }
+                col_w.set(v);
+            }
+        })
+    };
+
+    // Shift + wheel = horizontal scroll, a convention from 2D layout tools.
+    // Helps mouse users on systems without a horizontal scroll mechanism.
+    // Trackpads already emit native deltaX on horizontal gestures, so we only
+    // translate when the gesture is predominantly vertical — otherwise we'd
+    // double up on the browser's native horizontal handling.
+    let on_wheel = {
+        let scroll_container_ref = scroll_container_ref.clone();
+        Callback::from(move |e: WheelEvent| {
+            if e.shift_key()
+                && e.delta_y().abs() > e.delta_x().abs()
+                && let Some(container) =
+                    scroll_container_ref.cast::<web_sys::HtmlElement>()
+            {
+                e.prevent_default();
+                let new_left = container.scroll_left() + e.delta_y() as i32;
+                container.set_scroll_left(new_left);
+            }
+        })
+    };
 
     html! {
         <div class="space-y-2">
-            <div class="overflow-x-auto">
+            <div
+                class="overflow-x-auto"
+                ref={scroll_container_ref}
+                onwheel={on_wheel}
+            >
                 <svg
                     viewBox={viewbox}
-                    class="w-full h-auto mx-auto"
-                    preserveAspectRatio="xMinYMin meet"
+                    class="h-auto mx-auto"
+                    preserveAspectRatio="xMinYMid meet"
                     style={svg_style}
                 >
                     {bands}
@@ -269,13 +372,55 @@ pub fn SubwayDiagram(props: &Props) -> Html {
                     {dots}
                 </svg>
             </div>
-            {legend}
+            <div class="flex flex-wrap items-center justify-between \
+                gap-x-4 gap-y-2">
+                {legend}
+                <input
+                    type="range"
+                    min={MIN_COL_W.to_string()}
+                    max={MAX_COL_W.to_string()}
+                    step="1"
+                    value={col_w.to_string()}
+                    oninput={on_scale_change}
+                    class="h-1.5 w-32 py-2 accent-neutral-500 \
+                        cursor-pointer"
+                    title="Horizontal scale"
+                />
+            </div>
         </div>
     }
 }
 
-fn round_x(round_idx: usize) -> f64 {
-    LEFT_PAD + (round_idx as f64 + 0.5) * COL_W
+fn round_x(round_idx: usize, col_w: f64) -> f64 {
+    LEFT_PAD + (round_idx as f64 + 0.5) * col_w
+}
+
+/// How many rounds to skip between axis labels, so labels don't overlap when
+/// col_w is too small for the widest digit count. Gridlines still render at
+/// every round; only the text labels are affected.
+fn label_stride_for(max_round_num: i32, col_w: f64) -> i32 {
+    // Calculate the number of digits in the round number, which is always
+    // non-negative. Returns 1 for non-positive numbers.
+    let digits = max_round_num.checked_ilog10().unwrap_or(0) + 1;
+    match digits {
+        0 | 1 => 1,
+        2 => {
+            if col_w >= 20.0 {
+                1
+            } else {
+                2
+            }
+        }
+        _ => {
+            if col_w >= 28.0 {
+                1
+            } else if col_w >= 14.0 {
+                2
+            } else {
+                5
+            }
+        }
+    }
 }
 
 /// Renders each segment as an SVG `<line>`, ordered so that steeper switches
@@ -286,6 +431,7 @@ fn render_segments(
     segments: &[Segment],
     lane_y_map: &HashMap<(SpaceId, UserId), f64>,
     bidder_info: &HashMap<UserId, (usize, String)>,
+    col_w: f64,
 ) -> Html {
     let mut entries: Vec<(u64, usize, Html)> = segments
         .iter()
@@ -299,9 +445,9 @@ fn render_segments(
             let dy_key = ((y1 - y0).abs() * 1000.0) as u64;
             let node = html! {
                 <line
-                    x1={round_x(seg.r0).to_string()}
+                    x1={round_x(seg.r0, col_w).to_string()}
                     y1={y0.to_string()}
-                    x2={round_x(seg.r1).to_string()}
+                    x2={round_x(seg.r1, col_w).to_string()}
                     y2={y1.to_string()}
                     stroke-width={SEGMENT_STROKE_WIDTH.to_string()}
                     class="stroke-[var(--subway-light)] \
@@ -361,6 +507,7 @@ fn render_dots(
     bidder_info: &HashMap<UserId, (usize, String)>,
     bidder_names: &HashMap<UserId, String>,
     currency: &CurrencySettings,
+    col_w: f64,
 ) -> Html {
     presence
         .iter()
@@ -372,7 +519,7 @@ fn render_dots(
                 entries
                     .iter()
                     .map(|entry| {
-                        let cx = round_x(entry.round);
+                        let cx = round_x(entry.round, col_w);
                         let price_str = currency.format_amount(entry.price);
                         let tooltip = if entry.is_high {
                             format!(
