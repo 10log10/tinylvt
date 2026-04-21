@@ -36,10 +36,11 @@ const RIGHT_PAD: f64 = 0.0;
 const TOP_PAD: f64 = 28.0;
 const BOTTOM_PAD: f64 = 6.0;
 const COL_W: f64 = 36.0;
-const LANE_SPACING: f64 = 12.0;
-const BAND_PAD: f64 = 10.0;
-const DOT_RADIUS: f64 = 2.5;
-const HIGH_DOT_RADIUS: f64 = 4.0;
+const SEGMENT_STROKE_WIDTH: f64 = 10.0;
+const LANE_SPACING: f64 = SEGMENT_STROKE_WIDTH;
+const BAND_PAD: f64 = 16.0;
+const DOT_STROKE: f64 = 1.5;
+const DOT_RADIUS: f64 = (SEGMENT_STROKE_WIDTH - DOT_STROKE) / 2.0; // new bids
 
 // Per-bidder colors use Paul Tol's "Bright" qualitative palette, a
 // color-blind-safe scheme with good hue variety. Bidders cycle through the
@@ -168,7 +169,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         .bidders
         .iter()
         .enumerate()
-        .map(|(i, b)| (b.user_id, (i, bidder_stroke_style(i))))
+        .map(|(i, b)| (b.user_id, (i, bidder_color_style(i))))
         .collect();
 
     // Bidder lookup for tooltip labels.
@@ -302,7 +303,7 @@ fn render_segments(
                     y1={y0.to_string()}
                     x2={round_x(seg.r1).to_string()}
                     y2={y1.to_string()}
-                    stroke-width="6"
+                    stroke-width={SEGMENT_STROKE_WIDTH.to_string()}
                     class="stroke-[var(--subway-light)] \
                         dark:stroke-[var(--subway-dark)]"
                     style={style}
@@ -348,10 +349,12 @@ fn render_legend(
     }
 }
 
-/// Renders one dot per (space, round, bidder) presence entry. New-bid dots are
-/// filled white with bidder's color border; high-bid dots are white-on-black
-/// (dark mode inverts) to stand out. No sort needed: positions are unique to
-/// (space, bidder, round).
+/// Renders one dot per (space, round, bidder) presence entry. High-bid dots are
+/// solid filled circles in the bidder's color — visually continuous with the
+/// segment, since a standing high bid is passive. New-bid dots are hollow
+/// (white fill + bidder-colored border) to emphasize the price-changing event.
+/// No sort needed: positions are unique to (space, bidder, round) and same-
+/// round dots in adjacent lanes touch at their edges without overlapping.
 fn render_dots(
     presence: &HashMap<(SpaceId, UserId), Vec<PresenceEntry>>,
     lane_y_map: &HashMap<(SpaceId, UserId), f64>,
@@ -387,11 +390,10 @@ fn render_dots(
                                 <circle
                                     cx={cx.to_string()}
                                     cy={cy.to_string()}
-                                    r={HIGH_DOT_RADIUS.to_string()}
-                                    stroke-width="1.5"
-                                    class="fill-white stroke-black \
-                                        dark:fill-black \
-                                        dark:stroke-white"
+                                    r={(SEGMENT_STROKE_WIDTH / 2.0).to_string()}
+                                    class="fill-[var(--subway-light)] \
+                                        dark:fill-[var(--subway-dark)]"
+                                    style={style.clone()}
                                 >
                                     <title>{tooltip}</title>
                                 </circle>
@@ -402,7 +404,7 @@ fn render_dots(
                                     cx={cx.to_string()}
                                     cy={cy.to_string()}
                                     r={DOT_RADIUS.to_string()}
-                                    stroke-width="1"
+                                    stroke-width={DOT_STROKE.to_string()}
                                     class="fill-white dark:fill-black \
                                         stroke-[var(--subway-light)] \
                                         dark:stroke-[var(--subway-dark)]"
@@ -426,7 +428,7 @@ fn render_dots(
 /// whichever applies to the active color mode via Tailwind's `dark:` variant.
 /// Bidders cycle through BIDDER_PALETTE; the same color is used in both modes
 /// since Tol's palette reads well on both white and dark backgrounds.
-fn bidder_stroke_style(idx: usize) -> String {
+fn bidder_color_style(idx: usize) -> String {
     let color = BIDDER_PALETTE[idx % BIDDER_PALETTE.len()];
     format!("--subway-light: {}; --subway-dark: {};", color, color)
 }
