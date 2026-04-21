@@ -41,13 +41,20 @@ const BAND_PAD: f64 = 10.0;
 const DOT_RADIUS: f64 = 2.5;
 const HIGH_DOT_RADIUS: f64 = 4.0;
 
-// Bidder distinguishability is driven by luminance only (so the current palette
-// is effectively greyscale). These bounds define the usable lightness range per
-// color scheme; within them, bidders are assigned evenly by index.
-const LIGHT_MODE_L_MIN: f64 = 25.0;
-const LIGHT_MODE_L_MAX: f64 = 65.0;
-const DARK_MODE_L_MIN: f64 = 45.0;
-const DARK_MODE_L_MAX: f64 = 85.0;
+// Per-bidder colors use Paul Tol's "Bright" qualitative palette, a
+// color-blind-safe scheme with good hue variety. Bidders cycle through the
+// palette by index. Not greyscale-convertible, but conventional greyscale-safe
+// palettes with this much hue variety are rare.
+// https://sronpersonalpages.nl/~pault/#sec:qualitative
+const BIDDER_PALETTE: &[&str] = &[
+    "#4477AA", // blue
+    "#EE6677", // red
+    "#228833", // green
+    "#CCBB44", // yellow
+    "#66CCEE", // cyan
+    "#AA3377", // purple
+    "#BBBBBB", // grey
+];
 
 #[function_component]
 pub fn SubwayDiagram(props: &Props) -> Html {
@@ -161,9 +168,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         .bidders
         .iter()
         .enumerate()
-        .map(|(i, b)| {
-            (b.user_id, (i, bidder_stroke_style(i, props.bidders.len())))
-        })
+        .map(|(i, b)| (b.user_id, (i, bidder_stroke_style(i))))
         .collect();
 
     // Bidder lookup for tooltip labels.
@@ -417,25 +422,13 @@ fn render_dots(
 }
 
 /// Per-bidder inline-style string setting --subway-light and --subway-dark CSS
-/// custom properties to HSL values. The corresponding stroke classes on each
-/// element read whichever applies to the active color mode via Tailwind's
-/// `dark:` variant. Bidders are spread evenly across each mode's lightness
-/// range; hue and saturation are both zero so the current ramp is greyscale —
-/// when we later want color, only the hue/saturation constants need to change.
-fn bidder_stroke_style(idx: usize, n_bidders: usize) -> String {
-    let t = if n_bidders <= 1 {
-        0.0
-    } else {
-        idx as f64 / (n_bidders - 1) as f64
-    };
-    let l_light = LIGHT_MODE_L_MIN + t * (LIGHT_MODE_L_MAX - LIGHT_MODE_L_MIN);
-    // Dark mode ramps in the opposite direction so the first bidder stays the
-    // highest-contrast shade in both modes.
-    let l_dark = DARK_MODE_L_MAX - t * (DARK_MODE_L_MAX - DARK_MODE_L_MIN);
-    format!(
-        "--subway-light: hsl(0 0% {:.1}%); --subway-dark: hsl(0 0% {:.1}%);",
-        l_light, l_dark
-    )
+/// custom properties. The corresponding stroke classes on each element read
+/// whichever applies to the active color mode via Tailwind's `dark:` variant.
+/// Bidders cycle through BIDDER_PALETTE; the same color is used in both modes
+/// since Tol's palette reads well on both white and dark backgrounds.
+fn bidder_stroke_style(idx: usize) -> String {
+    let color = BIDDER_PALETTE[idx % BIDDER_PALETTE.len()];
+    format!("--subway-light: {}; --subway-dark: {};", color, color)
 }
 
 /// Vertical center of a lane within its band. The first lane sits BAND_PAD
