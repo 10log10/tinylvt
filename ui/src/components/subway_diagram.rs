@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet};
 use payloads::auction_sim::SimRound;
 use payloads::{CurrencySettings, SpaceId, UserId, responses};
 use rust_decimal::Decimal;
-use wasm_bindgen::JsCast;
-use web_sys::{HtmlInputElement, WheelEvent};
 use yew::prelude::*;
 
+use crate::components::timeline_layout::{
+    BOTTOM_PAD, LEFT_PAD, RIGHT_PAD, TOP_PAD, label_stride_for, round_x,
+};
 use crate::components::user_identity_display::{
     format_user_name_unambiguous, render_user_name,
 };
@@ -21,30 +22,25 @@ pub struct Props {
     /// All simulation rounds. Lane allocation uses the full series so lanes
     /// don't reflow as playback advances.
     pub rounds: Vec<SimRound>,
-    /// Which frame to display, using AuctionChartPlayer's frame semantics.
-    /// Controls the horizontal extent of rendered activity, not the column
-    /// count.
+    /// Which frame to display. Controls the horizontal extent of rendered
+    /// activity, not the column count.
     pub frame: usize,
     /// Bid increment used by the simulation. Needed to compute the price a new
     /// bid was placed at (prior round's price plus the increment).
     pub bid_increment: Decimal,
     /// Currency used to format prices in tooltips.
     pub currency: CurrencySettings,
+    /// ViewBox units per round. Controlled by the parent container so that
+    /// this diagram and the price chart share a common time axis.
+    pub col_w: f64,
 }
 
-// Layout constants (SVG user units). COL_W is not a constant — it's driven by
-// the user-controllable horizontal-scale slider so that the time axis can
-// stretch or compress while the vertical geometry (band heights, text, dots)
-// stays the same.
-const LEFT_PAD: f64 = 80.0;
-const RIGHT_PAD: f64 = 0.0;
-const TOP_PAD: f64 = 28.0;
-const BOTTOM_PAD: f64 = 6.0;
+// Layout constants (SVG user units) specific to the subway diagram.
 const SEGMENT_STROKE_WIDTH: f64 = 10.0;
 const LANE_SPACING: f64 = SEGMENT_STROKE_WIDTH;
 const BAND_PAD: f64 = 16.0;
 const DOT_STROKE: f64 = 1.5;
-const DOT_RADIUS: f64 = (SEGMENT_STROKE_WIDTH - DOT_STROKE) / 2.0; // new bids
+const DOT_RADIUS: f64 = (SEGMENT_STROKE_WIDTH - DOT_STROKE) / 2.0;
 
 // Per-bidder colors use Paul Tol's "Bright" qualitative palette, a
 // color-blind-safe scheme with good hue variety. Bidders cycle through the
@@ -61,47 +57,9 @@ const BIDDER_PALETTE: &[&str] = &[
     "#BBBBBB", // grey
 ];
 
-// Bounds for the user-controllable horizontal scale slider, in viewBox user
-// units per round. Larger values stretch the time axis; vertical dimensions
-// are unaffected, so text/dots stay the same rendered size.
-const MIN_COL_W: f64 = 12.0;
-const MAX_COL_W: f64 = 72.0;
-const DEFAULT_COL_W: f64 = 36.0;
-
 #[function_component]
 pub fn SubwayDiagram(props: &Props) -> Html {
-    // User-controlled horizontal scale: viewBox units per round.
-    let col_w = use_state(|| DEFAULT_COL_W);
-
-    // Ref on the scroll container so we can preserve the user's visual center
-    // when col_w changes. The onInput handler snapshots the horizontal center
-    // as a fraction of the SVG's rendered width into pending_center_fraction; a
-    // use_effect_with triggered by col_w then reads the new rendered width and
-    // rewrites scrollLeft to put that same fraction back at the viewport
-    // center.
-    let scroll_container_ref = use_node_ref();
-    let pending_center_fraction = use_mut_ref(|| None::<f64>);
-
-    {
-        let scroll_container_ref = scroll_container_ref.clone();
-        let pending = pending_center_fraction.clone();
-        use_effect_with(*col_w, move |_| {
-            let fraction = pending.borrow_mut().take();
-            if let Some(fraction) = fraction
-                && let Some(container) =
-                    scroll_container_ref.cast::<web_sys::HtmlElement>()
-                && let Some(svg_el) = container.first_element_child()
-            {
-                let svg_width = svg_el.get_bounding_client_rect().width();
-                let viewport_w = container.client_width() as f64;
-                let target_center = fraction * svg_width;
-                container.set_scroll_left(
-                    (target_center - viewport_w / 2.0).max(0.0) as i32,
-                );
-            }
-            || ()
-        });
-    }
+    let col_w = props.col_w;
 
     // Per-space lane order: bidders who ever bid on that space, filtered from
     // props.bidders to preserve global ordering.
@@ -133,8 +91,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
 
     let num_rounds = props.rounds.len();
     let svg_height = TOP_PAD + band_heights.iter().sum::<f64>() + BOTTOM_PAD;
-    let svg_width =
-        LEFT_PAD + (num_rounds as f64).max(1.0) * *col_w + RIGHT_PAD;
+    let svg_width = LEFT_PAD + (num_rounds as f64).max(1.0) * col_w + RIGHT_PAD;
 
     let viewbox = format!("0 0 {} {}", svg_width, svg_height);
 
@@ -228,7 +185,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         &compute_segments(&props.rounds, last_frame),
         &lane_y_map,
         &bidder_info,
-        *col_w,
+        col_w,
     );
     let dots = render_dots(
         &presence,
@@ -236,19 +193,18 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         &bidder_info,
         &bidder_names,
         &props.currency,
-        *col_w,
+        col_w,
     );
 
     // Round axis labels (top) + vertical gridlines. Gridlines always draw per
     // round, but labels skip rounds when col_w is too small to fit the digit
-    // width without overlap. Stride depends on the widest label's digit count
-    // and the current col_w.
+    // width without overlap.
     let max_round_num =
         props.rounds.iter().map(|r| r.round_num).max().unwrap_or(0);
-    let label_stride = label_stride_for(max_round_num, *col_w);
+    let label_stride = label_stride_for(max_round_num, col_w);
     let axis = (0..num_rounds)
         .map(|r| {
-            let x = round_x(r, *col_w);
+            let x = round_x(r, col_w);
             let round_num = props.rounds[r].round_num;
             let grid_class = if r <= props.frame {
                 "stroke-neutral-300 dark:stroke-neutral-700"
@@ -293,133 +249,64 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         })
         .collect::<Html>();
 
-    let legend = render_legend(&props.bidders, &bidder_info);
-
     // SVG rendered height is fixed in rem, and width flows from the viewBox
     // aspect ratio. Since col_w grows the viewBox horizontally without touching
     // vertical geometry, the rendered height stays constant while the rendered
-    // width expands/compresses with the slider. The svg_height viewBox units
-    // map to pixels assuming the default 1rem = 16px, so dividing by 16 gives
-    // us rem.
+    // width expands/compresses with col_w. The svg_height viewBox units map to
+    // pixels assuming the default 1rem = 16px, so dividing by 16 gives us rem.
     let svg_height_rem = svg_height / 16.0;
     let svg_style = format!("height: {:.2}rem", svg_height_rem);
 
-    let on_scale_change = {
-        let col_w = col_w.clone();
-        let scroll_container_ref = scroll_container_ref.clone();
-        let pending = pending_center_fraction.clone();
-        Callback::from(move |e: InputEvent| {
-            if let Some(input) = e
-                .target()
-                .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
-                && let Ok(v) = input.value().parse::<f64>()
-            {
-                // Snapshot where the viewport is currently centered, as a
-                // fraction of the SVG's rendered width. The effect keyed on
-                // col_w will restore that center after the re-render.
-                if let Some(container) =
-                    scroll_container_ref.cast::<web_sys::HtmlElement>()
-                    && let Some(svg_el) = container.first_element_child()
-                {
-                    let svg_width = svg_el.get_bounding_client_rect().width();
-                    if svg_width > 0.0 {
-                        let center_px = container.scroll_left() as f64
-                            + container.client_width() as f64 / 2.0;
-                        *pending.borrow_mut() = Some(center_px / svg_width);
-                    }
-                }
-                col_w.set(v);
-            }
-        })
-    };
-
-    // Shift + wheel = horizontal scroll, a convention from 2D layout tools.
-    // Helps mouse users on systems without a horizontal scroll mechanism.
-    // Trackpads already emit native deltaX on horizontal gestures, so we only
-    // translate when the gesture is predominantly vertical — otherwise we'd
-    // double up on the browser's native horizontal handling.
-    let on_wheel = {
-        let scroll_container_ref = scroll_container_ref.clone();
-        Callback::from(move |e: WheelEvent| {
-            if e.shift_key()
-                && e.delta_y().abs() > e.delta_x().abs()
-                && let Some(container) =
-                    scroll_container_ref.cast::<web_sys::HtmlElement>()
-            {
-                e.prevent_default();
-                let new_left = container.scroll_left() + e.delta_y() as i32;
-                container.set_scroll_left(new_left);
-            }
-        })
-    };
-
     html! {
-        <div class="space-y-2">
-            <div
-                class="overflow-x-auto"
-                ref={scroll_container_ref}
-                onwheel={on_wheel}
-            >
-                <svg
-                    viewBox={viewbox}
-                    class="h-auto mx-auto"
-                    preserveAspectRatio="xMinYMid meet"
-                    style={svg_style}
-                >
-                    {bands}
-                    {axis}
-                    {segments}
-                    {dots}
-                </svg>
-            </div>
-            <div class="flex flex-wrap items-center justify-between \
-                gap-x-4 gap-y-2">
-                {legend}
-                <input
-                    type="range"
-                    min={MIN_COL_W.to_string()}
-                    max={MAX_COL_W.to_string()}
-                    step="1"
-                    value={col_w.to_string()}
-                    oninput={on_scale_change}
-                    class="h-1.5 w-32 py-2 accent-neutral-500 \
-                        cursor-pointer"
-                    title="Horizontal scale"
-                />
-            </div>
-        </div>
+        <svg
+            viewBox={viewbox}
+            class="h-auto mx-auto"
+            preserveAspectRatio="xMinYMid meet"
+            style={svg_style}
+        >
+            {bands}
+            {axis}
+            {segments}
+            {dots}
+        </svg>
     }
 }
 
-fn round_x(round_idx: usize, col_w: f64) -> f64 {
-    LEFT_PAD + (round_idx as f64 + 0.5) * col_w
+#[derive(Properties, PartialEq)]
+pub struct SubwayLegendProps {
+    pub bidders: Vec<responses::UserIdentity>,
 }
 
-/// How many rounds to skip between axis labels, so labels don't overlap when
-/// col_w is too small for the widest digit count. Gridlines still render at
-/// every round; only the text labels are affected.
-fn label_stride_for(max_round_num: i32, col_w: f64) -> i32 {
-    // Calculate the number of digits in the round number, which is always
-    // non-negative. Returns 1 for non-positive numbers.
-    let digits = max_round_num.checked_ilog10().unwrap_or(0) + 1;
-    match digits {
-        0 | 1 => 1,
-        2 => {
-            if col_w >= 20.0 {
-                1
-            } else {
-                2
+/// Horizontal legend of bidder swatches. Each entry is a short colored pill
+/// followed by the bidder's display name. Rendered separately from the
+/// diagram so the container can place it outside the horizontal scroll area.
+#[function_component]
+pub fn SubwayLegend(props: &SubwayLegendProps) -> Html {
+    let entries = props
+        .bidders
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let style = bidder_color_style(i);
+            html! {
+                <span class="inline-flex items-center gap-1.5 \
+                    text-xs text-neutral-700 \
+                    dark:text-neutral-300">
+                    <span
+                        class="w-6 h-1 rounded-full \
+                            bg-[var(--subway-light)] \
+                            dark:bg-[var(--subway-dark)]"
+                        style={style}
+                    />
+                    {render_user_name(b)}
+                </span>
             }
-        }
-        _ => {
-            if col_w >= 28.0 {
-                1
-            } else if col_w >= 14.0 {
-                2
-            } else {
-                5
-            }
-        }
+        })
+        .collect::<Html>();
+    html! {
+        <div class="flex flex-wrap gap-x-4 gap-y-1">
+            {entries}
+        </div>
     }
 }
 
@@ -462,45 +349,12 @@ fn render_segments(
     entries.into_iter().map(|(_, _, h)| h).collect()
 }
 
-/// Renders a horizontal legend of bidder swatches. Each entry is a small square
-/// colored with that bidder's --subway-light / --subway-dark values followed by
-/// the bidder's name.
-fn render_legend(
-    bidders: &[responses::UserIdentity],
-    bidder_info: &HashMap<UserId, (usize, String)>,
-) -> Html {
-    let entries = bidders
-        .iter()
-        .filter_map(|b| {
-            let (_, style) = bidder_info.get(&b.user_id)?;
-            Some(html! {
-                <span class="inline-flex items-center gap-1.5 \
-                    text-xs text-neutral-700 \
-                    dark:text-neutral-300">
-                    <span
-                        class="w-6 h-1 rounded-full \
-                            bg-[var(--subway-light)] \
-                            dark:bg-[var(--subway-dark)]"
-                        style={style.clone()}
-                    />
-                    {render_user_name(b)}
-                </span>
-            })
-        })
-        .collect::<Html>();
-    html! {
-        <div class="flex flex-wrap gap-x-4 gap-y-1">
-            {entries}
-        </div>
-    }
-}
-
 /// Renders one dot per (space, round, bidder) presence entry. High-bid dots are
 /// solid filled circles in the bidder's color — visually continuous with the
 /// segment, since a standing high bid is passive. New-bid dots are hollow
 /// (white fill + bidder-colored border) to emphasize the price-changing event.
-/// No sort needed: positions are unique to (space, bidder, round) and same-
-/// round dots in adjacent lanes touch at their edges without overlapping.
+/// No sort needed: positions are unique to (space, bidder, round) and
+/// same-round dots in adjacent lanes touch at their edges without overlapping.
 fn render_dots(
     presence: &HashMap<(SpaceId, UserId), Vec<PresenceEntry>>,
     lane_y_map: &HashMap<(SpaceId, UserId), f64>,

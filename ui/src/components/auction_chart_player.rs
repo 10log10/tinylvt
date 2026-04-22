@@ -11,7 +11,7 @@ use yew::platform::spawn_local;
 use yew::prelude::*;
 
 use crate::components::AuctionChart;
-use crate::components::subway_diagram::SubwayDiagram;
+use crate::components::auction_timeline::AuctionTimeline;
 
 const TOTAL_ANIMATION_MS: u64 = 10_000;
 
@@ -317,7 +317,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
                 item_term={props.item_term}
             />
 
-            <SubwayDiagram
+            <AuctionTimeline
                 spaces={props.spaces.clone()}
                 bidders={props.bidders.clone()}
                 rounds={props.rounds.clone()}
