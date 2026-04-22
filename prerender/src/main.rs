@@ -472,7 +472,7 @@ fn landing_page_content() -> String {
 <!-- Placeholder for interactive auction demo (rendered by Yew).
      Min-height sized for the rent-splitting scenario at max
      width (~800px) to minimize layout shift when WASM hydrates. -->
-<div class="lg:min-h-[62.34rem]"></div>
+<div class="lg:min-h-[76.88rem]"></div>
 </div>
 </div>
 <div class="max-w-3xl mx-auto space-y-4">
