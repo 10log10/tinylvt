@@ -46,9 +46,9 @@ fn rent_splitting() -> Scenario {
 
     Scenario {
         name: "Rent splitting",
-        description: "Three housemates auction bedrooms. \
-            Each person's rent adjustment is their auction \
-            price minus their equal share of the total proceeds.",
+        description: "Three housemates auction bedrooms. Each person's balance \
+            reflects their share of the proceeds minus their price, so winners \
+            of pricier rooms owe the others and pay more rent.",
         state: EditorState {
             spaces: vec![
                 (large, "Large".into()),
