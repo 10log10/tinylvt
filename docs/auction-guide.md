@@ -156,7 +156,7 @@ Setting starting prices to a positive value is also useful if a space has value 
 
 ## Do it Yourself
 
-TinyLVT exists to make cooperative auctions easier to use. To run a cooperative auction with your group, see the [setup documentation](/docs). All usage below 50 MB of storage is free.
+TinyLVT exists to make cooperative auctions easier to use. To run a cooperative auction with your group, see the [setup documentation](/docs). All usage below 50 MB of storage is free. Support for nonzero starting prices is coming soon.
 
 ## Terminology and Further Reading
 
