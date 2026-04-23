@@ -15,12 +15,8 @@ use tracing::{debug, info, warn};
 // Global state for ensuring trunk build only happens once
 static TRUNK_BUILD_ONCE: OnceCell<Result<(), String>> = OnceCell::const_new();
 
-async fn ensure_trunk_build(
-    backend_url: &str,
-    support_email: &str,
-) -> Result<()> {
+async fn ensure_trunk_build(backend_url: &str) -> Result<()> {
     let backend_url = backend_url.to_string();
-    let support_email = support_email.to_string();
 
     let result = TRUNK_BUILD_ONCE
         .get_or_init(|| async move {
@@ -297,8 +293,7 @@ async fn start_frontend_with_retry(
     base_port: u16,
     backend_url: &str,
 ) -> Result<(Child, u16)> {
-    let support_email = "support@example.com";
-    ensure_trunk_build(backend_url, support_email).await?;
+    ensure_trunk_build(backend_url).await?;
 
     for attempt in 1..=5 {
         let port = base_port + rand::thread_rng().gen_range(0..=100);
