@@ -410,7 +410,7 @@ fn compute_series(
 /// Per-space inline-style string setting --space-light and --space-dark CSS
 /// custom properties. Same color in both modes — Tol's Light palette reads on
 /// both.
-fn space_color_style(idx: usize) -> String {
+pub fn space_color_style(idx: usize) -> String {
     let color = SPACE_PALETTE[idx % SPACE_PALETTE.len()];
     format!("--space-light: {}; --space-dark: {};", color, color)
 }

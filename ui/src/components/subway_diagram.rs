@@ -429,9 +429,18 @@ fn render_dots(
 /// whichever applies to the active color mode via Tailwind's `dark:` variant.
 /// Bidders cycle through BIDDER_PALETTE; the same color is used in both modes
 /// since Tol's palette reads well on both white and dark backgrounds.
-fn bidder_color_style(idx: usize) -> String {
+pub fn bidder_color_style(idx: usize) -> String {
     let color = BIDDER_PALETTE[idx % BIDDER_PALETTE.len()];
     format!("--subway-light: {}; --subway-dark: {};", color, color)
+}
+
+/// Returns true when a bidder pill at this palette index reads better with dark
+/// text than white text. The bright palette mixes mid-tones (dark on white) and
+/// light tones (dark on dark), so foreground color varies per index.
+pub fn bidder_pill_needs_dark_text(idx: usize) -> bool {
+    // Indices into BIDDER_PALETTE with light-enough backgrounds for dark text:
+    // 3 = #CCBB44 yellow, 4 = #66CCEE cyan, 6 = #BBBBBB grey.
+    matches!(idx % BIDDER_PALETTE.len(), 3 | 4 | 6)
 }
 
 /// Vertical center of a lane within its band. The first lane sits BAND_PAD

@@ -1,17 +1,27 @@
 use std::collections::HashMap;
 
-use payloads::{CurrencySettings, RoundSpaceResult, SpaceId, responses};
+use payloads::{
+    CurrencySettings, RoundSpaceResult, SpaceId, UserId, responses,
+};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
+use crate::components::price_chart::space_color_style;
+use crate::components::subway_diagram::{
+    bidder_color_style, bidder_pill_needs_dark_text,
+};
 use crate::components::user_identity_display::render_user_name;
 use crate::utils::capitalize;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    /// (space_id, name) pairs in display order
+    /// (space_id, name) pairs in display order. Same ordering as PriceChart so
+    /// space colors line up across the two views.
     pub spaces: Vec<(SpaceId, String)>,
+    /// Global bidder list in the same order used by SubwayDiagram, so bidder
+    /// pill colors match the subway lanes.
+    pub bidders: Vec<responses::UserIdentity>,
     /// Standing high bidders (results from previous round)
     pub results: Vec<RoundSpaceResult>,
     /// Bids placed this round: space_id -> list of bidders
@@ -46,6 +56,14 @@ const HEADING_CLASSES: &str = "\
 pub fn AuctionChart(props: &Props) -> Html {
     let x_max_f64 = props.x_max.to_f64().unwrap_or(1.0);
 
+    // Bidder -> palette index, matching the order SubwayDiagram assigns.
+    let bidder_idx: HashMap<UserId, usize> = props
+        .bidders
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.user_id, i))
+        .collect();
+
     html! {
         <div class={GRID_CLASSES}>
             // Column headings
@@ -66,10 +84,12 @@ pub fn AuctionChart(props: &Props) -> Html {
                 {"New bids"}
             </div>
 
-            {for props.spaces.iter().map(|(space_id, name)| {
+            {for props.spaces.iter().enumerate().map(
+                |(space_idx, (space_id, name))| {
                 let result = props.results.iter()
                     .find(|r| r.space_id == *space_id);
                 let space_bids = props.bids.get(space_id);
+                let space_style = space_color_style(space_idx);
 
                 let bar_html = {
                     let pct = result.map(|r| {
@@ -96,11 +116,20 @@ pub fn AuctionChart(props: &Props) -> Html {
 
                 html! {
                     <>
-                        // Space name
-                        <div class="text-sm font-medium \
-                            text-neutral-700 dark:text-neutral-300 \
-                            truncate sm:text-right">
-                            {name}
+                        // Space name — pill tinted with the space color so it
+                        // ties to the line in PriceChart and the band in
+                        // SubwayDiagram.
+                        <div class="text-sm truncate sm:text-right">
+                            <span
+                                class="inline-block px-1.5 py-0.5 rounded \
+                                    font-medium \
+                                    text-neutral-900 \
+                                    bg-[var(--space-light)] \
+                                    dark:bg-[var(--space-dark)]"
+                                style={space_style.clone()}
+                            >
+                                {name}
+                            </span>
                         </div>
 
                         // Bar (desktop: inline column, mobile: hidden here)
@@ -120,35 +149,34 @@ pub fn AuctionChart(props: &Props) -> Html {
                         </div>
 
                         // Standing high bidder
-                        <div class="text-sm \
-                            text-neutral-700 dark:text-neutral-300 \
-                            truncate">
+                        <div class="text-sm truncate">
                             {if let Some(r) = result {
-                                render_user_name(&r.winner)
+                                render_bidder_pill(&r.winner, &bidder_idx)
                             } else {
-                                html! {"\u{2014}"}
+                                html! {
+                                    <span class="text-neutral-700 \
+                                        dark:text-neutral-300">
+                                        {"\u{2014}"}
+                                    </span>
+                                }
                             }}
                         </div>
 
                         // New bids
-                        <div class="text-xs \
-                            text-neutral-500 dark:text-neutral-500 \
-                            truncate">
+                        <div class="text-xs truncate space-x-1">
                             {if let Some(bidders) = space_bids {
-                                bidders.iter().enumerate()
-                                    .map(|(i, b)| html! {
-                                        <>
-                                            {if i > 0 {
-                                                html! {", "}
-                                            } else {
-                                                html! {}
-                                            }}
-                                            {render_user_name(b)}
-                                        </>
-                                    })
+                                bidders.iter()
+                                    .map(|b| render_bidder_pill(
+                                        b, &bidder_idx
+                                    ))
                                     .collect::<Html>()
                             } else {
-                                html! {"\u{2014}"}
+                                html! {
+                                    <span class="text-neutral-500 \
+                                        dark:text-neutral-500">
+                                        {"\u{2014}"}
+                                    </span>
+                                }
                             }}
                         </div>
 
@@ -162,5 +190,41 @@ pub fn AuctionChart(props: &Props) -> Html {
                 }
             })}
         </div>
+    }
+}
+
+/// Render a bidder name inside a colored pill so it can be visually linked to
+/// the matching lane in SubwayDiagram. Falls back to a neutral label when the
+/// bidder is unknown to the global bidder list.
+fn render_bidder_pill(
+    bidder: &responses::UserIdentity,
+    bidder_idx: &HashMap<UserId, usize>,
+) -> Html {
+    let Some(&idx) = bidder_idx.get(&bidder.user_id) else {
+        return html! {
+            <span class="inline-block text-neutral-700 \
+                dark:text-neutral-300">
+                {render_user_name(bidder)}
+            </span>
+        };
+    };
+    let style = bidder_color_style(idx);
+    let text_class = if bidder_pill_needs_dark_text(idx) {
+        "text-neutral-900"
+    } else {
+        "text-white"
+    };
+    html! {
+        <span
+            class={classes!(
+                "inline-block", "px-1.5", "py-0.5", "rounded",
+                "bg-[var(--subway-light)]",
+                "dark:bg-[var(--subway-dark)]",
+                text_class,
+            )}
+            style={style}
+        >
+            {render_user_name(bidder)}
+        </span>
     }
 }

@@ -310,6 +310,7 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
 
             <AuctionChart
                 spaces={props.spaces.clone()}
+                bidders={props.bidders.clone()}
                 results={results}
                 bids={bids}
                 x_max={x_max}
