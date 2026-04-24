@@ -39,8 +39,11 @@ pub struct Props {
 const SEGMENT_STROKE_WIDTH: f64 = 10.0;
 const LANE_SPACING: f64 = SEGMENT_STROKE_WIDTH;
 const BAND_PAD: f64 = 16.0;
+// New-bid dot: a plain filled circle sitting on top of the track. Radius is
+// track half-width minus DOT_STROKE so a track-colored ring of thickness
+// DOT_STROKE remains visible around the dot.
 const DOT_STROKE: f64 = 1.5;
-const DOT_RADIUS: f64 = (SEGMENT_STROKE_WIDTH - DOT_STROKE) / 2.0;
+const DOT_RADIUS: f64 = SEGMENT_STROKE_WIDTH / 2.0 - DOT_STROKE;
 
 // Per-bidder colors use Paul Tol's "Bright" qualitative palette, a
 // color-blind-safe scheme with good hue variety. Bidders cycle through the
@@ -133,12 +136,11 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         })
         .collect::<Html>();
 
-    // Per (space, bidder) presence entries through `frame`, each carrying the
-    // round, whether the bidder was standing (carried from prior results) or
-    // placing a new bid, and the price that dot represents.
+    // Per (space, bidder) new-bid entries through `frame`, each carrying the
+    // round number and the price of the bid.
     let last_frame = props.frame.min(num_rounds.saturating_sub(1));
-    let presence: HashMap<(SpaceId, UserId), Vec<PresenceEntry>> =
-        compute_presence(&props.rounds, last_frame, props.bid_increment);
+    let bids: HashMap<(SpaceId, UserId), Vec<BidEntry>> =
+        compute_bids(&props.rounds, last_frame, props.bid_increment);
 
     // (space, bidder) -> lane_y, used to place dots and resolve segment
     // endpoints.
@@ -188,7 +190,7 @@ pub fn SubwayDiagram(props: &Props) -> Html {
         col_w,
     );
     let dots = render_dots(
-        &presence,
+        &bids,
         &lane_y_map,
         &bidder_info,
         &bidder_names,
@@ -337,6 +339,7 @@ fn render_segments(
                     x2={round_x(seg.r1, col_w).to_string()}
                     y2={y1.to_string()}
                     stroke-width={SEGMENT_STROKE_WIDTH.to_string()}
+                    stroke-linecap="round"
                     class="stroke-[var(--subway-light)] \
                         dark:stroke-[var(--subway-dark)]"
                     style={style}
@@ -349,25 +352,24 @@ fn render_segments(
     entries.into_iter().map(|(_, _, h)| h).collect()
 }
 
-/// Renders one dot per (space, round, bidder) presence entry. High-bid dots are
-/// solid filled circles in the bidder's color — visually continuous with the
-/// segment, since a standing high bid is passive. New-bid dots are hollow
-/// (white fill + bidder-colored border) to emphasize the price-changing event.
+/// Renders one dot per (space, round, bidder) new-bid entry. New-bid dots are
+/// a neutral-colored fill sitting inside the track, emphasizing the
+/// price-changing event. Segment rounded end caps handle the visual rounding
+/// at high-bid vertices, so those don't need their own dots.
 /// No sort needed: positions are unique to (space, bidder, round) and
 /// same-round dots in adjacent lanes touch at their edges without overlapping.
 fn render_dots(
-    presence: &HashMap<(SpaceId, UserId), Vec<PresenceEntry>>,
+    bids: &HashMap<(SpaceId, UserId), Vec<BidEntry>>,
     lane_y_map: &HashMap<(SpaceId, UserId), f64>,
     bidder_info: &HashMap<UserId, (usize, String)>,
     bidder_names: &HashMap<UserId, String>,
     currency: &CurrencySettings,
     col_w: f64,
 ) -> Html {
-    presence
-        .iter()
+    bids.iter()
         .flat_map(|((space_id, uid), entries)| {
             if let Some(&cy) = lane_y_map.get(&(*space_id, *uid))
-                && let Some((_, style)) = bidder_info.get(uid)
+                && bidder_info.contains_key(uid)
                 && let Some(name) = bidder_names.get(uid).cloned()
             {
                 entries
@@ -375,45 +377,19 @@ fn render_dots(
                     .map(|entry| {
                         let cx = round_x(entry.round, col_w);
                         let price_str = currency.format_amount(entry.price);
-                        let tooltip = if entry.is_high {
-                            format!(
-                                "{} — round {} — high bidder at {}",
-                                name, entry.round, price_str,
-                            )
-                        } else {
-                            format!(
-                                "{} — round {} — new bid at {}",
-                                name, entry.round, price_str,
-                            )
-                        };
-                        if entry.is_high {
-                            html! {
-                                <circle
-                                    cx={cx.to_string()}
-                                    cy={cy.to_string()}
-                                    r={(SEGMENT_STROKE_WIDTH / 2.0).to_string()}
-                                    class="fill-[var(--subway-light)] \
-                                        dark:fill-[var(--subway-dark)]"
-                                    style={style.clone()}
-                                >
-                                    <title>{tooltip}</title>
-                                </circle>
-                            }
-                        } else {
-                            html! {
-                                <circle
-                                    cx={cx.to_string()}
-                                    cy={cy.to_string()}
-                                    r={DOT_RADIUS.to_string()}
-                                    stroke-width={DOT_STROKE.to_string()}
-                                    class="fill-white dark:fill-black \
-                                        stroke-[var(--subway-light)] \
-                                        dark:stroke-[var(--subway-dark)]"
-                                    style={style.clone()}
-                                >
-                                    <title>{tooltip}</title>
-                                </circle>
-                            }
+                        let tooltip = format!(
+                            "{} — round {} — new bid at {}",
+                            name, entry.round, price_str,
+                        );
+                        html! {
+                            <circle
+                                cx={cx.to_string()}
+                                cy={cy.to_string()}
+                                r={DOT_RADIUS.to_string()}
+                                class="fill-white dark:fill-black"
+                            >
+                                <title>{tooltip}</title>
+                            </circle>
                         }
                     })
                     .collect::<Vec<_>>()
@@ -537,32 +513,29 @@ fn compute_segments(rounds: &[SimRound], last: usize) -> Vec<Segment> {
     out
 }
 
-/// A single presence entry: which round, whether the bidder was the standing
-/// high bidder, and the price for that dot.
+/// A single new-bid entry: which round the bid was placed in, and the price
+/// that bid was placed at.
 #[derive(Clone, Copy)]
-struct PresenceEntry {
+struct BidEntry {
     round: usize,
-    is_high: bool,
     price: Decimal,
 }
 
-/// For each (space, bidder), presence entries in `0..=last` where that bidder
-/// was present on that space. `is_high` is true when the bidder entered the
-/// round as the standing winner (carried from the prior round's results), false
-/// when the bidder placed a new bid that round. `price` is what that dot
-/// represents — the carried value for high bidders, and the new bid price
-/// (`prior + bid_increment`, or 0 if no prior result) for new bids.
-fn compute_presence(
+/// For each (space, bidder), new-bid entries in `0..=last` where that bidder
+/// placed a new bid. `price` is the new bid price: `prior + bid_increment`, or
+/// 0 if the space has no prior result. Carried-forward high bidders are not
+/// included here — their segments' rounded end caps serve as the visual
+/// vertex.
+fn compute_bids(
     rounds: &[SimRound],
     last: usize,
     bid_increment: Decimal,
-) -> HashMap<(SpaceId, UserId), Vec<PresenceEntry>> {
-    let mut out: HashMap<(SpaceId, UserId), Vec<PresenceEntry>> =
-        HashMap::new();
+) -> HashMap<(SpaceId, UserId), Vec<BidEntry>> {
+    let mut out: HashMap<(SpaceId, UserId), Vec<BidEntry>> = HashMap::new();
     for r in 0..=last {
         let Some(round) = rounds.get(r) else { continue };
-        // Prior-round results indexed by space, for pricing new bids and
-        // high-bid carry-forwards this round.
+        // Prior-round results indexed by space, for pricing new bids this
+        // round.
         let prev_price: HashMap<SpaceId, Decimal> = if r == 0 {
             HashMap::new()
         } else {
@@ -586,27 +559,7 @@ fn compute_presence(
             for b in bidders_this_round {
                 out.entry((*sid, b.user_id))
                     .or_default()
-                    .push(PresenceEntry {
-                        round: r,
-                        is_high: false,
-                        price,
-                    });
-            }
-        }
-        if r > 0
-            && let Some(prev) = rounds.get(r - 1)
-        {
-            // A bidder who was the high bidder entering round r does not place
-            // a new bid that round on the same space, so these two presence
-            // sources are disjoint per (space, bidder) — no dedup needed.
-            for rsr in &prev.results {
-                out.entry((rsr.space_id, rsr.winner.user_id))
-                    .or_default()
-                    .push(PresenceEntry {
-                        round: r,
-                        is_high: true,
-                        price: rsr.value,
-                    });
+                    .push(BidEntry { round: r, price });
             }
         }
     }
