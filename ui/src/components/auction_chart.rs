@@ -32,24 +32,23 @@ pub struct Props {
     pub item_term: &'static str,
 }
 
-// Desktop grid: space | bar | price | high-bid | new-bids
-// Mobile: space | price | high-bid | new-bids (row 1),
-//         bar spanning full width (row 2)
+// Desktop: 5-column grid with headings. space | bar | price | high-bid |
+// new-bids. Pills show full bidder names; new-bids wraps so rows grow taller
+// rather than clipping names. Price column uses minmax(4rem, auto) to stay wide
+// enough for typical values but expand for large ones.
 //
-// Grid column template:
-//   sm+: auto 1fr auto auto auto
-//   <sm: 1fr auto auto auto (no bar column; bar on its own row)
-
-// Price column uses minmax(4rem, auto): stays wide enough for typical values so
-// the bar column doesn't reflow as digit counts grow, but can still expand for
-// unusually large prices.
+// Mobile: a stacked card per space (see SpaceRowMobile below). The grid and its
+// headings are hidden on mobile.
 const GRID_CLASSES: &str = "\
-    grid gap-x-3 gap-y-1 items-center \
-    grid-cols-[1fr_minmax(4rem,auto)_auto_6rem] \
-    sm:grid-cols-[auto_1fr_minmax(4rem,auto)_auto_6rem]";
+    hidden sm:grid gap-x-3 gap-y-2 items-start \
+    sm:grid-cols-[auto_1fr_minmax(4rem,auto)_auto_minmax(8rem,1fr)]";
 
 const HEADING_CLASSES: &str = "\
     text-xs font-medium text-neutral-500 \
+    dark:text-neutral-500 uppercase tracking-wide";
+
+const MOBILE_LABEL_CLASSES: &str = "\
+    text-[0.65rem] font-medium text-neutral-500 \
     dark:text-neutral-500 uppercase tracking-wide";
 
 #[function_component]
@@ -64,16 +63,59 @@ pub fn AuctionChart(props: &Props) -> Html {
         .map(|(i, b)| (b.user_id, i))
         .collect();
 
+    let rows =
+        props
+            .spaces
+            .iter()
+            .enumerate()
+            .map(|(space_idx, (space_id, name))| {
+                let result =
+                    props.results.iter().find(|r| r.space_id == *space_id);
+                let space_bids = props.bids.get(space_id);
+                RowData {
+                    space_idx,
+                    name: name.clone(),
+                    result: result.cloned(),
+                    new_bids: space_bids.cloned().unwrap_or_default(),
+                }
+            });
+    // Materialize so both the desktop grid and the mobile stack can iterate.
+    let rows: Vec<RowData> = rows.collect();
+
+    html! {
+        <>
+            {desktop_grid_view(
+                props, &rows, &bidder_idx, x_max_f64,
+            )}
+            {mobile_stack_view(
+                props, &rows, &bidder_idx, x_max_f64,
+            )}
+        </>
+    }
+}
+
+/// Flattened per-space row data shared between the mobile and desktop layouts.
+struct RowData {
+    space_idx: usize,
+    name: String,
+    result: Option<RoundSpaceResult>,
+    new_bids: Vec<responses::UserIdentity>,
+}
+
+fn desktop_grid_view(
+    props: &Props,
+    rows: &[RowData],
+    bidder_idx: &HashMap<UserId, usize>,
+    x_max_f64: f64,
+) -> Html {
     html! {
         <div class={GRID_CLASSES}>
             // Column headings
-            <div class={classes!(
-                HEADING_CLASSES, "sm:text-right"
-            )}>
+            <div class={classes!(HEADING_CLASSES, "text-right")}>
                 {capitalize(props.item_term)}
             </div>
-            // Bar heading (hidden on mobile)
-            <div class="hidden sm:block" />
+            // Bar column has no heading.
+            <div />
             <div class={classes!(HEADING_CLASSES, "-ml-2", "text-right")}>
                 {"Price"}
             </div>
@@ -84,112 +126,217 @@ pub fn AuctionChart(props: &Props) -> Html {
                 {"New bids"}
             </div>
 
-            {for props.spaces.iter().enumerate().map(
-                |(space_idx, (space_id, name))| {
-                let result = props.results.iter()
-                    .find(|r| r.space_id == *space_id);
-                let space_bids = props.bids.get(space_id);
-                let space_style = space_color_style(space_idx);
-
-                let bar_html = {
-                    let pct = result.map(|r| {
-                        if x_max_f64 > 0.0 {
-                            r.value.to_f64().unwrap_or(0.0)
-                                / x_max_f64 * 100.0
-                        } else {
-                            0.0
-                        }
-                    }).unwrap_or(0.0);
-                    let width_style =
-                        format!("width: {:.1}%", pct);
-                    html! {
-                        <div class="h-6 bg-neutral-100 \
-                            dark:bg-neutral-800 rounded \
-                            overflow-hidden">
-                            <div class="h-full bg-neutral-400 \
-                                dark:bg-neutral-500 rounded"
-                                style={width_style}
-                            />
-                        </div>
-                    }
-                };
-
-                html! {
-                    <>
-                        // Space name — pill tinted with the space color so it
-                        // ties to the line in PriceChart and the band in
-                        // SubwayDiagram.
-                        <div class="text-sm truncate sm:text-right">
-                            <span
-                                class="inline-block px-1.5 py-0.5 rounded \
-                                    font-medium \
-                                    text-neutral-900 \
-                                    bg-[var(--space-light)] \
-                                    dark:bg-[var(--space-dark)]"
-                                style={space_style.clone()}
-                            >
-                                {name}
-                            </span>
-                        </div>
-
-                        // Bar (desktop: inline column, mobile: hidden here)
-                        <div class="hidden sm:block">
-                            {bar_html.clone()}
-                        </div>
-
-                        // Price
-                        <div class="-ml-2 text-sm \
-                            text-neutral-600 dark:text-neutral-400 \
-                            text-right tabular-nums">
-                            {if let Some(r) = result {
-                                props.currency.format_amount(r.value)
-                            } else {
-                                "\u{2014}".to_string()
-                            }}
-                        </div>
-
-                        // Standing high bidder
-                        <div class="text-sm truncate">
-                            {if let Some(r) = result {
-                                render_bidder_pill(&r.winner, &bidder_idx)
-                            } else {
-                                html! {
-                                    <span class="text-neutral-700 \
-                                        dark:text-neutral-300">
-                                        {"\u{2014}"}
-                                    </span>
-                                }
-                            }}
-                        </div>
-
-                        // New bids
-                        <div class="text-xs truncate space-x-1">
-                            {if let Some(bidders) = space_bids {
-                                bidders.iter()
-                                    .map(|b| render_bidder_pill(
-                                        b, &bidder_idx
-                                    ))
-                                    .collect::<Html>()
-                            } else {
-                                html! {
-                                    <span class="text-neutral-500 \
-                                        dark:text-neutral-500">
-                                        {"\u{2014}"}
-                                    </span>
-                                }
-                            }}
-                        </div>
-
-                        // Bar (mobile: spans full width below,
-                        // desktop: hidden)
-                        <div class="sm:hidden \
-                            col-span-full mb-1">
-                            {bar_html}
-                        </div>
-                    </>
-                }
-            })}
+            {for rows.iter().map(|row| desktop_row(
+                row, bidder_idx, &props.currency, x_max_f64,
+            ))}
         </div>
+    }
+}
+
+fn desktop_row(
+    row: &RowData,
+    bidder_idx: &HashMap<UserId, usize>,
+    currency: &CurrencySettings,
+    x_max_f64: f64,
+) -> Html {
+    let bar = bar_html(row.result.as_ref(), x_max_f64);
+    html! {
+        <>
+            // Space name — pill tinted with the space color so it ties to the
+            // line in PriceChart and the band in SubwayDiagram. Right-aligned
+            // so the pill sits flush against the bar.
+            <div class="text-sm text-right min-w-0">
+                {space_pill(row.space_idx, &row.name)}
+            </div>
+
+            // Bar. Vertically centered within the pill's line-box so it sits
+            // at the same midline as the space pill on its left. The inner
+            // bar needs w-full because flex items default to their content
+            // width, which would be 0 for this empty div.
+            <div class="flex items-center h-7">
+                <div class="w-full">{bar}</div>
+            </div>
+
+            // Price
+            <div class="-ml-2 text-sm \
+                text-neutral-600 dark:text-neutral-400 \
+                text-right tabular-nums">
+                {price_cell(row.result.as_ref(), currency)}
+            </div>
+
+            // Standing high bidder
+            <div class="text-sm min-w-0">
+                {high_bid_cell(row.result.as_ref(), bidder_idx)}
+            </div>
+
+            // New bids — wraps vertically so rows grow rather than clip.
+            // Uses text-sm (same as high-bid) so pill heights match and the
+            // em-dash placeholder lines up across columns.
+            <div class="text-sm flex flex-wrap gap-1">
+                {new_bids_cell(&row.new_bids, bidder_idx)}
+            </div>
+        </>
+    }
+}
+
+fn mobile_stack_view(
+    props: &Props,
+    rows: &[RowData],
+    bidder_idx: &HashMap<UserId, usize>,
+    x_max_f64: f64,
+) -> Html {
+    html! {
+        <div class="sm:hidden flex flex-col gap-3">
+            {for rows.iter().map(|row| mobile_card(
+                row, bidder_idx, &props.currency, x_max_f64,
+            ))}
+        </div>
+    }
+}
+
+fn mobile_card(
+    row: &RowData,
+    bidder_idx: &HashMap<UserId, usize>,
+    currency: &CurrencySettings,
+    x_max_f64: f64,
+) -> Html {
+    let bar = bar_html(row.result.as_ref(), x_max_f64);
+    html! {
+        <div class="flex flex-col gap-1.5">
+            // Row 1: space pill + price on the right. Space pill is free to
+            // shrink via min-w-0 on its wrapper, so long names truncate
+            // inside the pill rather than pushing the price off-screen.
+            <div class="flex items-center justify-between gap-2">
+                <div class="min-w-0 truncate">
+                    {space_pill(row.space_idx, &row.name)}
+                </div>
+                <div class="text-sm tabular-nums \
+                    text-neutral-600 dark:text-neutral-400 \
+                    shrink-0">
+                    {price_cell(row.result.as_ref(), currency)}
+                </div>
+            </div>
+
+            // Row 2: bar
+            {bar}
+
+            // Row 3: high bid + new bids, both labeled. Pills wrap freely.
+            <div class="flex flex-col gap-1">
+                <div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
+                    <span class={MOBILE_LABEL_CLASSES}>{"High bid"}</span>
+                    <span class="text-sm">
+                        {high_bid_cell(row.result.as_ref(), bidder_idx)}
+                    </span>
+                </div>
+                <div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
+                    <span class={MOBILE_LABEL_CLASSES}>{"New bids"}</span>
+                    <span class="text-sm flex flex-wrap gap-1">
+                        {new_bids_cell(&row.new_bids, bidder_idx)}
+                    </span>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+fn bar_html(result: Option<&RoundSpaceResult>, x_max_f64: f64) -> Html {
+    let pct = result
+        .map(|r| {
+            if x_max_f64 > 0.0 {
+                r.value.to_f64().unwrap_or(0.0) / x_max_f64 * 100.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let width_style = format!("width: {:.1}%", pct);
+    html! {
+        <div class="h-6 bg-neutral-100 \
+            dark:bg-neutral-800 rounded \
+            overflow-hidden">
+            <div class="h-full bg-neutral-400 \
+                dark:bg-neutral-500 rounded"
+                style={width_style}
+            />
+        </div>
+    }
+}
+
+fn space_pill(space_idx: usize, name: &str) -> Html {
+    let style = space_color_style(space_idx);
+    html! {
+        <span
+            class="inline-block max-w-full truncate \
+                px-1.5 py-0.5 rounded font-medium \
+                text-neutral-900 \
+                bg-[var(--space-light)] \
+                dark:bg-[var(--space-dark)]"
+            style={style}
+        >
+            {name.to_string()}
+        </span>
+    }
+}
+
+fn price_cell(
+    result: Option<&RoundSpaceResult>,
+    currency: &CurrencySettings,
+) -> Html {
+    match result {
+        Some(r) => html! {
+            // Match pill padding so the baseline aligns with pills in the
+            // same row and swapping in/out of an em-dash doesn't shift the
+            // row height.
+            <span class="inline-block px-1.5 py-0.5">
+                {currency.format_amount(r.value)}
+            </span>
+        },
+        None => {
+            em_dash_placeholder_pill("text-neutral-600 dark:text-neutral-400")
+        }
+    }
+}
+
+fn high_bid_cell(
+    result: Option<&RoundSpaceResult>,
+    bidder_idx: &HashMap<UserId, usize>,
+) -> Html {
+    match result {
+        Some(r) => render_bidder_pill(&r.winner, bidder_idx),
+        None => {
+            em_dash_placeholder_pill("text-neutral-700 dark:text-neutral-300")
+        }
+    }
+}
+
+fn new_bids_cell(
+    bidders: &[responses::UserIdentity],
+    bidder_idx: &HashMap<UserId, usize>,
+) -> Html {
+    if bidders.is_empty() {
+        em_dash_placeholder_pill("text-neutral-500 dark:text-neutral-500")
+    } else {
+        bidders
+            .iter()
+            .map(|b| render_bidder_pill(b, bidder_idx))
+            .collect::<Html>()
+    }
+}
+
+/// Pill-shaped em-dash with transparent background. Preserves the vertical
+/// footprint of a real pill so rows don't jitter when a cell toggles between
+/// a pill and a dash across frames.
+fn em_dash_placeholder_pill(text_class: &'static str) -> Html {
+    html! {
+        <span class={classes!(
+            "inline-block",
+            "px-1.5",
+            "py-0.5",
+            "rounded",
+            text_class,
+        )}>
+            {"\u{2014}"}
+        </span>
     }
 }
 

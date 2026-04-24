@@ -289,7 +289,9 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
                     </button>
                 </div>
 
-                // Play + slider (mobile)
+                // Play + slider (mobile). py-2 on the input extends its box
+                // so the thumb circle isn't clipped by a nearby overflow
+                // boundary.
                 <div class="sm:hidden w-full flex items-center gap-3 my-4">
                     <button
                         onclick={on_play}
@@ -303,7 +305,8 @@ pub fn AuctionChartPlayer(props: &Props) -> Html {
                         max={(num_frames - 1).to_string()}
                         value={frame.to_string()}
                         oninput={on_slider.clone()}
-                        class="flex-1 h-1.5 accent-neutral-500 cursor-pointer"
+                        class="flex-1 h-1.5 py-2 \
+                            accent-neutral-500 cursor-pointer"
                     />
                 </div>
             </div>
