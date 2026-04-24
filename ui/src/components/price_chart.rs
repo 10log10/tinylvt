@@ -132,9 +132,9 @@ pub fn PriceChart(props: &Props) -> Html {
             let x = round_x(r, col_w);
             let round_num = props.rounds[r].round_num;
             let grid_class = if r <= props.frame {
-                "stroke-neutral-200 dark:stroke-neutral-800"
+                "stroke-neutral-300 dark:stroke-neutral-700"
             } else {
-                "stroke-neutral-100 dark:stroke-neutral-900"
+                "stroke-neutral-200 dark:stroke-neutral-800"
             };
             let label_class = if r <= props.frame {
                 "fill-neutral-600 dark:fill-neutral-400 text-xs \
