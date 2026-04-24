@@ -369,7 +369,7 @@ fn render_dots(
     bids.iter()
         .flat_map(|((space_id, uid), entries)| {
             if let Some(&cy) = lane_y_map.get(&(*space_id, *uid))
-                && bidder_info.contains_key(uid)
+                && let Some((_, style)) = bidder_info.get(uid)
                 && let Some(name) = bidder_names.get(uid).cloned()
             {
                 entries
@@ -381,15 +381,35 @@ fn render_dots(
                             "{} — round {} — new bid at {}",
                             name, entry.round, price_str,
                         );
+                        // Zero-length rounded-cap stroke draws a track-colored
+                        // disc via the same rasterizer as the segments, so dots
+                        // without an adjacent segment (e.g. round 0) still get
+                        // the track ring, and dots that do have segments line
+                        // up pixel-perfectly with them.
                         html! {
-                            <circle
-                                cx={cx.to_string()}
-                                cy={cy.to_string()}
-                                r={DOT_RADIUS.to_string()}
-                                class="fill-white dark:fill-black"
-                            >
-                                <title>{tooltip}</title>
-                            </circle>
+                            <>
+                                <line
+                                    x1={cx.to_string()}
+                                    y1={cy.to_string()}
+                                    x2={cx.to_string()}
+                                    y2={cy.to_string()}
+                                    stroke-width={
+                                        SEGMENT_STROKE_WIDTH.to_string()
+                                    }
+                                    stroke-linecap="round"
+                                    class="stroke-[var(--subway-light)] \
+                                        dark:stroke-[var(--subway-dark)]"
+                                    style={style.clone()}
+                                />
+                                <circle
+                                    cx={cx.to_string()}
+                                    cy={cy.to_string()}
+                                    r={DOT_RADIUS.to_string()}
+                                    class="fill-white dark:fill-black"
+                                >
+                                    <title>{tooltip}</title>
+                                </circle>
+                            </>
                         }
                     })
                     .collect::<Vec<_>>()
