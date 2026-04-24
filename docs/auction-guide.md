@@ -16,25 +16,23 @@ They agree to use an ascending auction to sell the bike. In ascending auctions, 
 
 The top of the simulator defines the things available for auction, the bidders who are participating, and the amount that each bidder would pay to have each item. Here, Nina is willing to pay up to $150 for the bike, and Omar is willing to pay up to $100.
 
+Below this, the simulation is visualized in three sections. First, the price, high bid, and new bids for the selected round. The price is the current high bid, and new bids are one increment above. Second, a plot of the price over the course of the auction, with each round represented as a discrete step when a new bid is placed. Third, each bidder's activity. Dots represent bids.
+
 <!-- @@section:after_bike_auction -->
 
 The progression of the auction is straightforward. Nina and Omar both continue bidding for the bike until the price gets to $100. At this point, Omar would be bidding for the bike at a price of $110, which is above his value for the bike, so he drops out. The auction stops since there's no more bidding activity.
 
 Notice how Nina wins the bike, but the price is based on Omar's value. This is a second-price mechanism, and it's an important feature of the auction. It means that Nina is not penalized for having a higher value for the bike. She only pays what the next-highest bidder would have paid for it.
 
-To see why second-price mechanisms are useful, we can consider a first-price auction format where Nina and Omar write down their prices, give them to Pat, and Pat accepts the higher one. If Nina writes down $150, she will have to pay the maximum amount she wanted to pay for the bike. She would prefer to lower her bid, ideally just above Omar's bid, to avoid paying more than necessary. Thus Nina is incentivized to predict Omar's value, which might be difficult to do. If Omar's value is higher than expected, she could risk losing the bike at a price where she would have still wanted it.
-
-Second-price mechanisms save bidders this wasted effort. If Nina only pays Omar's value, then Nina never has to worry about predicting his value. She only has to worry about what she would pay, knowing that if she wins, her payment is only going to be as high as necessary to beat Omar. The second-price mechanism means bidders' optimal strategy is to bid based on their true values. As long as bidders don't have valuations for items that depend on whether they win other items, ascending auctions preserve this optimality of truthful bidding.
+To see why this matters, consider a first-price auction where Nina and Omar write down sealed bids and Pat accepts the higher one. Nina would want to bid just above Omar's value to avoid overpaying, which forces her to predict what Omar will bid. Guess too low and she loses the bike at a price she would have paid. Guess too high and she overpays. Second-price mechanisms remove this guessing. Nina's optimal strategy is simply to bid her true value, knowing her payment will only rise as high as needed to beat Omar.
 
 Note that in a real auction, Nina's and Omar's values are private. They only find out how the other person values the bike as the price rises through the rounds. We can see their values in the simulator, but this information is not normally visible.
 
 When bids are tied, the simulator will pick the bidder with the alphabetically earlier name as the high bidder. This keeps the exact results predictable for our analysis, but in real auctions this is randomized.
 
-Try swapping Nina and Omar's values. You'll observe that Omar now wins the bike, but at a price of $110 instead of $100. This is because the simulation always picks Nina as the high bidder in the first round. Omar and Nina then trade places as the high bidder each round after that. In round 10, Omar is the high bidder at a price of $90. Since Nina's value is $100, she is still willing to bid for the bike, and she does, becoming the high bidder in round 11 at a value of $100. Omar then bids again at a price of $110, and Nina drops out.
+Try swapping Nina and Omar's values. Omar now wins, but at $110 instead of $100. Since Nina is always picked as the high bidder in the first round, she and Omar alternate as high bidder each round, and Omar ends up being the one to place the final bid one increment above Nina's value.
 
 The size of the bid increment thus determines how much error there is in the final prices. If you change the bid increment to $5, you'll see that Omar now wins the bike for $105. If you change it to $1, Omar wins for $101.
-
-This asymmetry between Nina and Omar is only because the auction simulator is deterministic. In real auctions, each would have an equal opportunity to become the high bidder in the first round.
 
 ## Cooperative Auctions
 
@@ -52,7 +50,7 @@ In cooperative auctions, your bid is the wealth gap you're willing to accept, re
 
 This interpretation of bidder values holds true even as the number of bidders and the number of spaces increase. Try adding more bidders. Since these new bidders are treated as equal community members, they also obtain an equal share of the proceeds. Alex's relative loss of wealth versus the non-winning baseline remains $50 in all cases.
 
-Alex and Ben can layer their auction payments on top of their existing rent obligation to determine how much each needs to pay. If their rent is $2,000, an equal split would be $1,000 each. With the adjustments applied, their rent payments are $975 and $1,025.
+Each person's balance reflects their share of the proceeds minus their price. Alex's negative balance means he owes Ben and pays more rent. If their rent is $2,000, an equal split is $1,000 each. With adjustments applied, their rent payments are $1,025 and $975.
 
 Notice how Ben is assigned no room. This is because the assignment of the smaller room is clear from the auction result. However, we can make this explicit by adding the smaller room as an option in the auction. Try adding it as an additional room. Neither person bids for it, because they have no value for it. But if you assign them a value of zero for the smaller room, you'll see that Ben bids for it only after the price for the bigger room has climbed past his value for it.
 
@@ -84,15 +82,9 @@ Now that there's more than one desirable space, the method of choosing what to b
 
 This flexibility to shift bidding between rooms during the auction is why all the rooms are auctioned together. Separate auctions for each room wouldn't allow the bidders to properly respond to competition.
 
-In Round 4 of the auction, Cam switches from bidding on the large room to bidding on the medium room. In this round, bids on the large room are now at $40 (the high bid of $30 plus the bid increment of $10), and this is only $20 of surplus in Cam's eyes, since he sees the large room as worth $60. At the same time, he can still bid for the medium room for $0, and since Cam sees it as worth up to $30, it would provide Cam $30 of surplus. So Cam switches to bidding for the medium room, even though the large room hasn't yet reached Cam's value for it.
+Watch how bidders shift between rooms. In round 4, Cam abandons the large room: a bid there would cost $40 for $20 of surplus, while the medium room is still free and worth $30 to him. Ben does the same in round 5, switching to the medium room where $10 buys him $70 of surplus, better than the $60 surplus from continuing with the large room. When surpluses tie, the tiebreaker favors the higher-valued room, which is why Cam returns to the large room in round 6.
 
-Ben's values for the large and medium rooms are $110 and $80, and the same thing happens for Ben in round 5 when the price of the large room has reached $40. Ben now has the choice between bidding for it at $50, which gives him a surplus of $60, or bidding for the medium room at a price of $10, which gives him a surplus of $70. The smaller room is a better deal for him.
-
-Then in round 6, having been replaced by Ben as the high bidder for the medium room, Cam reevaluates his options. He can choose to bid for the large room at $50 and a surplus of $10, or bid for the medium room at a price of $20 and a surplus of $10 as well. Since these surpluses are equal, the tiebreaker favors the space with the higher value, so Cam bids for the large space, and replaces Alex as the high bidder for it.
-
-After that, Alex bids for the large room back, and Cam, no longer interested in the large room at a price of $70, bids for the medium room at a price of $20 and a surplus of $10.
-
-Then Ben reclaims the medium room in round 10, and Cam finally bids for the small room, seeing as none of the desirable spaces are cheap enough. The auction concludes after no new bids are placed in round 11.
+The rest of the auction plays out the same way: bidders pursue whichever room currently offers the most surplus. Ben eventually settles on the medium room, and Cam on the small room once nothing more valuable is cheap enough. The auction ends in round 11 when no one places any new bids.
 
 The final allocation is Alex taking the large room for $60, Ben taking the medium room for $30, and Cam taking the small room for $0. The proceeds are $90, and divided equally each person receives a $30 credit.
 
@@ -100,9 +92,9 @@ Notice how Ben wins the medium room for $30, which is Cam's value for the room. 
 
 As for the final payments, we can see the interpretation of the prices as the relative difference in wealth between winners and non-winners. With payments of $60 and $30, the proceeds are $90 and the equal share is $30. Cam, paying nothing in the auction, gains this payment. Alex pays $60 and gets back $30, for a net loss of $30 and a relative loss of $60 compared to Cam. Ben's $30 payment is exactly offset by the $30 distribution, and his net payment of $0 leaves him with exactly $30 less than Cam.
 
-The reason this interpretation of prices is useful is that it holds true regardless of the overall payment level. If you set Cam's value for the medium room to $0, then Ben is able to win the medium room for $0, and the total proceeds are only $60. With an equal share of $20 instead of $30, Alex's net payment rises from $30 to $40. Since Ben and Cam now receive only $20 of credit, Alex's payment still leaves him with exactly $60 less than Ben or Cam. The only thing that changed was the level of competition for the medium room, which changed the overall payment level, but did not affect the fact that the auction prices are the relative difference in wealth between winners and non-winners.
+This interpretation holds true regardless of the overall payment level. Try setting Cam's value for the medium room to $0: Ben wins it for $0, total proceeds fall to $60, and the equal share drops to $20. But Alex still ends up exactly $60 behind Ben and Cam. Competition changes the payment level, but it doesn't change the wealth gap the prices encode.
 
-This property remains true even as the auctions get big. Here's an example of a big auction with more complex dynamics.
+Everything gets more interesting at scale. Here's a larger auction. Try stepping through it and watching how bidders reposition as prices climb.
 
 <!-- @@section:after_large_auction -->
 
@@ -152,7 +144,7 @@ Compared to voting, decision auctions are fairer in that non-winners of the deci
 
 In chore auctions, people compete to bid the lowest price to do a task on behalf of the community. Chore auctions set starting prices for items negative, so that winning the auction for the chore means receiving payment from the community to do it. As the auction progresses, payment climbs towards zero, representing a smaller and smaller reward, until there is only one bidder remaining.
 
-Setting starting prices to a positive value is also useful if a space has value when unallocated to a particular person. For example, a desk might be day-use by default, unless someone is willing to pay at least some minimum price to reserve it for themselves. Or, a common area can be reserved for events on Friday evenings, but only if a minimum payment is reached. The community can tune this minimum to determine how often the resource gets reserved instead of remaining common.
+Setting starting prices to a positive value is also useful if a space has value when unallocated to a particular person. For example, a desk might be day-use by default, unless someone is willing to pay at least some minimum price to reserve it for themselves. Or, a common area can be reserved for events, but only if a minimum payment is reached. The community can tune this minimum to determine how often the resource gets reserved instead of remaining common.
 
 ## Do it Yourself
 
