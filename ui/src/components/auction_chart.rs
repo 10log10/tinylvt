@@ -32,16 +32,19 @@ pub struct Props {
     pub item_term: &'static str,
 }
 
-// Desktop: 5-column grid with headings. space | bar | price | high-bid |
-// new-bids. Pills show full bidder names; new-bids wraps so rows grow taller
-// rather than clipping names. Price column uses minmax(4rem, auto) to stay wide
-// enough for typical values but expand for large ones.
+// Desktop: 5-column grid with headings (space | bar | price | high-bid |
+// new-bids). Each column is sized to stay stable across frames so the layout
+// doesn't jitter when the winner or the set of new bidders changes:
+// - space: auto (short pill labels)
+// - bar: 1fr (absorbs remaining space)
+// - price: minmax(4rem, auto) — wide enough for typical values, grows for
+//   unusually large amounts
+// - high-bid: minmax(5rem, 7rem) — capped so a long winner name doesn't push
+//   the bar column around; overflow truncates inside the bidder pill
+// - new-bids: minmax(8rem, 1fr) — pills wrap vertically when full
 //
-// Mobile: a stacked card per space (see SpaceRowMobile below). The grid and its
+// Mobile: a stacked card per space (see mobile_card). The grid and its
 // headings are hidden on mobile.
-const GRID_CLASSES: &str = "\
-    hidden sm:grid gap-x-3 gap-y-2 items-start \
-    sm:grid-cols-[auto_1fr_minmax(4rem,auto)_auto_minmax(8rem,1fr)]";
 
 const HEADING_CLASSES: &str = "\
     text-xs font-medium text-neutral-500 \
@@ -109,7 +112,10 @@ fn desktop_grid_view(
     x_max_f64: f64,
 ) -> Html {
     html! {
-        <div class={GRID_CLASSES}>
+        <div class={classes!(
+            "hidden", "sm:grid", "gap-x-3", "gap-y-2", "items-start",
+            "sm:grid-cols-[auto_1fr_minmax(4rem,auto)_minmax(5rem,7rem)_minmax(8rem,1fr)]",
+        )}>
             // Column headings
             <div class={classes!(HEADING_CLASSES, "text-right")}>
                 {capitalize(props.item_term)}
@@ -349,8 +355,8 @@ fn render_bidder_pill(
 ) -> Html {
     let Some(&idx) = bidder_idx.get(&bidder.user_id) else {
         return html! {
-            <span class="inline-block text-neutral-700 \
-                dark:text-neutral-300">
+            <span class="inline-block max-w-full truncate \
+                text-neutral-700 dark:text-neutral-300">
                 {render_user_name(bidder)}
             </span>
         };
@@ -364,7 +370,12 @@ fn render_bidder_pill(
     html! {
         <span
             class={classes!(
-                "inline-block", "px-1.5", "py-0.5", "rounded",
+                "inline-block",
+                "max-w-full",
+                "truncate",
+                "px-1.5",
+                "py-0.5",
+                "rounded",
                 "bg-[var(--subway-light)]",
                 "dark:bg-[var(--subway-dark)]",
                 text_class,
