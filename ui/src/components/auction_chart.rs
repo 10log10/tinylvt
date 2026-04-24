@@ -113,7 +113,7 @@ fn desktop_grid_view(
 ) -> Html {
     html! {
         <div class={classes!(
-            "hidden", "sm:grid", "gap-x-3", "gap-y-2", "items-start",
+            "hidden", "sm:grid", "gap-x-3", "gap-y-2", "items-center",
             "sm:grid-cols-[auto_1fr_minmax(4rem,auto)_minmax(5rem,7rem)_minmax(8rem,1fr)]",
         )}>
             // Column headings
@@ -149,24 +149,20 @@ fn desktop_row(
     html! {
         <>
             // Space name — pill tinted with the space color so it ties to the
-            // line in PriceChart and the band in SubwayDiagram. Right-aligned
-            // so the pill sits flush against the bar.
-            <div class="text-sm text-right min-w-0">
+            // line in PriceChart and the band in SubwayDiagram. Flex +
+            // justify-end pushes the block pill to the right edge so it sits
+            // flush against the bar.
+            <div class="text-sm flex justify-end min-w-0">
                 {space_pill(row.space_idx, &row.name)}
             </div>
 
-            // Bar. Vertically centered within the pill's line-box so it sits
-            // at the same midline as the space pill on its left. The inner
-            // bar needs w-full because flex items default to their content
-            // width, which would be 0 for this empty div.
-            <div class="flex items-center h-7">
-                <div class="w-full">{bar}</div>
-            </div>
+            // Bar
+            {bar}
 
             // Price
-            <div class="-ml-2 text-sm \
+            <div class="-ml-2 text-sm flex justify-end \
                 text-neutral-600 dark:text-neutral-400 \
-                text-right tabular-nums">
+                tabular-nums">
                 {price_cell(row.result.as_ref(), currency)}
             </div>
 
@@ -228,17 +224,17 @@ fn mobile_card(
 
             // Row 3: high bid + new bids, both labeled. Pills wrap freely.
             <div class="flex flex-col gap-1">
-                <div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
+                <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
                     <span class={MOBILE_LABEL_CLASSES}>{"High bid"}</span>
-                    <span class="text-sm">
+                    <div class="text-sm">
                         {high_bid_cell(row.result.as_ref(), bidder_idx)}
-                    </span>
+                    </div>
                 </div>
-                <div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
+                <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
                     <span class={MOBILE_LABEL_CLASSES}>{"New bids"}</span>
-                    <span class="text-sm flex flex-wrap gap-1">
+                    <div class="text-sm flex flex-wrap gap-1">
                         {new_bids_cell(&row.new_bids, bidder_idx)}
-                    </span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -271,8 +267,11 @@ fn bar_html(result: Option<&RoundSpaceResult>, x_max_f64: f64) -> Html {
 fn space_pill(space_idx: usize, name: &str) -> Html {
     let style = space_color_style(space_idx);
     html! {
+        // `block w-fit` gives a content-sized block that skips inline
+        // line-box metrics, so the pill's height is exactly text + padding
+        // with no phantom descent space around it.
         <span
-            class="inline-block max-w-full truncate \
+            class="block w-fit max-w-full truncate \
                 px-1.5 py-0.5 rounded font-medium \
                 text-neutral-900 \
                 bg-[var(--space-light)] \
@@ -293,7 +292,7 @@ fn price_cell(
             // Match pill padding so the baseline aligns with pills in the
             // same row and swapping in/out of an em-dash doesn't shift the
             // row height.
-            <span class="inline-block px-1.5 py-0.5">
+            <span class="block w-fit px-1.5 py-0.5">
                 {currency.format_amount(r.value)}
             </span>
         },
@@ -335,7 +334,8 @@ fn new_bids_cell(
 fn em_dash_placeholder_pill(text_class: &'static str) -> Html {
     html! {
         <span class={classes!(
-            "inline-block",
+            "block",
+            "w-fit",
             "px-1.5",
             "py-0.5",
             "rounded",
@@ -355,7 +355,7 @@ fn render_bidder_pill(
 ) -> Html {
     let Some(&idx) = bidder_idx.get(&bidder.user_id) else {
         return html! {
-            <span class="inline-block max-w-full truncate \
+            <span class="block w-fit max-w-full truncate \
                 text-neutral-700 dark:text-neutral-300">
                 {render_user_name(bidder)}
             </span>
@@ -370,7 +370,8 @@ fn render_bidder_pill(
     html! {
         <span
             class={classes!(
-                "inline-block",
+                "block",
+                "w-fit",
                 "max-w-full",
                 "truncate",
                 "px-1.5",
