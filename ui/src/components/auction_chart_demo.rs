@@ -387,8 +387,8 @@ pub fn AuctionScenarioPlayer(props: &AuctionScenarioPlayerProps) -> Html {
                             dark:text-neutral-500 mb-3">
                             {"Auction proceeds are split \
                             equally. Each person\u{2019}s \
-                            adjustment is their price \
-                            minus their share."}
+                            balance is their share \
+                            minus their price."}
                         </p>
                     </div>
                     <AuctionSettlement
