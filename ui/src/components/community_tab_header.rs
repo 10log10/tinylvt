@@ -119,61 +119,67 @@ fn StorageWarning(props: &StorageWarningProps) -> Html {
     let storage_hook = use_storage_usage(props.community_id);
     let navigator = use_navigator().unwrap();
 
-    // Only show warning if we have data and usage is ≥75%
-    let Some(usage) = storage_hook.data.as_ref() else {
-        return html! {};
-    };
+    // Silent on loading/error/below-threshold: this is a passive badge
+    // shown only when there's a real concern. Loading and errors produce
+    // empty output (the user shouldn't see "loading…" for a warning that
+    // may not apply).
+    storage_hook.inner.render(
+        |usage, _is_loading, _errors| {
+            let percent = usage.usage_percentage();
+            if percent < 75.0 {
+                return html! {};
+            }
 
-    let percent = usage.usage_percentage();
+            let total = usage.usage.total_bytes();
+            let limit = usage.limits.storage_bytes;
 
-    if percent < 75.0 {
-        return html! {};
-    }
+            let (bg_class, text_class, icon) = if percent >= 90.0 {
+                (
+                    "bg-red-100 dark:bg-red-900/30",
+                    "text-red-700 dark:text-red-400",
+                    "!",
+                )
+            } else {
+                (
+                    "bg-amber-100 dark:bg-amber-900/30",
+                    "text-amber-700 dark:text-amber-400",
+                    "!",
+                )
+            };
 
-    let total = usage.usage.total_bytes();
-    let limit = usage.limits.storage_bytes;
+            let onclick = {
+                let community_id = props.community_id;
+                let navigator = navigator.clone();
+                Callback::from(move |_| {
+                    navigator
+                        .push(&Route::CommunityBilling { id: community_id });
+                })
+            };
 
-    let (bg_class, text_class, icon) = if percent >= 90.0 {
-        (
-            "bg-red-100 dark:bg-red-900/30",
-            "text-red-700 dark:text-red-400",
-            "!",
-        )
-    } else {
-        (
-            "bg-amber-100 dark:bg-amber-900/30",
-            "text-amber-700 dark:text-amber-400",
-            "!",
-        )
-    };
-
-    let onclick = {
-        let community_id = props.community_id;
-        let navigator = navigator.clone();
-        Callback::from(move |_| {
-            navigator.push(&Route::CommunityBilling { id: community_id });
-        })
-    };
-
-    html! {
-        <button
-            {onclick}
-            class={classes!(
-                "flex", "items-center", "gap-1.5", "px-2.5", "py-1",
-                "rounded-md", "text-sm", "font-medium", bg_class, text_class,
-                "hover:opacity-80", "transition-opacity",
-                "border-none", "cursor-pointer"
-            )}
-        >
-            <span class="font-bold">{icon}</span>
-            <span>
-                {"Storage: "}
-                {format_bytes(total)}
-                {"/"}
-                {format_bytes(limit)}
-            </span>
-        </button>
-    }
+            html! {
+                <button
+                    {onclick}
+                    class={classes!(
+                        "flex", "items-center", "gap-1.5", "px-2.5", "py-1",
+                        "rounded-md", "text-sm", "font-medium",
+                        bg_class, text_class,
+                        "hover:opacity-80", "transition-opacity",
+                        "border-none", "cursor-pointer"
+                    )}
+                >
+                    <span class="font-bold">{icon}</span>
+                    <span>
+                        {"Storage: "}
+                        {format_bytes(total)}
+                        {"/"}
+                        {format_bytes(limit)}
+                    </span>
+                </button>
+            }
+        },
+        || html! {},
+        |_errors: &[String]| html! {},
+    )
 }
 
 #[function_component]

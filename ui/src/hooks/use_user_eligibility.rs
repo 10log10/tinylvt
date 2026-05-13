@@ -11,7 +11,7 @@ use crate::{
 /// Returns the eligibility score which determines which spaces the user
 /// can bid on based on the round's eligibility threshold.
 ///
-/// The data field uses `FetchState<Option<f64>>` to distinguish:
+/// The data field uses `FetchData<Option<f64>>` to distinguish:
 /// - `NotFetched`: Haven't called the API yet
 /// - `Fetched(None)`: API returned None (e.g., round 0 has no eligibility)
 /// - `Fetched(Some(0.5))`: API returned Some(0.5)

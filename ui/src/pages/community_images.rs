@@ -8,7 +8,7 @@ use crate::{
         ConfirmationModal, community_tab_header::ActiveTab,
     },
     get_api_client,
-    hooks::use_community_images,
+    hooks::{render_section, use_community_images},
 };
 
 #[derive(Properties, PartialEq)]
@@ -51,8 +51,10 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
     let images_hook = use_community_images(props.community.id);
     let success_message = use_state(|| None::<String>);
 
-    // Delete confirmation state
-    let delete_target = use_state(|| None::<SiteImageId>);
+    // Delete confirmation state. Capturing the name alongside the id at
+    // click time avoids a lookup back into the images list later (the name
+    // is already known wherever the delete button is rendered).
+    let delete_target = use_state(|| None::<(SiteImageId, String)>);
     let is_deleting = use_state(|| false);
     let delete_error = use_state(|| None::<String>);
 
@@ -71,8 +73,8 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
     // Handle delete click
     let on_delete_click = {
         let delete_target = delete_target.clone();
-        Callback::from(move |id: SiteImageId| {
-            delete_target.set(Some(id));
+        Callback::from(move |target: (SiteImageId, String)| {
+            delete_target.set(Some(target));
         })
     };
 
@@ -85,8 +87,8 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
         let refetch = images_hook.refetch.clone();
 
         Callback::from(move |_| {
-            let image_id = match *delete_target {
-                Some(id) => id,
+            let image_id = match delete_target.as_ref() {
+                Some((id, _)) => *id,
                 None => return,
             };
 
@@ -230,7 +232,10 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
             </div>
 
             // Images list
-            {images_hook.render("images", |images, _, _| {
+            {render_section(
+                &images_hook.inner,
+                "images",
+                |images, _, _| {
                 if images.is_empty() {
                     return html! {
                         <div class="text-center py-8 text-neutral-500
@@ -260,14 +265,7 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
             })}
 
             // Delete confirmation modal
-            {if let Some(image_id) = *delete_target {
-                let image_name = images_hook.data.as_ref()
-                    .and_then(|images| {
-                        images.iter().find(|i| i.id == image_id)
-                    })
-                    .map(|i| i.name.clone())
-                    .unwrap_or_else(|| "this image".to_string());
-
+            {if let Some((_image_id, image_name)) = delete_target.as_ref() {
                 html! {
                     <ConfirmationModal
                         title="Delete Image"
@@ -295,7 +293,7 @@ fn CommunityImagesContent(props: &ContentProps) -> Html {
 #[derive(Properties, PartialEq)]
 struct ImageCardProps {
     image: responses::SiteImageInfo,
-    on_delete: Callback<SiteImageId>,
+    on_delete: Callback<(SiteImageId, String)>,
     on_rename: Callback<(SiteImageId, String)>,
 }
 
@@ -352,8 +350,9 @@ fn ImageCard(props: &ImageCardProps) -> Html {
     let on_delete = {
         let on_delete = props.on_delete.clone();
         let image_id = props.image.id;
+        let image_name = props.image.name.clone();
         Callback::from(move |_| {
-            on_delete.emit(image_id);
+            on_delete.emit((image_id, image_name.clone()));
         })
     };
 

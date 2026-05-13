@@ -51,6 +51,7 @@ pub struct TestApp {
     pub client: payloads::APIClient,
     pub time_source: TimeSource,
     pub stripe_service: std::sync::Arc<api::stripe_service::StripeService>,
+    pub pubsub: api::pubsub::PubSub,
 }
 
 /// Email testing utilities for TestApp
@@ -869,16 +870,34 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         .unwrap();
 
     let stripe_service = config.create_stripe_service();
+    let pubsub = api::pubsub::PubSub::new();
+
+    // Subscribe before `build` spawns the listener task. The listener calls
+    // `reset()` once on entry (just after LISTEN succeeds), which closes
+    // every receiver attached to the original sender. Awaiting `Closed` on
+    // this probe is therefore exactly the "listener ready" barrier — without
+    // it, tests subscribing immediately after spawn_app would race the
+    // listener's entry-reset and lose their receivers.
+    let mut listener_ready_probe = pubsub.subscribe();
 
     let server = api::build(
         &mut config,
         db_pool.clone(),
         time_source.clone(),
         stripe_service.clone(),
+        pubsub.clone(),
     )
     .await
     .unwrap();
     tokio::spawn(server);
+
+    match listener_ready_probe.recv().await {
+        Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
+        other => panic!(
+            "expected pubsub listener entry-reset to close the probe receiver, \
+             got {other:?}",
+        ),
+    }
 
     TestApp {
         port: config.port,
@@ -889,6 +908,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         },
         time_source,
         stripe_service,
+        pubsub,
     }
 }
 

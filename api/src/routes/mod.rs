@@ -5,6 +5,7 @@ pub mod currency;
 pub mod login;
 pub mod proxy_bidding;
 pub mod site;
+pub mod sse;
 
 use actix_identity::Identity;
 use actix_web::{
@@ -107,6 +108,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(billing::create_checkout_session)
         .service(billing::create_portal_session)
         .service(billing::stripe_webhook)
+        .service(sse::sse_auction)
 }
 
 #[get("/health_check")]

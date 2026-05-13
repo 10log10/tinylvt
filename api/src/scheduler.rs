@@ -43,7 +43,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 
-use crate::{store, telemetry::log_error, time::TimeSource};
+use crate::{pubsub, store, telemetry::log_error, time::TimeSource};
 
 pub struct Scheduler {
     pool: PgPool,
@@ -465,6 +465,18 @@ async fn update_round_space_results_within_tx(
             .or_insert(Decimal::ZERO) += new_value;
     }
 
+    // The previous round is now fully concluded — its round_space_results have
+    // been written. Subscribers that care about results subscribe to
+    // RoundEnded.
+    pubsub::emit(
+        tx,
+        &payloads::AuctionEvent::RoundEnded {
+            auction_id: auction.id,
+            round_id: previous_round.id,
+        },
+    )
+    .await?;
+
     // Conclude the auction if there are no more bids
     if !any_bids {
         sqlx::query(
@@ -479,6 +491,14 @@ async fn update_round_space_results_within_tx(
         .with_context(|| {
             format!("failed to conclude auction {}", auction.id)
         })?;
+
+        pubsub::emit(
+            tx,
+            &payloads::AuctionEvent::AuctionEnded {
+                auction_id: auction.id,
+            },
+        )
+        .await?;
 
         // Get community_id from site for settlement
         let community_id: payloads::CommunityId =
@@ -580,6 +600,15 @@ pub async fn add_subsequent_rounds_for_auction(
     .fetch_one(&mut **tx)
     .await
     .context("inserting round into database")?;
+
+    pubsub::emit(
+        tx,
+        &payloads::AuctionEvent::RoundCreated {
+            auction_id: auction.id,
+            round_id: new_round.id,
+        },
+    )
+    .await?;
 
     Ok(new_round.id)
 }
@@ -1054,6 +1083,7 @@ async fn process_proxy_bidding_for_round(
             &settings,
             &spaces,
             &prev_round_space_results,
+            round.auction_id,
             &round.id,
             auction_params.bid_increment,
             pool,
@@ -1083,12 +1113,14 @@ async fn process_proxy_bidding_for_round(
         max_items = settings.max_items
     )
 )]
+#[allow(clippy::too_many_arguments)]
 async fn process_user_proxy_bidding(
     settings: &store::UseProxyBidding,
     // all spaces
     spaces: &[store::Space],
     // prices as of the previous round; does not exist for round 0
     prev_round_space_results: &[store::RoundSpaceResult],
+    auction_id: payloads::AuctionId,
     current_round_id: &payloads::AuctionRoundId,
     bid_increment: rust_decimal::Decimal,
     pool: &PgPool,
@@ -1242,6 +1274,16 @@ async fn process_user_proxy_bidding(
             }
         }
     }
+
+    pubsub::emit(
+        &mut tx,
+        &payloads::AuctionEvent::BidsChanged {
+            auction_id,
+            round_id: *current_round_id,
+            user_id: settings.user_id,
+        },
+    )
+    .await?;
 
     tx.commit().await?;
 

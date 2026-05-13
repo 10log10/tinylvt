@@ -2,7 +2,7 @@ use payloads::{CommunityId, SiteImageId};
 use yew::prelude::*;
 
 use crate::get_api_client;
-use crate::hooks::use_community_images;
+use crate::hooks::{render_cell, use_community_images};
 
 use super::ImagePicker;
 
@@ -25,16 +25,19 @@ pub fn SiteImageSelector(props: &Props) -> Html {
     let show_picker = use_state(|| false);
     let community_images_hook = use_community_images(props.community_id);
 
-    // Look up current image name from the community images list
-    let current_image_name: Option<String> =
-        props.current_image_id.and_then(|id| {
-            community_images_hook.data.as_ref().and_then(|images| {
-                images
-                    .iter()
-                    .find(|img| img.id == id)
-                    .map(|img| img.name.clone())
-            })
-        });
+    // The name-label rendering is loading/error/value-shaped — derived as
+    // a `Fetch<Option<String>>` from the community images list and rendered
+    // via `render_cell` at the label site below. While loading, the cell
+    // shows a skeleton; once fetched, it shows the name (or nothing if the
+    // image isn't in the list).
+    let current_image_name_fetch = props.current_image_id.map(|id| {
+        community_images_hook.inner.map_ref(|images| {
+            images
+                .iter()
+                .find(|img| img.id == id)
+                .map(|img| img.name.clone())
+        })
+    });
 
     // Show image picker
     let on_show_picker = {
@@ -101,22 +104,29 @@ pub fn SiteImageSelector(props: &Props) -> Html {
                                         flex-shrink-0">
                                 <img
                                     src={src}
-                                    alt={current_image_name.clone().unwrap_or_default()}
+                                    alt="Current site image"
                                     class="w-full h-full object-cover"
                                 />
                             </div>
                             <div class="flex-1 min-w-0">
-                                {if let Some(name) = &current_image_name {
-                                    html! {
-                                        <p class="text-sm font-medium text-neutral-900
-                                                  dark:text-neutral-100 truncate">
-                                            {name}
-                                        </p>
-                                    }
-                                } else {
-                                    html! {}
+                                {match &current_image_name_fetch {
+                                    Some(name_fetch) => render_cell(
+                                        name_fetch,
+                                        |name_opt| match name_opt {
+                                            Some(name) => html! {
+                                                <p class="text-sm font-medium \
+                                                          text-neutral-900 \
+                                                          dark:text-neutral-100 \
+                                                          truncate">
+                                                    {name}
+                                                </p>
+                                            },
+                                            None => html! {},
+                                        },
+                                    ),
+                                    None => html! {},
                                 }}
-                                <div class={if current_image_name.is_some() { "mt-2 flex flex-wrap gap-1" } else { "flex flex-wrap gap-1" }}>
+                                <div class="mt-2 flex flex-wrap gap-1">
                                     <button
                                         type="button"
                                         onclick={on_show_picker.clone()}

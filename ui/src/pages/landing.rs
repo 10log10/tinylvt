@@ -335,37 +335,11 @@ pub fn LandingPage() -> Html {
             <div class="max-w-2xl mx-auto">
                 <div class="flex flex-col sm:flex-row gap-6 \
                     justify-center text-center">
-                    {if let Some(s) = stats.data.as_ref() {
-                        html! {
-                            <>
-                            <div class="flex-1">
-                                <p class="text-3xl font-bold \
-                                    text-neutral-900 \
-                                    dark:text-neutral-100">
-                                    {s.auctions_held.to_string()}
-                                </p>
-                                <p class="text-sm text-neutral-500 \
-                                    dark:text-neutral-400 mt-1">
-                                    {"Auctions held"}
-                                </p>
-                            </div>
-                            <div class="flex-1">
-                                <p class="text-3xl font-bold \
-                                    text-neutral-900 \
-                                    dark:text-neutral-100">
-                                    {s.spaces_allocated.to_string()}
-                                </p>
-                                <p class="text-sm text-neutral-500 \
-                                    dark:text-neutral-400 mt-1">
-                                    {"Spaces allocated"}
-                                </p>
-                            </div>
-                            </>
-                        }
-                    } else {
-                        // Placeholder to reserve space and avoid
-                        // layout shift while loading
-                        html! {
+                    {{
+                        // Custom loading: invisible placeholder reserves
+                        // space to avoid layout shift while stats load.
+                        // Errors fall through to the same placeholder.
+                        let placeholder = || html! {
                             <>
                             <div class="flex-1 invisible">
                                 <p class="text-3xl font-bold">
@@ -380,7 +354,37 @@ pub fn LandingPage() -> Html {
                                 <p class="text-sm mt-1">{"\u{00a0}"}</p>
                             </div>
                             </>
-                        }
+                        };
+                        stats.inner.render(
+                            |s, _is_loading, _errors| html! {
+                                <>
+                                <div class="flex-1">
+                                    <p class="text-3xl font-bold \
+                                        text-neutral-900 \
+                                        dark:text-neutral-100">
+                                        {s.auctions_held.to_string()}
+                                    </p>
+                                    <p class="text-sm text-neutral-500 \
+                                        dark:text-neutral-400 mt-1">
+                                        {"Auctions held"}
+                                    </p>
+                                </div>
+                                <div class="flex-1">
+                                    <p class="text-3xl font-bold \
+                                        text-neutral-900 \
+                                        dark:text-neutral-100">
+                                        {s.spaces_allocated.to_string()}
+                                    </p>
+                                    <p class="text-sm text-neutral-500 \
+                                        dark:text-neutral-400 mt-1">
+                                        {"Spaces allocated"}
+                                    </p>
+                                </div>
+                                </>
+                            },
+                            placeholder,
+                            |_errors: &[String]| placeholder(),
+                        )
                     }}
                 </div>
             </div>

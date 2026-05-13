@@ -50,6 +50,15 @@ impl APIClient {
 
 /// Methods on the backend API
 impl APIClient {
+    /// URL for the per-auction SSE stream. The endpoint is consumed by the
+    /// browser's `EventSource` (UI) and by a bare reqwest streaming client
+    /// (integration tests), neither of which goes through the JSON helpers
+    /// above, so this just returns the URL string for the caller to open
+    /// however it needs.
+    pub fn sse_auction_url(&self, auction_id: AuctionId) -> String {
+        self.format_url(&format!("sse/auctions/{}", auction_id.0))
+    }
+
     pub async fn health_check(&self) -> Result<(), ClientError> {
         let response = self.empty_get("health_check").await?;
         ok_empty(response).await

@@ -2,14 +2,17 @@ use payloads::{AuctionRoundId, RoundSpaceResult};
 use yew::prelude::*;
 
 use crate::get_api_client;
-use crate::hooks::use_fetch::use_fetch;
+use crate::hooks::{FetchHookReturn, use_fetch};
 
-pub use crate::hooks::use_fetch::FetchHookReturn;
-
-/// Hook to fetch space prices (results) for a specific round
+/// Hook to fetch space prices (results) for a specific round.
 ///
-/// Returns the winning bid value for each space in the round.
-/// If round_id is None, the hook will not fetch and return empty state.
+/// Returns the winning bid value for each space in the round. If `round_id`
+/// is `None`, the hook returns an empty result without fetching.
+///
+/// Round results are immutable once written by the scheduler, so this hook
+/// doesn't subscribe to SSE. Callers pass `previous_round_id` from the
+/// parent's last-round fetch; when a round transition happens, the parent
+/// re-renders with a new id and the hook key change drives the refetch.
 #[hook]
 pub fn use_round_prices(
     round_id: Option<AuctionRoundId>,

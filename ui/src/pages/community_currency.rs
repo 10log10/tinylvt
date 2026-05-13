@@ -85,97 +85,95 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             {"Your Balance"}
                         </h2>
 
-                        {
-                            if currency_info.is_initial_loading() {
-                                html! {
-                                    <div class="space-y-3">
-                                        <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                    </div>
-                                }
-                            } else if let Some(error) = &currency_info.error {
-                                html! {
-                                    <div class="text-red-600 dark:text-red-400">
-                                        {format!("Error loading balance: {}", error)}
-                                    </div>
-                                }
-                            } else if let Some(info) = currency_info.data.as_ref() {
-                                html! {
-                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                        // Balance
-                                        <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
-                                            <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                                {"Balance"}
-                                            </div>
-                                            <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                {props.community.community.currency.format_amount(info.balance)}
-                                            </div>
+                        {currency_info.inner.render(
+                            |info, _is_loading, _errors| html! {
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    // Balance
+                                    <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
+                                        <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                                            {"Balance"}
                                         </div>
-
-                                        // Credit Limit (only for modes that support it)
-                                        {
-                                            if supports_credit_limits {
-                                                html! {
-                                                    <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
-                                                        <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                                            {"Credit Limit"}
-                                                        </div>
-                                                        <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                            {
-                                                                if let Some(limit) = info.credit_limit {
-                                                                    props.community.community.currency.format_amount(limit)
-                                                                } else {
-                                                                    "Unlimited".to_string()
-                                                                }
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                }
-                                            } else {
-                                                html! {}
-                                            }
-                                        }
-
-                                        // Locked Balance
-                                        <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
-                                            <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                                {"Locked Balance"}
-                                            </div>
-                                            <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                {props.community.community.currency.format_amount(info.locked_balance)}
-                                            </div>
+                                        <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+                                            {props.community.community.currency.format_amount(info.balance)}
                                         </div>
-
-                                        // Available Credit (only for modes that support credit)
-                                        {
-                                            if supports_credit_limits {
-                                                html! {
-                                                    <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
-                                                        <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                                            {"Available Credit"}
-                                                        </div>
-                                                        <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                                            {
-                                                                if let Some(available) = info.available_credit {
-                                                                    props.community.community.currency.format_amount(available)
-                                                                } else {
-                                                                    "Unlimited".to_string()
-                                                                }
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                }
-                                            } else {
-                                                html! {}
-                                            }
-                                        }
                                     </div>
-                                }
-                            } else {
-                                html! {}
-                            }
-                        }
+
+                                    // Credit Limit (only for modes that support it)
+                                    {
+                                        if supports_credit_limits {
+                                            html! {
+                                                <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
+                                                    <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                                                        {"Credit Limit"}
+                                                    </div>
+                                                    <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+                                                        {
+                                                            if let Some(limit) = info.credit_limit {
+                                                                props.community.community.currency.format_amount(limit)
+                                                            } else {
+                                                                "Unlimited".to_string()
+                                                            }
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        } else {
+                                            html! {}
+                                        }
+                                    }
+
+                                    // Locked Balance
+                                    <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
+                                        <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                                            {"Locked Balance"}
+                                        </div>
+                                        <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+                                            {props.community.community.currency.format_amount(info.locked_balance)}
+                                        </div>
+                                    </div>
+
+                                    // Available Credit (only for modes that support credit)
+                                    {
+                                        if supports_credit_limits {
+                                            html! {
+                                                <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
+                                                    <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                                                        {"Available Credit"}
+                                                    </div>
+                                                    <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+                                                        {
+                                                            if let Some(available) = info.available_credit {
+                                                                props.community.community.currency.format_amount(available)
+                                                            } else {
+                                                                "Unlimited".to_string()
+                                                            }
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        } else {
+                                            html! {}
+                                        }
+                                    }
+                                </div>
+                            },
+                            || html! {
+                                <div class="space-y-3">
+                                    <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-8 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                </div>
+                            },
+                            |errors: &[String]| html! {
+                                <div class="space-y-2">
+                                    {for errors.iter().map(|err| html! {
+                                        <div class="text-red-600 dark:text-red-400">
+                                            {format!("Error loading balance: {}", err)}
+                                        </div>
+                                    })}
+                                </div>
+                            },
+                        )}
                     </div>
 
                     // Transfer Form Section
@@ -184,8 +182,8 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             {"Transfer "}
                             {&props.community.community.currency.name}
                         </h2>
-                        {
-                            if let Some(info) = currency_info.data.as_ref() {
+                        {currency_info.inner.render(
+                            |info, _is_loading, _errors| {
                                 let refetch_currency = currency_info.refetch.clone();
                                 let refetch_txns = transactions.refetch.clone();
                                 let offset_handle = offset.clone();
@@ -202,14 +200,16 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                         })}
                                     />
                                 }
-                            } else {
-                                html! {
-                                    <div class="text-neutral-600 dark:text-neutral-400">
-                                        {"Loading..."}
-                                    </div>
-                                }
-                            }
-                        }
+                            },
+                            || html! {
+                                <div class="text-neutral-600 dark:text-neutral-400">
+                                    {"Loading..."}
+                                </div>
+                            },
+                            // Errors already shown by the balance section above;
+                            // suppress here to avoid duplicate messaging.
+                            |_errors: &[String]| html! {},
+                        )}
                     </div>
 
                     // Transaction History Section
@@ -218,22 +218,8 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             {"Transaction History"}
                         </h2>
 
-                        {
-                            if transactions.is_initial_loading() {
-                                html! {
-                                    <div class="space-y-3">
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                    </div>
-                                }
-                            } else if let Some(error) = &transactions.error {
-                                html! {
-                                    <div class="text-red-600 dark:text-red-400">
-                                        {format!("Error loading transactions: {}", error)}
-                                    </div>
-                                }
-                            } else if let Some(txns) = transactions.data.as_ref() {
+                        {transactions.inner.render(
+                            |txns, is_loading, _errors| {
                                 let offset_handle = offset.clone();
                                 let on_offset_change = Callback::from(move |new_offset: i64| {
                                     offset_handle.set(new_offset);
@@ -251,14 +237,28 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                             limit={limit}
                                             current_count={txns.len()}
                                             on_offset_change={on_offset_change}
-                                            is_loading={transactions.is_loading}
+                                            is_loading={is_loading}
                                         />
                                     </>
                                 }
-                            } else {
-                                html! {}
-                            }
-                        }
+                            },
+                            || html! {
+                                <div class="space-y-3">
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                </div>
+                            },
+                            |errors: &[String]| html! {
+                                <div class="space-y-2">
+                                    {for errors.iter().map(|err| html! {
+                                        <div class="text-red-600 dark:text-red-400">
+                                            {format!("Error loading transactions: {}", err)}
+                                        </div>
+                                    })}
+                                </div>
+                            },
+                        )}
                     </div>
                 </div>
             </div>

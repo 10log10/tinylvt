@@ -4,7 +4,7 @@ use payloads::{
 use std::collections::{HashMap, HashSet};
 use yewdux::prelude::*;
 
-use crate::hooks::FetchState;
+use crate::hooks::FetchData;
 
 #[derive(Clone, PartialEq, Default)]
 pub enum AuthState {
@@ -38,7 +38,7 @@ pub struct State {
     pub auth_state: AuthState,
 
     // === Communities (managed by use_communities) ===
-    pub communities: FetchState<Vec<responses::CommunityWithRole>>,
+    pub communities: FetchData<Vec<responses::CommunityWithRole>>,
 
     // === Sites (canonical store - managed by use_sites + use_site) ===
     pub individual_sites: HashMap<SiteId, responses::Site>, /* Single source
@@ -80,7 +80,7 @@ impl State {
 
     pub fn get_communities(
         &self,
-    ) -> &FetchState<Vec<responses::CommunityWithRole>> {
+    ) -> &FetchData<Vec<responses::CommunityWithRole>> {
         &self.communities
     }
 
@@ -95,14 +95,14 @@ impl State {
     }
 
     pub fn clear_communities(&mut self) {
-        self.communities = FetchState::NotFetched;
+        self.communities = FetchData::NotFetched;
     }
 
     pub fn set_communities(
         &mut self,
         communities: Vec<responses::CommunityWithRole>,
     ) {
-        self.communities = FetchState::Fetched(communities);
+        self.communities = FetchData::Fetched(communities);
     }
 
     pub fn has_sites_loaded_for_community(

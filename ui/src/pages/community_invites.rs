@@ -6,7 +6,7 @@ use yew::prelude::*;
 use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, CopyButton,
 };
-use crate::hooks::use_issued_invites;
+use crate::hooks::{render_section, use_issued_invites};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -64,49 +64,36 @@ fn InvitesContent(props: &InvitesContentProps) -> Html {
                 </div>
 
                 <div class="p-6">
-                    {if issued_invites_hook.is_loading {
-                        html! {
-                            <div class="text-center py-8">
-                                <p class="text-neutral-600 dark:text-neutral-400">{"Loading invites..."}</p>
-                            </div>
-                        }
-                    } else if let Some(error) = &issued_invites_hook.error {
-                        html! {
-                            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-                            </div>
-                        }
-                    } else if let Some(invites) = issued_invites_hook.data.as_ref() {
-                        if invites.is_empty() {
-                            html! {
-                                <div class="text-center py-8">
-                                    <p class="text-neutral-600 dark:text-neutral-400">
-                                        {"No outstanding invites."}
-                                    </p>
-                                </div>
-                            }
-                        } else {
-                            html! {
-                                <div class="space-y-4">
-                                    {for invites.iter().map(|invite| {
-                                        html! {
+                    {render_section(
+                        &issued_invites_hook.inner,
+                        "invites",
+                        |invites, _is_loading, _errors| {
+                            if invites.is_empty() {
+                                html! {
+                                    <div class="text-center py-8">
+                                        <p class="text-neutral-600 \
+                                                  dark:text-neutral-400">
+                                            {"No outstanding invites."}
+                                        </p>
+                                    </div>
+                                }
+                            } else {
+                                html! {
+                                    <div class="space-y-4">
+                                        {for invites.iter().map(|invite| html! {
                                             <IssuedInviteCard
                                                 invite={invite.clone()}
                                                 community_id={props.community.id}
-                                                on_invite_deleted={issued_invites_hook.refetch.clone()}
+                                                on_invite_deleted={
+                                                    issued_invites_hook.refetch.clone()
+                                                }
                                             />
-                                        }
-                                    })}
-                                </div>
+                                        })}
+                                    </div>
+                                }
                             }
-                        }
-                    } else {
-                        html! {
-                            <div class="text-center py-8">
-                                <p class="text-neutral-600 dark:text-neutral-400">{"Loading..."}</p>
-                            </div>
-                        }
-                    }}
+                        },
+                    )}
                 </div>
             </div>
         </div>

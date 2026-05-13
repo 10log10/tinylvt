@@ -12,7 +12,7 @@ use crate::components::{
     SiteWithRole, WarningModal, site_tab_header::ActiveTab,
 };
 use crate::get_api_client;
-use crate::hooks::{use_auctions, use_spaces};
+use crate::hooks::{render_section, use_auctions, use_spaces};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -55,20 +55,52 @@ pub struct SpacesTabProps {
 fn SpacesTab(props: &SpacesTabProps) -> Html {
     let spaces_hook = use_spaces(props.site_id);
     let auctions_hook = use_auctions(props.site_id);
+
+    // Both spaces and auctions need to be loaded before we can render the
+    // edit UI safely: editing requires the spaces, and the warning gate
+    // requires knowing whether an auction is in progress. Zip the two and
+    // delegate to the inner component.
+    render_section(
+        &spaces_hook.inner.zip_ref(&auctions_hook.inner),
+        "spaces",
+        |(spaces, auctions), _is_loading, _errors| {
+            html! {
+                <SpacesEditor
+                    site_id={props.site_id}
+                    community_id={props.community_id}
+                    user_role={props.user_role}
+                    spaces={(*spaces).clone()}
+                    auctions={(*auctions).clone()}
+                    refetch_spaces={spaces_hook.refetch.clone()}
+                />
+            }
+        },
+    )
+}
+
+#[derive(Properties, PartialEq)]
+struct SpacesEditorProps {
+    site_id: SiteId,
+    community_id: CommunityId,
+    user_role: Role,
+    spaces: Vec<SpaceResponse>,
+    auctions: Vec<payloads::responses::Auction>,
+    refetch_spaces: Callback<()>,
+}
+
+/// Spaces grid + edit machinery. Mounted only after spaces and auctions
+/// have both been fetched, so callbacks can capture the spaces snapshot
+/// directly and the in-progress-auction check is reliable.
+#[function_component]
+fn SpacesEditor(props: &SpacesEditorProps) -> Html {
     let can_edit = props.user_role.is_ge_coleader();
 
-    // Check if there's an in-progress auction
-    let has_in_progress_auction = auctions_hook
-        .data
-        .as_ref()
-        .map(|auctions| {
-            let now = jiff::Timestamp::now();
-            auctions.iter().any(|auction| {
-                auction.auction_details.start_at <= now
-                    && auction.end_at.is_none()
-            })
+    let has_in_progress_auction = {
+        let now = jiff::Timestamp::now();
+        props.auctions.iter().any(|auction| {
+            auction.auction_details.start_at <= now && auction.end_at.is_none()
         })
-        .unwrap_or(false);
+    };
 
     let is_editing = use_state(|| false);
     let show_create_modal = use_state(|| false);
@@ -81,31 +113,23 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     let on_toggle_edit = {
         let is_editing = is_editing.clone();
         let edit_states = edit_states.clone();
-        let spaces = spaces_hook.data.as_ref().cloned();
+        let spaces = props.spaces.clone();
         let show_edit_warning_modal = show_edit_warning_modal.clone();
         Callback::from(move |_| {
             if *is_editing {
                 // Exiting edit mode - clear changes
                 edit_states.set(HashMap::new());
                 is_editing.set(false);
+            } else if has_in_progress_auction {
+                show_edit_warning_modal.set(true);
             } else {
-                // Entering edit mode - check for auction first
-                if has_in_progress_auction {
-                    show_edit_warning_modal.set(true);
-                } else {
-                    // No auction, proceed directly
-                    if let Some(ref spaces_vec) = spaces {
-                        let mut states = HashMap::new();
-                        for space in spaces_vec {
-                            states.insert(
-                                space.space_id,
-                                space.space_details.clone(),
-                            );
-                        }
-                        edit_states.set(states);
-                    }
-                    is_editing.set(true);
+                // No auction, proceed directly
+                let mut states = HashMap::new();
+                for space in &spaces {
+                    states.insert(space.space_id, space.space_details.clone());
                 }
+                edit_states.set(states);
+                is_editing.set(true);
             }
         })
     };
@@ -125,7 +149,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
     };
 
     let on_space_created = {
-        let refetch = spaces_hook.refetch.clone();
+        let refetch = props.refetch_spaces.clone();
         Callback::from(move |_| {
             refetch.emit(());
         })
@@ -142,36 +166,28 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         let show_edit_warning_modal = show_edit_warning_modal.clone();
         let is_editing = is_editing.clone();
         let edit_states = edit_states.clone();
-        let spaces = spaces_hook.data.as_ref().cloned();
+        let spaces = props.spaces.clone();
         Callback::from(move |()| {
-            // User confirmed, proceed with edit mode
-            if let Some(ref spaces_vec) = spaces {
-                let mut states = HashMap::new();
-                for space in spaces_vec {
-                    states.insert(space.space_id, space.space_details.clone());
-                }
-                edit_states.set(states);
+            let mut states = HashMap::new();
+            for space in &spaces {
+                states.insert(space.space_id, space.space_details.clone());
             }
+            edit_states.set(states);
             is_editing.set(true);
             show_edit_warning_modal.set(false);
         })
     };
 
     let on_save_all = {
-        let spaces = spaces_hook.data.as_ref().cloned();
+        let spaces = props.spaces.clone();
         let edit_states = edit_states.clone();
         let is_saving = is_saving.clone();
         let save_error = save_error.clone();
         let is_editing = is_editing.clone();
-        let refetch = spaces_hook.refetch.clone();
+        let refetch = props.refetch_spaces.clone();
         Callback::from(move |_| {
-            let spaces_vec = match &spaces {
-                Some(s) => s,
-                None => return,
-            };
-
             let mut updates = Vec::new();
-            for space in spaces_vec {
+            for space in &spaces {
                 if let Some(edit_state) = edit_states.get(&space.space_id)
                     && edit_state != &space.space_details
                 {
@@ -217,194 +233,164 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
         })
     };
 
-    let spaces_content = if spaces_hook.is_loading {
+    let spaces = &props.spaces;
+
+    let spaces_content = if spaces.is_empty() {
         html! {
             <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">{"Loading spaces..."}</p>
-            </div>
-        }
-    } else if let Some(error) = &spaces_hook.error {
-        html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
+                <p class="text-neutral-600 dark:text-neutral-400 mb-4">
+                    {"No spaces have been created for this site yet."}
+                </p>
+                {if can_edit {
+                    html! {
+                        <button
+                            onclick={on_show_create_modal.clone()}
+                            class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                        >
+                            {"Create First Space"}
+                        </button>
+                    }
+                } else {
+                    html! {}
+                }}
             </div>
         }
     } else {
-        match spaces_hook.data.as_ref() {
-            Some(spaces) => {
-                if spaces.is_empty() {
+        let any_space_has_image = spaces
+            .iter()
+            .any(|s| s.space_details.site_image_id.is_some());
+        let has_changes = spaces.iter().any(|space| {
+            if let Some(edit_state) = edit_states.get(&space.space_id) {
+                edit_state != &space.space_details
+            } else {
+                false
+            }
+        });
+
+        html! {
+            <div>
+                <div class="mb-4 flex items-center">
+                    <input
+                        type="checkbox"
+                        id="show-deleted-spaces"
+                        checked={*show_deleted}
+                        onclick={{
+                            let show_deleted = show_deleted.clone();
+                            Callback::from(move |_| show_deleted.set(!*show_deleted))
+                        }}
+                        class="h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-neutral-100 focus:ring-neutral-500"
+                    />
+                    <label for="show-deleted-spaces" class="ml-2 text-sm text-neutral-700 dark:text-neutral-300">
+                        {"Show deleted spaces"}
+                    </label>
+                </div>
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
+                        {"Spaces"}
+                    </h2>
+                    {if can_edit {
+                        html! {
+                            <div class="flex gap-2">
+                                {if *is_editing {
+                                    html! {
+                                        <>
+                                            <button
+                                                onclick={on_toggle_edit.clone()}
+                                                disabled={*is_saving}
+                                                class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
+                                                           rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
+                                                           bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
+                                                           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
+                                                           disabled:opacity-50 disabled:cursor-not-allowed
+                                                           transition-colors duration-200"
+                                            >
+                                                {"Cancel"}
+                                            </button>
+                                            {if has_changes {
+                                                html! {
+                                                    <button
+                                                        onclick={on_save_all.clone()}
+                                                        disabled={*is_saving}
+                                                        class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        {if *is_saving { "Saving..." } else { "Save All Changes" }}
+                                                    </button>
+                                                }
+                                            } else {
+                                                html! {}
+                                            }}
+                                        </>
+                                    }
+                                } else {
+                                    html! {
+                                        <>
+                                            <button
+                                                onclick={on_toggle_edit.clone()}
+                                                class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
+                                                           rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
+                                                           bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
+                                                           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
+                                                           transition-colors duration-200"
+                                            >
+                                                {"Edit Spaces"}
+                                            </button>
+                                            <button
+                                                onclick={on_show_create_modal.clone()}
+                                                class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                            >
+                                                {"Create New Space"}
+                                            </button>
+                                        </>
+                                    }
+                                }}
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
+                </div>
+
+                {if let Some(error) = &*save_error {
                     html! {
-                        <div class="text-center py-12">
-                            <p class="text-neutral-600 dark:text-neutral-400 mb-4">
-                                {"No spaces have been created for this site yet."}
-                            </p>
-                            {if can_edit {
-                                html! {
-                                    <button
-                                        onclick={on_show_create_modal.clone()}
-                                        class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                    >
-                                        {"Create First Space"}
-                                    </button>
-                                }
-                            } else {
-                                html! {}
-                            }}
+                        <div class="mb-4 p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                            <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
                         </div>
                     }
                 } else {
-                    let any_space_has_image = spaces
-                        .iter()
-                        .any(|s| s.space_details.site_image_id.is_some());
-                    let has_changes =
-                        if let Some(spaces) = spaces_hook.data.as_ref() {
-                            spaces.iter().any(|space| {
-                                if let Some(edit_state) =
-                                    edit_states.get(&space.space_id)
-                                {
-                                    edit_state != &space.space_details
-                                } else {
-                                    false
-                                }
-                            })
-                        } else {
-                            false
-                        };
+                    html! {}
+                }}
 
-                    html! {
-                        <div>
-                            <div class="mb-4 flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="show-deleted-spaces"
-                                    checked={*show_deleted}
-                                    onclick={{
-                                        let show_deleted = show_deleted.clone();
-                                        Callback::from(move |_| show_deleted.set(!*show_deleted))
-                                    }}
-                                    class="h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-neutral-100 focus:ring-neutral-500"
-                                />
-                                <label for="show-deleted-spaces" class="ml-2 text-sm text-neutral-700 dark:text-neutral-300">
-                                    {"Show deleted spaces"}
-                                </label>
-                            </div>
-                            <div class="flex justify-between items-center mb-6">
-                                <h2 class="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-                                    {"Spaces"}
-                                </h2>
-                                {if can_edit {
-                                    html! {
-                                        <div class="flex gap-2">
-                                            {if *is_editing {
-                                                html! {
-                                                    <>
-                                                        <button
-                                                            onclick={on_toggle_edit.clone()}
-                                                            disabled={*is_saving}
-                                                            class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
-                                                               rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                                               bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                                               disabled:opacity-50 disabled:cursor-not-allowed
-                                                               transition-colors duration-200"
-                                                        >
-                                                            {"Cancel"}
-                                                        </button>
-                                                        {if has_changes {
-                                                            html! {
-                                                                <button
-                                                                    onclick={on_save_all}
-                                                                    disabled={*is_saving}
-                                                                    class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                >
-                                                                    {if *is_saving { "Saving..." } else { "Save All Changes" }}
-                                                                </button>
-                                                            }
-                                                        } else {
-                                                            html! {}
-                                                        }}
-                                                    </>
-                                                }
-                                            } else {
-                                                html! {
-                                                    <>
-                                                        <button
-                                                            onclick={on_toggle_edit}
-                                                            class="py-2 px-4 border border-neutral-300 dark:border-neutral-600
-                                                               rounded-md shadow-sm text-sm font-medium text-neutral-700 dark:text-neutral-300
-                                                               bg-white dark:bg-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-600
-                                                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500
-                                                               transition-colors duration-200"
-                                                        >
-                                                            {"Edit Spaces"}
-                                                        </button>
-                                                        <button
-                                                            onclick={on_show_create_modal.clone()}
-                                                            class="bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                                        >
-                                                            {"Create New Space"}
-                                                        </button>
-                                                    </>
-                                                }
-                                            }}
-                                        </div>
-                                    }
-                                } else {
-                                    html! {}
-                                }}
-                            </div>
+                <p class="mb-4 text-sm text-neutral-600 \
+                          dark:text-neutral-400">
+                    {"Your space values can be edited on an auction \
+                      page."}
+                </p>
 
-                            {if let Some(error) = &*save_error {
-                                html! {
-                                    <div class="mb-4 p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                                        <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-                                    </div>
-                                }
-                            } else {
-                                html! {}
-                            }}
-
-                            <p class="mb-4 text-sm text-neutral-600 \
-                                      dark:text-neutral-400">
-                                {"Your space values can be edited on an auction \
-                                  page."}
-                            </p>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {spaces.iter().filter(|space| *show_deleted || space.deleted_at.is_none()).map(|space| {
-                                    let refetch = spaces_hook.refetch.clone();
-                                    let edit_states = edit_states.clone();
-                                    let space_id = space.space_id;
-                                    let community_id = props.community_id;
-                                    html! {
-                                        <SpaceCard
-                                            key={space.space_id.to_string()}
-                                            space={space.clone()}
-                                            community_id={community_id}
-                                            is_editing={*is_editing}
-                                            edit_state={edit_states.get(&space_id).cloned()}
-                                            on_edit_change={Callback::from(move |updated: Space| {
-                                                let mut states = (*edit_states).clone();
-                                                states.insert(space_id, updated);
-                                                edit_states.set(states);
-                                            })}
-                                            on_modify={Callback::from(move |_| refetch.emit(()))}
-                                            show_images={any_space_has_image}
-                                        />
-                                    }
-                                }).collect::<Html>()}
-                            </div>
-                        </div>
-                    }
-                }
-            }
-            None => {
-                html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400">{"No spaces data available"}</p>
-                    </div>
-                }
-            }
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {spaces.iter().filter(|space| *show_deleted || space.deleted_at.is_none()).map(|space| {
+                        let refetch = props.refetch_spaces.clone();
+                        let edit_states = edit_states.clone();
+                        let space_id = space.space_id;
+                        let community_id = props.community_id;
+                        html! {
+                            <SpaceCard
+                                key={space.space_id.to_string()}
+                                space={space.clone()}
+                                community_id={community_id}
+                                is_editing={*is_editing}
+                                edit_state={edit_states.get(&space_id).cloned()}
+                                on_edit_change={Callback::from(move |updated: Space| {
+                                    let mut states = (*edit_states).clone();
+                                    states.insert(space_id, updated);
+                                    edit_states.set(states);
+                                })}
+                                on_modify={Callback::from(move |_| refetch.emit(()))}
+                                show_images={any_space_has_image}
+                            />
+                        }
+                    }).collect::<Html>()}
+                </div>
+            </div>
         }
     };
 

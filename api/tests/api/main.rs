@@ -8,6 +8,7 @@ mod email;
 mod login;
 mod member_removal;
 mod proxy_bidding;
+mod pubsub;
 mod security_headers;
 mod site;
 

@@ -9,7 +9,7 @@ use crate::components::{
     user_identity_display::render_user_name,
 };
 use crate::get_api_client;
-use crate::hooks::use_orphaned_accounts;
+use crate::hooks::{render_section, use_orphaned_accounts};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -60,39 +60,41 @@ fn OrphanedAccountsContent(props: &OrphanedAccountsContentProps) -> Html {
         "transferred to the treasury"
     };
 
-    orphaned_hook.render("orphaned accounts", |list, is_loading, error| {
-        html! {
-            <div class="relative">
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h2 class="text-xl font-semibold text-neutral-900 \
-                                   dark:text-neutral-100">
-                            {"Orphaned Accounts"}
-                        </h2>
-                        <p class="mt-2 text-sm text-neutral-600 \
-                                 dark:text-neutral-400">
-                            {"Accounts of members who have left the community. \
-                              If a member rejoins, they will be reconnected with \
-                              their account and balance. Otherwise, you can \
-                              resolve their balance to have funds "}
-                            {resolution_target}
-                            {"."}
-                        </p>
+    render_section(
+        &orphaned_hook.inner,
+        "orphaned accounts",
+        |list, is_loading, errors| {
+            html! {
+                <div class="relative">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 class="text-xl font-semibold text-neutral-900 \
+                                       dark:text-neutral-100">
+                                {"Orphaned Accounts"}
+                            </h2>
+                            <p class="mt-2 text-sm text-neutral-600 \
+                                     dark:text-neutral-400">
+                                {"Accounts of members who have left the community. \
+                                  If a member rejoins, they will be reconnected with \
+                                  their account and balance. Otherwise, you can \
+                                  resolve their balance to have funds "}
+                                {resolution_target}
+                                {"."}
+                            </p>
+                        </div>
+                        {if is_loading {
+                            html! {
+                                <span class="text-xs text-neutral-500 \
+                                            dark:text-neutral-400 italic">
+                                    {"Refreshing..."}
+                                </span>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </div>
-                    {if is_loading {
-                        html! {
-                            <span class="text-xs text-neutral-500 \
-                                        dark:text-neutral-400 italic">
-                                {"Refreshing..."}
-                            </span>
-                        }
-                    } else {
-                        html! {}
-                    }}
-                </div>
 
-                {if let Some(err) = error {
-                    html! {
+                    {for errors.iter().map(|err| html! {
                         <div class="mb-4 p-4 rounded-md bg-red-50 \
                                     dark:bg-red-900/20 border border-red-200 \
                                     dark:border-red-800">
@@ -100,39 +102,37 @@ fn OrphanedAccountsContent(props: &OrphanedAccountsContentProps) -> Html {
                                 {"Error refreshing: "}{err}
                             </p>
                         </div>
-                    }
-                } else {
-                    html! {}
-                }}
+                    })}
 
-                {if list.orphaned_accounts.is_empty() {
-                    html! {
-                        <div class="text-center py-12">
-                            <p class="text-neutral-600 dark:text-neutral-400">
-                                {"No orphaned accounts found."}
-                            </p>
-                        </div>
-                    }
-                } else {
-                    html! {
-                        <div class="space-y-3">
-                            {list.orphaned_accounts.iter().map(|orphaned| {
-                                let on_resolve = orphaned_hook.refetch.clone();
-                                html! {
-                                    <OrphanedAccountRow
-                                        key={orphaned.account.id.to_string()}
-                                        orphaned_account={orphaned.clone()}
-                                        community={props.community.clone()}
-                                        on_resolve={on_resolve}
-                                    />
-                                }
-                            }).collect::<Html>()}
-                        </div>
-                    }
-                }}
-            </div>
-        }
-    })
+                    {if list.orphaned_accounts.is_empty() {
+                        html! {
+                            <div class="text-center py-12">
+                                <p class="text-neutral-600 dark:text-neutral-400">
+                                    {"No orphaned accounts found."}
+                                </p>
+                            </div>
+                        }
+                    } else {
+                        html! {
+                            <div class="space-y-3">
+                                {list.orphaned_accounts.iter().map(|orphaned| {
+                                    let on_resolve = orphaned_hook.refetch.clone();
+                                    html! {
+                                        <OrphanedAccountRow
+                                            key={orphaned.account.id.to_string()}
+                                            orphaned_account={orphaned.clone()}
+                                            community={props.community.clone()}
+                                            on_resolve={on_resolve}
+                                        />
+                                    }
+                                }).collect::<Html>()}
+                            </div>
+                        }
+                    }}
+                </div>
+            }
+        },
+    )
 }
 
 #[derive(Properties, PartialEq)]

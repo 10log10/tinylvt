@@ -40,6 +40,9 @@ web-sys = { version = "0.3.77", features = [
     "FileList",
     "FileReader",
     "Event",
+    "EventSource",
+    "EventSourceInit",
+    "MessageEvent",
     "Navigator",
     "Clipboard"
 ] }

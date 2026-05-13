@@ -6,8 +6,19 @@ use yew::prelude::*;
 
 use crate::components::InlineEdit;
 use crate::components::user_identity_display::render_user_name;
-use crate::hooks::FetchState;
-use payloads::responses::UserIdentity;
+use payloads::responses::{UserIdentity, UserProfile};
+
+/// Per-row resolved data. The list as a whole is gated on prices, bids,
+/// and user values being fetched (see the parent's `render_section` over
+/// the zipped fetches), so per-cell values are plain types — no skeleton
+/// needed.
+struct SpaceRowData {
+    space: responses::Space,
+    price: Option<Decimal>,
+    user_value: Option<Decimal>,
+    surplus: Option<Decimal>,
+    winner: Option<UserIdentity>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SortField {
@@ -26,11 +37,19 @@ enum SortDirection {
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub spaces: Vec<responses::Space>,
+    /// Round-space results from the previous round (the data that produces
+    /// the "Price" column). The parent gates the list on this fetch
+    /// resolving, so it's a plain Vec here.
     pub prices: Vec<RoundSpaceResult>,
+    /// User's bids in the current round, keyed by space.
+    pub user_bids: HashSet<SpaceId>,
+    /// User's per-space values (their max willingness-to-pay).
     pub user_values: HashMap<SpaceId, Decimal>,
     pub proxy_bidding_enabled: bool,
-    pub user_bid_space_ids: HashSet<SpaceId>,
-    pub current_username: Option<String>,
+    /// The signed-in user. Resolved by the parent's `RequireAuth` gate, so
+    /// this is always present. Identity comparisons (e.g., `is_high_bidder`)
+    /// use `user_id`.
+    pub current_user: UserProfile,
     pub bid_increment: Decimal,
     pub currency: CurrencySettings,
     pub on_bid: Callback<SpaceId>,
@@ -41,10 +60,14 @@ pub struct Props {
     pub auction_ended: bool,
     #[prop_or_default]
     pub auction_started: bool,
+    /// User's eligibility for the current round. `None` if no prior
+    /// eligibility (round 0) or if the parent didn't pass it (e.g.,
+    /// auction not yet started). The parent gates the list on this fetch
+    /// resolving, so it's a plain Option here.
     #[prop_or_default]
-    pub user_eligibility: FetchState<Option<f64>>,
-    /// Current activity points (sum of eligibility points for spaces the user
-    /// is bidding on or winning)
+    pub user_eligibility: Option<f64>,
+    /// Current activity points. The parent gates on this resolving, so
+    /// it's a plain f64. Defaults to 0 when no auction is running.
     #[prop_or_default]
     pub current_activity: f64,
 }
@@ -55,12 +78,11 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
     let sort_direction = use_state(|| SortDirection::Ascending);
     let filter_no_value = use_state(|| false);
 
-    // Create price and winner lookup
-    let price_map: HashMap<SpaceId, RoundSpaceResult> = props
-        .prices
-        .iter()
-        .map(|r| (r.space_id, r.clone()))
-        .collect();
+    // Build a price/winner lookup for O(1) per-row access during the row
+    // build below. Both prices and bids are pre-fetched (the parent gates
+    // the list on those resolving), so the lookup is over real data.
+    let price_map: HashMap<SpaceId, &RoundSpaceResult> =
+        props.prices.iter().map(|r| (r.space_id, r)).collect();
 
     // Filter spaces based on auction status
     let filtered_spaces: Vec<&responses::Space> = if props.auction_ended {
@@ -71,7 +93,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             .iter()
             .filter(|space| {
                 price_map.contains_key(&space.space_id)
-                    || props.user_bid_space_ids.contains(&space.space_id)
+                    || props.user_bids.contains(&space.space_id)
             })
             .collect()
     } else {
@@ -85,58 +107,49 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             .collect()
     };
 
-    let current_activity = props.current_activity;
-
-    // Prepare space data
-    let mut space_data: Vec<_> = filtered_spaces
+    // Per-row resolved data. All inputs are post-gate plain values, so
+    // each cell is just an `Option<T>`.
+    let mut space_data: Vec<SpaceRowData> = filtered_spaces
         .iter()
         .map(|space| {
             let space_id = space.space_id;
             let result = price_map.get(&space_id);
-            let price_opt = result.map(|r| r.value);
+            let price = result.map(|r| r.value);
             let winner = result.map(|r| r.winner.clone());
             let user_value = props.user_values.get(&space_id).copied();
-            // Calculate surplus using price of 0 if no previous price exists
+            // Calculate surplus using a price of 0 if no previous price
+            // exists (e.g., first round on this space).
             let surplus =
-                user_value.map(|v| v - price_opt.unwrap_or(Decimal::ZERO));
-
-            ((*space).clone(), price_opt, user_value, surplus, winner)
+                user_value.map(|v| v - price.unwrap_or(Decimal::ZERO));
+            SpaceRowData {
+                space: (*space).clone(),
+                price,
+                user_value,
+                surplus,
+                winner,
+            }
         })
         .collect();
 
-    // Apply filters
-    space_data.retain(|(_, _, user_value, _, _)| {
-        if *filter_no_value {
-            user_value.is_some()
-        } else {
-            true
-        }
-    });
+    // "Hide spaces with no value" filter.
+    if *filter_no_value {
+        space_data.retain(|row| row.user_value.is_some());
+    }
 
-    // Sort (None values sort last for Price, UserValue and Surplus)
+    // Sort. `None` is treated as smaller than any `Some` — semantically a
+    // missing user value is worth less than any explicit value. This
+    // ordering composes correctly with reverse: ascending puts `None`s at
+    // the top, descending puts them at the bottom. (Note: this matches
+    // the natural `Ord` impl for `Option<T>` in std.)
+    let cmp_option = Option::<Decimal>::cmp;
     space_data.sort_by(|a, b| {
         let comparison = match *sort_field {
             SortField::Name => {
-                a.0.space_details.name.cmp(&b.0.space_details.name)
+                a.space.space_details.name.cmp(&b.space.space_details.name)
             }
-            SortField::Price => match (&a.1, &b.1) {
-                (Some(av), Some(bv)) => av.cmp(bv),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-            SortField::UserValue => match (&a.2, &b.2) {
-                (Some(av), Some(bv)) => av.cmp(bv),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-            SortField::Surplus => match (&a.3, &b.3) {
-                (Some(av), Some(bv)) => av.cmp(bv),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
+            SortField::Price => cmp_option(&a.price, &b.price),
+            SortField::UserValue => cmp_option(&a.user_value, &b.user_value),
+            SortField::Surplus => cmp_option(&a.surplus, &b.surplus),
         };
 
         match *sort_direction {
@@ -263,29 +276,32 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                         </div>
                     }
                 } else {
-                    space_data.iter().enumerate().map(|
-                        (idx, (space, price, user_value, surplus, winner))
-                    | {
-                        let user_has_bid = props.user_bid_space_ids.contains(&space.space_id);
-                        let is_high_bidder = props.current_username.as_ref()
-                            .and_then(|username| {
-                                winner.as_ref().map(|w| &w.username == username)
-                            })
+                    space_data.iter().enumerate().map(|(idx, row)| {
+                        let space = &row.space;
+                        let space_id = space.space_id;
+
+                        let user_has_bid = props.user_bids.contains(&space_id);
+                        let is_high_bidder = row
+                            .winner
+                            .as_ref()
+                            .map(|w| w.user_id == props.current_user.user_id)
                             .unwrap_or(false);
 
-                        // Check if bidding on this space would exceed eligibility
-                        // Extract Option<f64> from FetchState
-                        let eligibility_value = props.user_eligibility.as_ref().cloned().flatten();
-                        let would_exceed_eligibility = if let Some(eligibility) = eligibility_value {
-                            // If user doesn't have a bid on this space yet, check if adding it would exceed
-                            if !user_has_bid && !is_high_bidder {
-                                let new_activity = current_activity + space.space_details.eligibility_points;
+                        // Eligibility check. `user_eligibility` is None
+                        // for round 0 (no prior eligibility yet), in
+                        // which case we conservatively allow bidding —
+                        // the API enforces the actual limit.
+                        let would_exceed_eligibility = match props
+                            .user_eligibility
+                        {
+                            Some(eligibility)
+                                if !user_has_bid && !is_high_bidder =>
+                            {
+                                let new_activity = props.current_activity
+                                    + space.space_details.eligibility_points;
                                 new_activity > eligibility
-                            } else {
-                                false
                             }
-                        } else {
-                            false
+                            _ => false,
                         };
 
                         let on_value_enter = {
@@ -297,13 +313,13 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
 
                         html! {
                             <SpaceRow
-                                key={space.space_id.0.to_string()}
-                                space={(*space).clone()}
-                                price={*price}
+                                key={space_id.0.to_string()}
+                                space={space.clone()}
+                                price={row.price}
                                 bid_increment={props.bid_increment}
                                 currency={props.currency.clone()}
-                                user_value={*user_value}
-                                surplus={*surplus}
+                                user_value={row.user_value}
+                                surplus={row.surplus}
                                 proxy_bidding_enabled={props.proxy_bidding_enabled}
                                 user_has_bid={user_has_bid}
                                 is_high_bidder={is_high_bidder}
@@ -313,7 +329,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 on_delete_value={props.on_delete_value.clone()}
                                 auction_ended={props.auction_ended}
                                 auction_started={props.auction_started}
-                                winner={winner.clone()}
+                                winner={row.winner.clone()}
                                 would_exceed_eligibility={would_exceed_eligibility}
                                 is_deleted={space.deleted_at.is_some()}
                                 value_ref={value_refs[idx].clone()}
@@ -382,10 +398,13 @@ fn SortButton(props: &SortButtonProps) -> Html {
 #[derive(Properties, PartialEq)]
 struct SpaceRowProps {
     space: responses::Space,
+    /// Per-row price. `None` if no prior bids on this space.
     price: Option<Decimal>,
     bid_increment: Decimal,
     currency: CurrencySettings,
+    /// Per-row user value (their max willingness-to-pay for this space).
     user_value: Option<Decimal>,
+    /// Per-row surplus = user_value - price.
     surplus: Option<Decimal>,
     proxy_bidding_enabled: bool,
     user_has_bid: bool,
@@ -407,8 +426,7 @@ struct SpaceRowProps {
 fn SpaceRow(props: &SpaceRowProps) -> Html {
     let space_id = props.space.space_id;
 
-    // Calculate the bid price (current price + bid increment, or 0 for first
-    // bid)
+    // The bid price (current price + bid increment, or 0 for first bid).
     let bid_price = match props.price {
         Some(price) => price + props.bid_increment,
         None => Decimal::ZERO,
@@ -497,10 +515,12 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                                 text-neutral-900 \
                                 dark:text-white">
                         {match props.price {
-                            Some(price) => {
-                                props.currency.format_amount(price)
-                            }
-                            None => props.currency.placeholder_value(),
+                            Some(price) => html! {
+                                {props.currency.format_amount(price)}
+                            },
+                            None => html! {
+                                {props.currency.placeholder_value()}
+                            },
                         }}
                     </div>
                 </div>
@@ -536,13 +556,16 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                             Some(s) if s >= Decimal::ZERO => {
                                 "text-neutral-900 dark:text-white"
                             }
-                            Some(_) => "text-neutral-500 dark:text-neutral-400",
-                            None => "text-neutral-500 dark:text-neutral-400",
+                            _ => "text-neutral-500 dark:text-neutral-400",
                         }
                     )}>
                         {match props.surplus {
-                            Some(value) => props.currency.format_amount(value),
-                            None => props.currency.placeholder_value(),
+                            Some(value) => html! {
+                                {props.currency.format_amount(value)}
+                            },
+                            None => html! {
+                                {props.currency.placeholder_value()}
+                            },
                         }}
                     </div>
                 </div>

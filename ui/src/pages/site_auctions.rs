@@ -9,7 +9,7 @@ use crate::{
         SitePageWrapper, SiteTabHeader, SiteWithRole, TimestampDisplay,
         site_tab_header::ActiveTab,
     },
-    hooks::use_auctions,
+    hooks::{render_section, use_auctions},
 };
 
 #[derive(Properties, PartialEq)]
@@ -159,23 +159,20 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
         })
     };
 
-    let auctions_content = if auctions_hook.is_loading {
-        html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"Loading auctions..."}
-                </p>
-            </div>
-        }
-    } else if let Some(error) = &auctions_hook.error {
-        html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-            </div>
-        }
-    } else {
-        match auctions_hook.data.as_ref() {
-            Some(auctions) if !auctions.is_empty() => {
+    let auctions_content = render_section(
+        &auctions_hook.inner,
+        "auctions",
+        |auctions, _is_loading, _errors| {
+            if auctions.is_empty() {
+                return html! {
+                    <div class="text-center py-12">
+                        <p class="text-neutral-600 dark:text-neutral-400">
+                            {"No auctions have been created for this site yet."}
+                        </p>
+                    </div>
+                };
+            }
+            {
                 // Filter auctions by status
                 let mut filtered_auctions: Vec<_> = auctions
                     .iter()
@@ -231,9 +228,9 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                                     {"Show:"}
                                 </span>
                                 {[
-                                    ("Upcoming", *filter_upcoming, on_filter_upcoming_toggle),
-                                    ("Ongoing", *filter_ongoing, on_filter_ongoing_toggle),
-                                    ("Finished", *filter_finished, on_filter_finished_toggle),
+                                    ("Upcoming", *filter_upcoming, on_filter_upcoming_toggle.clone()),
+                                    ("Ongoing", *filter_ongoing, on_filter_ongoing_toggle.clone()),
+                                    ("Finished", *filter_finished, on_filter_finished_toggle.clone()),
                                 ].iter().map(|(label, checked, callback)| {
                                     html! {
                                         <label class="flex items-center gap-2 cursor-pointer select-none">
@@ -314,17 +311,8 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                     </div>
                 }
             }
-            _ => {
-                html! {
-                    <div class="text-center py-12">
-                        <p class="text-neutral-600 dark:text-neutral-400">
-                            {"No auctions have been created for this site yet."}
-                        </p>
-                    </div>
-                }
-            }
-        }
-    };
+        },
+    );
 
     html! {
         <div>

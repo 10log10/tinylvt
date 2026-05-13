@@ -47,19 +47,15 @@ pub fn MemberSelect(props: &MemberSelectProps) -> Html {
         })
     };
 
-    if members.is_initial_loading() {
-        html! {
-            <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse" />
-        }
-    } else if let Some(member_list) = members.data.as_ref() {
-        html! {
+    members.inner.render(
+        |member_list, _is_loading, _errors| html! {
             <select
                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 \
                        rounded bg-white dark:bg-neutral-800 \
                        text-neutral-900 dark:text-neutral-100"
                 value={props.selected.as_ref().map(|id| id.0.to_string())
                     .unwrap_or_else(|| "none".to_string())}
-                onchange={on_change}
+                onchange={on_change.clone()}
                 disabled={props.disabled}
             >
                 <option value="none" selected={props.selected.is_none()}>
@@ -73,14 +69,20 @@ pub fn MemberSelect(props: &MemberSelectProps) -> Html {
                     }
                 })}
             </select>
-        }
-    } else {
-        html! {
-            <div class="text-red-600 dark:text-red-400 text-sm">
-                {"Error loading members"}
+        },
+        || html! {
+            <div class="h-10 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse" />
+        },
+        |errors: &[String]| html! {
+            <div class="space-y-1">
+                {for errors.iter().map(|err| html! {
+                    <div class="text-red-600 dark:text-red-400 text-sm">
+                        {format!("Error loading members: {err}")}
+                    </div>
+                })}
             </div>
-        }
-    }
+        },
+    )
 }
 
 // ============================================================================

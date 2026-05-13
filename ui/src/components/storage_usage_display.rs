@@ -1,7 +1,7 @@
 use payloads::{CommunityId, CommunityStorageUsage, SubscriptionTier};
 use yew::prelude::*;
 
-use crate::hooks::use_storage_usage;
+use crate::hooks::{render_section, use_storage_usage};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -35,23 +35,22 @@ pub fn StorageUsageSection(props: &StorageUsageSectionProps) -> Html {
                 {"Storage Usage"}
             </h2>
 
-            {storage_hook.render("storage usage", |usage, is_loading, error| {
+            {render_section(
+                &storage_hook.inner,
+                "storage usage",
+                |usage, is_loading, errors| {
                 html! {
                     <div>
-                        {if let Some(err) = error {
-                            html! {
-                                <div class="p-4 rounded-md bg-red-50 \
-                                            dark:bg-red-900/20 border \
-                                            border-red-200 dark:border-red-800">
-                                    <p class="text-sm text-red-700 \
-                                              dark:text-red-400">
-                                        {err}
-                                    </p>
-                                </div>
-                            }
-                        } else {
-                            html! {}
-                        }}
+                        {for errors.iter().map(|err| html! {
+                            <div class="p-4 rounded-md bg-red-50 \
+                                        dark:bg-red-900/20 border \
+                                        border-red-200 dark:border-red-800">
+                                <p class="text-sm text-red-700 \
+                                          dark:text-red-400">
+                                    {err}
+                                </p>
+                            </div>
+                        })}
                         <div class={classes!(
                             is_loading.then_some("opacity-50")
                         )}>

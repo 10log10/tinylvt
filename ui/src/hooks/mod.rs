@@ -3,71 +3,72 @@
 //! All hooks in this module follow a consistent three-field pattern for
 //! state management:
 //!
-//! ## FetchState Type
+//! ## FetchData Type
 //!
-//! The `FetchState<T>` enum explicitly separates network fetch state from
+//! The `FetchData<T>` enum explicitly separates network fetch state from
 //! data nullability:
 //!
-//! - `FetchState::NotFetched` - No fetch attempt has been made yet
-//! - `FetchState::Fetched(T)` - Data has been fetched (T may be Option<V>)
+//! - `FetchData::NotFetched` - No fetch attempt has been made yet
+//! - `FetchData::Fetched(T)` - Data has been fetched (T may be Option<V>)
 //!
 //! This makes it clear when `None` means "not fetched yet" vs "fetched but
-//! the API returned None". For example, `FetchState<Option<f64>>` can be:
+//! the API returned None". For example, `FetchData<Option<f64>>` can be:
 //! - `NotFetched` - Haven't called the API yet
 //! - `Fetched(None)` - API returned None (e.g., no eligibility for round 0)
 //! - `Fetched(Some(0.5))` - API returned Some(0.5)
 //!
 //! ## Fields
 //!
-//! - `data: Option<T>` or `FetchState<T>` - The fetched/managed data
-//! - `error: Option<String>` - Error from most recent operation
+//! - `data: FetchData<T>` - The fetched/managed data
+//! - `errors: Vec<String>` - Errors from most recent operation. Single-hook
+//!   code emits 0 or 1 elements; plurality emerges through `Fetch::zip` (a
+//!   derived fetch carries one error per zipped input).
 //! - `is_loading: bool` - Whether any operation is in progress
 //!
-//! ## Helper Methods
+//! ## Rendering helpers
 //!
-//! All hook return types provide this helper method:
+//! Use the helpers in `use_fetch` to handle the standard "loading / error /
+//! has data" pattern uniformly. They centralize the state-machine logic —
+//! most importantly, "data is shown unconditionally once fetched, even
+//! during refetch."
 //!
-//! - `is_initial_loading() -> bool` - Returns true when loading with no data or
-//!   error (initial page load that should block the UI)
+//! - `inner.render(on_value, on_loading, on_error)` — method on `Fetch`. The
+//!   bare primitive that drives the state machine; the only place that touches
+//!   the internal fields. Wrapper helpers below are built on top.
+//! - `render_section(&inner, "context", on_value)` — free function;
+//!   page/section UI (centered loading text, error banner cards).
+//! - `render_cell(&inner, on_value)` — free function; per-cell UI (skeleton
+//!   block, compact error glyph with tooltip).
 //!
 //! ## State Combinations
 //!
-//! ### `data: None, error: None, is_loading: true`
-//! **Initial loading state** - `is_initial_loading() == true`
-//! - Show: Full-page loading spinner or skeleton
-//! - Action: Wait for data or error
-//! - Example: `if hook.is_initial_loading() { return <LoadingSpinner /> }`
+//! ### `data: NotFetched, errors: empty, is_loading: true`
+//! **Initial loading state.** `render_*` shows the loading placeholder.
 //!
-//! ### `data: Some(T), error: None, is_loading: false`
-//! **Successfully loaded**
-//! - Show: Data normally
-//! - Action: None
+//! ### `data: Fetched(_), errors: empty, is_loading: false`
+//! **Successfully loaded.** `render_*` shows the value normally.
 //!
-//! ### `data: Some(T), error: None, is_loading: true`
-//! **Refetching/updating with existing data**
-//! - Show: Data with subtle loading indicator (e.g., spinner in corner)
-//! - Action: Keep UI interactive but may want to disable mutation buttons
-//! - Example: `{hook.is_loading && hook.data.is_some() && <InlineSpinner />}`
+//! ### `data: Fetched(_), errors: empty, is_loading: true`
+//! **Refetching/updating with existing data.** The data stays visible;
+//! `on_value` receives `is_loading = true` so it can render a subtle
+//! refresh indicator.
 //!
-//! ### `data: Some(T), error: Some(e), is_loading: false`
-//! **Operation failed but have stale data.**
-//! - Show: Data + error banner (e.g., "Failed to refresh", "Failed to update")
-//! - Action: Allow user to retry or dismiss error
+//! ### `data: Fetched(_), errors: non-empty, is_loading: false`
+//! **Operation failed but have stale data.** The data stays visible;
+//! `on_value` receives the errors so it can render an inline banner
+//! ("Failed to refresh") alongside.
 //!
-//! ### `data: None, error: Some(e), is_loading: false`
-//! **Initial fetch failed completely.**
-//! - Show: Error message, no data available
-//! - Action: Show retry button or link to go back
+//! ### `data: NotFetched, errors: non-empty, is_loading: false`
+//! **Initial fetch failed completely.** `render_*` invokes `on_error`.
 //!
-//! ### `data: None, error: None, is_loading: false`
-//! **Should not occur in practice.**
-//! - This state should be unreachable if hooks are implemented correctly
-//! - If encountered, treat as loading or error state
+//! ### `data: NotFetched, errors: empty, is_loading: false`
+//! **Should not occur in practice.** `render_*` falls back to the loading
+//! branch if encountered.
 
 /// Represents the fetch state of data, separating network state from data
 /// nullability
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum FetchState<T> {
+pub enum FetchData<T> {
     /// No fetch attempt has been made yet
     #[default]
     NotFetched,
@@ -75,34 +76,74 @@ pub enum FetchState<T> {
     Fetched(T),
 }
 
-impl<T> FetchState<T> {
+impl<T> FetchData<T> {
     /// Returns true if data has been fetched (regardless of the data's value)
     pub fn is_fetched(&self) -> bool {
-        matches!(self, FetchState::Fetched(_))
+        matches!(self, FetchData::Fetched(_))
     }
 
     /// Returns a reference to the fetched data, or None if not fetched
     pub fn as_ref(&self) -> Option<&T> {
         match self {
-            FetchState::Fetched(data) => Some(data),
-            FetchState::NotFetched => None,
+            FetchData::Fetched(data) => Some(data),
+            FetchData::NotFetched => None,
         }
     }
 
-    /// Maps a FetchState<T> to FetchState<U> by applying a function to the
+    /// Maps a FetchData<T> to FetchData<U> by applying a function to the
     /// fetched data
-    #[allow(dead_code)]
-    pub fn map<U, F>(self, f: F) -> FetchState<U>
+    pub fn map<U, F>(self, f: F) -> FetchData<U>
     where
         F: FnOnce(T) -> U,
     {
         match self {
-            FetchState::Fetched(data) => FetchState::Fetched(f(data)),
-            FetchState::NotFetched => FetchState::NotFetched,
+            FetchData::Fetched(data) => FetchData::Fetched(f(data)),
+            FetchData::NotFetched => FetchData::NotFetched,
+        }
+    }
+
+    /// Like `map`, but borrows. Useful for projecting a FetchData into a
+    /// derived form without consuming the original.
+    pub fn map_ref<U, F>(&self, f: F) -> FetchData<U>
+    where
+        F: FnOnce(&T) -> U,
+    {
+        match self {
+            FetchData::Fetched(data) => FetchData::Fetched(f(data)),
+            FetchData::NotFetched => FetchData::NotFetched,
+        }
+    }
+
+    /// Combine two FetchDatas into one. Both inputs must be Fetched for
+    /// the result to be Fetched; otherwise NotFetched. Data combinator
+    /// only — for combining the full `Fetch<T>` bundle (which carries
+    /// is_loading + errors), use `Fetch::zip` instead.
+    #[allow(dead_code)]
+    pub fn zip<U>(self, other: FetchData<U>) -> FetchData<(T, U)> {
+        match (self, other) {
+            (FetchData::Fetched(a), FetchData::Fetched(b)) => {
+                FetchData::Fetched((a, b))
+            }
+            _ => FetchData::NotFetched,
+        }
+    }
+
+    /// Like `zip`, but borrows both inputs.
+    #[allow(dead_code)]
+    pub fn zip_ref<'a, U>(
+        &'a self,
+        other: &'a FetchData<U>,
+    ) -> FetchData<(&'a T, &'a U)> {
+        match (self, other) {
+            (FetchData::Fetched(a), FetchData::Fetched(b)) => {
+                FetchData::Fetched((a, b))
+            }
+            _ => FetchData::NotFetched,
         }
     }
 }
 
+pub mod auction_subscription;
 pub mod use_auction_detail;
 pub mod use_auction_round_results;
 pub mod use_auction_rounds;
@@ -111,10 +152,9 @@ pub mod use_auctions;
 pub mod use_authentication;
 pub mod use_communities;
 pub mod use_community_images;
-pub mod use_current_round;
-pub mod use_exponential_refetch;
 pub mod use_fetch;
 pub mod use_issued_invites;
+pub mod use_last_round;
 pub mod use_logout;
 pub mod use_member_credit_limit_override;
 pub mod use_member_currency_info;
@@ -139,6 +179,7 @@ pub mod use_user_bids;
 pub mod use_user_eligibility;
 pub mod use_user_space_values;
 
+pub use auction_subscription::{ConnectionStatus, SubscribedEvent};
 pub use use_auction_detail::use_auction_detail;
 pub use use_auction_round_results::use_auction_round_results;
 pub use use_auction_rounds::use_auction_rounds;
@@ -147,10 +188,14 @@ pub use use_auctions::use_auctions;
 pub use use_authentication::use_authentication;
 pub use use_communities::use_communities;
 pub use use_community_images::use_community_images;
-pub use use_current_round::use_current_round;
-pub use use_exponential_refetch::use_exponential_refetch;
-pub use use_fetch::{FetchHookReturn, use_fetch, use_fetch_with_cache};
+#[allow(unused_imports)]
+pub use use_fetch::render_cell;
+pub use use_fetch::{
+    Fetch, FetchHookReturn, SubscribedFetchHookReturn, render_section,
+    stale_data_banner, use_fetch, use_fetch_with_cache, use_subscribed_fetch,
+};
 pub use use_issued_invites::use_issued_invites;
+pub use use_last_round::use_last_round;
 pub use use_logout::use_logout;
 pub use use_member_credit_limit_override::use_member_credit_limit_override;
 pub use use_member_currency_info::use_member_currency_info;
@@ -158,7 +203,9 @@ pub use use_member_transactions::use_member_transactions;
 pub use use_members::use_members;
 pub use use_orphaned_accounts::use_orphaned_accounts;
 pub use use_platform_stats::use_platform_stats;
-pub use use_proxy_bidding_settings::use_proxy_bidding_settings;
+pub use use_proxy_bidding_settings::{
+    ProxyBiddingSettingsHookReturn, use_proxy_bidding_settings,
+};
 pub use use_push_route::use_push_route;
 pub use use_require_auth::{login_form, use_require_auth};
 pub use use_round_prices::use_round_prices;
@@ -173,4 +220,6 @@ pub use use_treasury_account::use_treasury_account;
 pub use use_treasury_transactions::use_treasury_transactions;
 pub use use_user_bids::use_user_bids;
 pub use use_user_eligibility::use_user_eligibility;
-pub use use_user_space_values::use_user_space_values;
+pub use use_user_space_values::{
+    UserSpaceValuesHookReturn, use_user_space_values,
+};

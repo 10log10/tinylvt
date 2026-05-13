@@ -9,7 +9,7 @@ use crate::{
         MarkdownText, SitePageWrapper, SiteTabHeader, SiteWithRole,
         TimestampDisplay, site_tab_header::ActiveTab,
     },
-    hooks::use_auctions,
+    hooks::{render_section, use_auctions},
 };
 
 #[derive(Properties, PartialEq)]
@@ -51,75 +51,81 @@ fn SiteOverviewContent(props: &SiteOverviewContentProps) -> Html {
     let auctions_hook = use_auctions(props.site.site_id);
     let site_timezone = props.site.site_details.timezone.clone();
 
-    // Find ongoing, recent completed, and next upcoming auctions
-    let (ongoing_auctions, recent_auction, upcoming_auction) = auctions_hook
-        .data
-        .as_ref()
-        .map(|auctions| {
-            let now = Timestamp::now();
-
-            // Ongoing: start_at <= now AND end_at is None
-            let ongoing: Vec<_> = auctions
-                .iter()
-                .filter(|a| {
-                    a.end_at.is_none() && a.auction_details.start_at <= now
-                })
-                .cloned()
-                .collect();
-
-            // Recent: end_at is Some, sort by end_at desc, take first
-            let recent = auctions
-                .iter()
-                .filter(|a| a.end_at.is_some())
-                .max_by_key(|a| a.end_at);
-
-            // Upcoming: end_at is None AND start_at > now, sort by start_at
-            // asc, take first
-            let upcoming = auctions
-                .iter()
-                .filter(|a| {
-                    a.end_at.is_none() && a.auction_details.start_at > now
-                })
-                .min_by_key(|a| a.auction_details.start_at);
-
-            (ongoing, recent.cloned(), upcoming.cloned())
-        })
-        .unwrap_or((Vec::new(), None, None));
-
     html! {
         <div class="space-y-8">
-            // Ongoing Auctions Section
-            {if !ongoing_auctions.is_empty() {
-                html! {
-                    <OngoingAuctionsSection
-                        auctions={ongoing_auctions}
-                        site_timezone={site_timezone.clone()}
-                    />
-                }
-            } else {
-                html! {}
-            }}
+            // Auction-derived sections (ongoing, highlights). Gated on the
+            // auctions fetch so we don't show "No completed auctions yet"
+            // placeholders during the loading window.
+            {render_section(
+                &auctions_hook.inner,
+                "auctions",
+                |auctions, _is_loading, _errors| {
+                    let now = Timestamp::now();
 
-            // Auction Highlights Section
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                // Recent Completed Auction
-                <AuctionHighlightCard
-                    title="Recently Completed"
-                    auction={recent_auction}
-                    site_timezone={site_timezone.clone()}
-                    empty_message="No completed auctions yet"
-                />
+                    // Ongoing: start_at <= now AND end_at is None
+                    let ongoing_auctions: Vec<_> = auctions
+                        .iter()
+                        .filter(|a| {
+                            a.end_at.is_none()
+                                && a.auction_details.start_at <= now
+                        })
+                        .cloned()
+                        .collect();
 
-                // Next Upcoming Auction
-                <AuctionHighlightCard
-                    title="Next Upcoming"
-                    auction={upcoming_auction}
-                    site_timezone={site_timezone.clone()}
-                    empty_message="No upcoming auctions scheduled"
-                />
-            </div>
+                    // Recent: end_at is Some, sort by end_at desc, take first
+                    let recent_auction = auctions
+                        .iter()
+                        .filter(|a| a.end_at.is_some())
+                        .max_by_key(|a| a.end_at)
+                        .cloned();
 
-            // Site Description Section (display only, editing in Settings)
+                    // Upcoming: end_at is None AND start_at > now, sort by
+                    // start_at asc, take first
+                    let upcoming_auction = auctions
+                        .iter()
+                        .filter(|a| {
+                            a.end_at.is_none()
+                                && a.auction_details.start_at > now
+                        })
+                        .min_by_key(|a| a.auction_details.start_at)
+                        .cloned();
+
+                    html! {
+                        <>
+                            // Ongoing Auctions Section
+                            {if !ongoing_auctions.is_empty() {
+                                html! {
+                                    <OngoingAuctionsSection
+                                        auctions={ongoing_auctions}
+                                        site_timezone={site_timezone.clone()}
+                                    />
+                                }
+                            } else {
+                                html! {}
+                            }}
+
+                            // Auction Highlights Section
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <AuctionHighlightCard
+                                    title="Recently Completed"
+                                    auction={recent_auction}
+                                    site_timezone={site_timezone.clone()}
+                                    empty_message="No completed auctions yet"
+                                />
+                                <AuctionHighlightCard
+                                    title="Next Upcoming"
+                                    auction={upcoming_auction}
+                                    site_timezone={site_timezone.clone()}
+                                    empty_message="No upcoming auctions scheduled"
+                                />
+                            </div>
+                        </>
+                    }
+                },
+            )}
+
+            // Site Description Section. Independent of auctions, renders
+            // unconditionally.
             {if let Some(description) = &props.site.site_details.description {
                 html! {
                     <div class="bg-white dark:bg-neutral-800 p-6 rounded-lg shadow-md

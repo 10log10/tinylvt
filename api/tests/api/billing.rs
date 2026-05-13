@@ -561,6 +561,7 @@ fn to_value(event: stripe::Event) -> serde_json::Value {
 }
 
 /// Build a subscription event (created or updated).
+#[allow(clippy::too_many_arguments)]
 fn make_subscription_event(
     event_type: stripe::EventType,
     subscription_id: &str,

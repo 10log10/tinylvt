@@ -436,16 +436,25 @@ pub async fn soft_delete_site(
 
     // Cancel any active auctions for this site
     // (auctions where end_at is NULL or in the future)
-    sqlx::query(
+    let cancelled_auction_ids: Vec<payloads::AuctionId> = sqlx::query_scalar(
         "UPDATE auctions
          SET end_at = $2, updated_at = $2
          WHERE site_id = $1
-         AND (end_at IS NULL OR end_at > $2)",
+         AND (end_at IS NULL OR end_at > $2)
+         RETURNING id",
     )
     .bind(site_id)
     .bind(now)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+
+    for auction_id in cancelled_auction_ids {
+        crate::pubsub::emit(
+            &mut tx,
+            &payloads::AuctionEvent::AuctionEnded { auction_id },
+        )
+        .await?;
+    }
 
     // Soft delete the site
     let result = sqlx::query(

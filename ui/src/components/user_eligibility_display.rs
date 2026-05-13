@@ -1,6 +1,6 @@
 use yew::prelude::*;
 
-use crate::hooks::FetchState;
+use crate::hooks::{Fetch, render_cell};
 
 /// Format f64 for display, normalizing -0.0 to 0.0
 fn format_value(v: f64) -> String {
@@ -10,38 +10,49 @@ fn format_value(v: f64) -> String {
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub eligibility_points: FetchState<Option<f64>>,
+    /// User's eligibility for the current round. Inner `Option<f64>` is
+    /// `None` when the user has no prior eligibility (e.g., round 0); the
+    /// outer `Fetch` distinguishes that from the loading window.
+    pub eligibility_points: Fetch<Option<f64>>,
     pub eligibility_threshold: f64,
-    pub current_activity: Option<f64>,
+    /// Current activity (sum of eligibility points across spaces the user
+    /// is bidding on or winning). Loading until spaces, prices, and bids
+    /// have all been fetched; rendered as a skeleton until then.
+    pub current_activity: Fetch<f64>,
 }
 
 #[function_component]
 pub fn UserEligibilityDisplay(props: &Props) -> Html {
     let show_explanation = use_state(|| false);
+    let eligibility_threshold = props.eligibility_threshold;
 
-    // Extract the Option<f64> from FetchState
-    let eligibility_points =
-        props.eligibility_points.as_ref().cloned().flatten();
+    // Pre-derive cells whose value depends on eligibility_points. Each is
+    // `Fetch<Option<f64>>`: `Fetched(None)` means "no prior eligibility,
+    // show '--'", `Fetched(Some(x))` shows the value, `NotFetched` /
+    // loading shows a skeleton.
+    let min_required_activity: Fetch<Option<f64>> = props
+        .eligibility_points
+        .map_ref(|ep_opt| ep_opt.map(|ep| ep * eligibility_threshold));
 
-    // Calculate values only if eligibility_points is available
-    let min_required_activity =
-        eligibility_points.map(|ep| ep * props.eligibility_threshold);
-
-    // Calculate next round eligibility
-    // - If we have prior eligibility: min(current, activity / threshold)
-    // - If no prior eligibility (round 0): just activity / threshold
-    let next_round_eligibility = props.current_activity.map(|ca| {
-        let calculated = if props.eligibility_threshold > 0.0 {
-            ca / props.eligibility_threshold
-        } else {
-            0.0
-        };
-        // Only apply min() if we have prior eligibility
-        match eligibility_points {
-            Some(ep) => calculated.min(ep),
-            None => calculated,
-        }
-    });
+    // Next-round eligibility needs both current_activity and
+    // eligibility_points. Combine via `zip_ref` so the cell renders a
+    // skeleton until both are fetched.
+    //   - If we have prior eligibility: min(current, activity / threshold)
+    //   - If no prior eligibility (round 0): just activity / threshold
+    let next_round_eligibility: Fetch<f64> = props
+        .current_activity
+        .zip_ref(&props.eligibility_points)
+        .map(|(ca, ep_opt)| {
+            let calculated = if eligibility_threshold > 0.0 {
+                ca / eligibility_threshold
+            } else {
+                0.0
+            };
+            match ep_opt {
+                Some(ep) => calculated.min(*ep),
+                None => calculated,
+            }
+        });
 
     let toggle_explanation = {
         let show_explanation = show_explanation.clone();
@@ -65,14 +76,15 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"Current Eligibility"}
                         </div>
-                        <div class="text-2xl font-bold text-neutral-900 \
-                                    dark:text-white">
-                            {if let Some(ep) = eligibility_points {
-                                format_value(ep)
-                            } else {
-                                "--".to_string()
-                            }}
-                        </div>
+                        {render_cell(&props.eligibility_points, |ep_opt| html! {
+                            <div class="text-2xl font-bold text-neutral-900 \
+                                        dark:text-white">
+                                {match ep_opt {
+                                    Some(ep) => format_value(*ep),
+                                    None => "--".to_string(),
+                                }}
+                            </div>
+                        })}
                     </div>
 
                     <div>
@@ -91,14 +103,15 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"To Maintain Eligibility"}
                         </div>
-                        <div class="text-2xl font-bold text-neutral-900 \
-                                    dark:text-white">
-                            {if let Some(mra) = min_required_activity {
-                                format_value(mra)
-                            } else {
-                                "--".to_string()
-                            }}
-                        </div>
+                        {render_cell(&min_required_activity, |mra_opt| html! {
+                            <div class="text-2xl font-bold text-neutral-900 \
+                                        dark:text-white">
+                                {match mra_opt {
+                                    Some(mra) => format_value(*mra),
+                                    None => "--".to_string(),
+                                }}
+                            </div>
+                        })}
                     </div>
                 </div>
 
@@ -108,23 +121,34 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"Current Activity"}
                         </div>
-                        <div class={
-                            match (props.current_activity, min_required_activity) {
-                                (Some(ca), Some(mra)) if ca >= mra => {
-                                    "text-2xl font-bold text-neutral-900 dark:text-white"
+                        // Activity styling depends on whether activity meets
+                        // the minimum-required threshold; combine both via
+                        // `zip_ref` so the cell renders a skeleton until
+                        // both inputs are fetched.
+                        {render_cell(
+                            &props.current_activity.zip_ref(&min_required_activity),
+                            |pair| {
+                                let ca: f64 = *pair.0;
+                                let mra_opt: Option<f64> = *pair.1;
+                                let class = match mra_opt {
+                                    Some(mra) if ca >= mra => {
+                                        "text-2xl font-bold text-neutral-900 \
+                                         dark:text-white"
+                                    }
+                                    Some(_) => {
+                                        "text-2xl font-bold text-neutral-500 \
+                                         dark:text-neutral-400"
+                                    }
+                                    None => {
+                                        "text-2xl font-bold text-neutral-900 \
+                                         dark:text-white"
+                                    }
+                                };
+                                html! {
+                                    <div class={class}>{format_value(ca)}</div>
                                 }
-                                (Some(_), Some(_)) => {
-                                    "text-2xl font-bold text-neutral-500 dark:text-neutral-400"
-                                }
-                                _ => "text-2xl font-bold text-neutral-900 dark:text-white"
-                            }
-                        }>
-                            {if let Some(ca) = props.current_activity {
-                                format_value(ca)
-                            } else {
-                                "--".to_string()
-                            }}
-                        </div>
+                            },
+                        )}
                     </div>
 
                     // Empty middle cell for alignment
@@ -135,14 +159,12 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"Next Round Eligibility"}
                         </div>
-                        <div class="text-2xl font-bold text-neutral-900 \
-                                    dark:text-white">
-                            {if let Some(nre) = next_round_eligibility {
-                                format_value(nre)
-                            } else {
-                                "--".to_string()
-                            }}
-                        </div>
+                        {render_cell(&next_round_eligibility, |nre| html! {
+                            <div class="text-2xl font-bold text-neutral-900 \
+                                        dark:text-white">
+                                {format_value(*nre)}
+                            </div>
+                        })}
                     </div>
                 </div>
 

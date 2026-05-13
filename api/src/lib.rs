@@ -1,5 +1,6 @@
 pub mod email;
 pub mod password;
+pub mod pubsub;
 pub mod routes;
 pub mod scheduler;
 pub mod store;
@@ -29,7 +30,17 @@ pub async fn build(
     db_pool: PgPool,
     time_source: TimeSource,
     stripe_service: std::sync::Arc<stripe_service::StripeService>,
+    pubsub: pubsub::PubSub,
 ) -> std::io::Result<Server> {
+    // Spawn the Postgres listener task that forwards NOTIFYs from the
+    // `auction_changes` channel into the in-process broadcast. The listener
+    // loops forever with retry+backoff; it only returns when the broadcast
+    // channel is closed (process shutdown).
+    {
+        let db_url = config.database_url.clone();
+        let bus = pubsub.clone();
+        tokio::spawn(pubsub::run_listener(db_url, bus));
+    }
     // Initialize session key from config or generate a temporary one
     let secret_key = match &config.session_master_key {
         Some(master_key) => {
@@ -56,6 +67,7 @@ pub async fn build(
     };
     let db_pool = web::Data::new(db_pool);
     let time_source = web::Data::new(time_source);
+    let pubsub = web::Data::new(pubsub);
 
     let email_service = web::Data::new(email::EmailService::new(
         secrecy::SecretBox::new(Box::new(
@@ -120,6 +132,7 @@ pub async fn build(
             .app_data(email_service.clone())
             .app_data(stripe_service.clone())
             .app_data(app_config.clone())
+            .app_data(pubsub.clone())
     })
     .listen(listener)?
     .run();

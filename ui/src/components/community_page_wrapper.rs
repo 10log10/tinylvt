@@ -2,7 +2,7 @@ use payloads::{CommunityId, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::RequireAuth;
-use crate::hooks::use_communities;
+use crate::hooks::{render_section, use_communities};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -27,41 +27,25 @@ pub fn CommunityPageWrapper(props: &Props) -> Html {
 fn CommunityPageWrapperInner(props: &Props) -> Html {
     let communities_hook = use_communities();
 
-    // Find the community in the global state
-    let community = communities_hook.data.as_ref().and_then(|communities| {
-        communities.iter().find(|c| c.id == props.community_id)
-    });
-
-    if communities_hook.is_loading {
-        return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">{"Loading community..."}</p>
-            </div>
-        };
-    }
-
-    if let Some(error) = &communities_hook.error {
-        return html! {
-            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-sm text-red-700 dark:text-red-400">{error}</p>
-            </div>
-        };
-    }
-
-    let community = match community {
-        Some(c) => c,
-        None => {
-            return html! {
-                <div class="text-center py-12">
-                    <p class="text-neutral-600 dark:text-neutral-400">{"Community not found"}</p>
+    render_section(
+        &communities_hook.inner,
+        "community",
+        |communities, _is_loading, _errors| match communities
+            .iter()
+            .find(|c| c.id == props.community_id)
+        {
+            Some(community) => html! {
+                <div>
+                    {props.children.emit(community.clone())}
                 </div>
-            };
-        }
-    };
-
-    html! {
-        <div>
-            {props.children.emit(community.clone())}
-        </div>
-    }
+            },
+            None => html! {
+                <div class="text-center py-12">
+                    <p class="text-neutral-600 dark:text-neutral-400">
+                        {"Community not found"}
+                    </p>
+                </div>
+            },
+        },
+    )
 }

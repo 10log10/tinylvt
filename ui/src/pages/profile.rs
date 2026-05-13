@@ -1,6 +1,6 @@
 use crate::components::{ConfirmationModal, RequireAuth};
 use crate::get_api_client;
-use crate::hooks::{use_communities, use_logout, use_title};
+use crate::hooks::{render_section, use_communities, use_logout, use_title};
 use crate::{AuthState, State};
 use payloads::responses::UserProfile;
 use payloads::{Role, requests};
@@ -42,22 +42,9 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
     let display_name_error = use_state(|| None::<String>);
     let is_saving_display_name = use_state(|| false);
 
-    // Use communities hook to get cached communities
+    // Use communities hook to determine leader status. The Danger Zone
+    // section gates on this; the rest of the page renders unconditionally.
     let communities_hook = use_communities();
-
-    // Extract leader communities from the hook data
-    let leader_communities: Option<Vec<String>> =
-        match communities_hook.data.as_ref() {
-            Some(communities) => {
-                let leaders: Vec<String> = communities
-                    .iter()
-                    .filter(|c| c.user_role == Role::Leader)
-                    .map(|c| c.name.clone())
-                    .collect();
-                Some(leaders)
-            }
-            None => None,
-        };
 
     let username = profile.username.clone();
 
@@ -294,10 +281,17 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                     {"Once you delete your account, there is no going back. Please be certain."}
                 </p>
 
-                {
-                    match &leader_communities {
-                        Some(leaders) if !leaders.is_empty() => {
-                            let community_list = leaders.join(", ");
+                {render_section(
+                    &communities_hook.inner,
+                    "communities",
+                    |communities, _is_loading, _errors| {
+                        let leader_names: Vec<String> = communities
+                            .iter()
+                            .filter(|c| c.user_role == Role::Leader)
+                            .map(|c| c.name.clone())
+                            .collect();
+                        if !leader_names.is_empty() {
+                            let community_list = leader_names.join(", ");
                             html! {
                                 <>
                                     <div class="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
@@ -317,11 +311,10 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                                     </button>
                                 </>
                             }
-                        }
-                        _ => {
+                        } else {
                             html! {
                                 <button
-                                    onclick={on_open_modal}
+                                    onclick={on_open_modal.clone()}
                                     class="px-4 py-2 text-sm font-medium text-red-700 dark:text-red-300
                                            bg-white dark:bg-red-900/20 border border-red-300 dark:border-red-700
                                            rounded-md hover:bg-red-50 dark:hover:bg-red-900/30
@@ -331,8 +324,8 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                                 </button>
                             }
                         }
-                    }
-                }
+                    },
+                )}
             </div>
 
             // Delete Confirmation Modal

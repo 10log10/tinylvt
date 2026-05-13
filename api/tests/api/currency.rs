@@ -783,7 +783,7 @@ async fn test_auction_settlement_distributed_clearing() -> anyhow::Result<()> {
         .iter()
         .filter(|t| t.entry_type == EntryType::AuctionSettlement)
         .collect();
-    assert!(settlement_txns.len() > 0);
+    assert!(!settlement_txns.is_empty());
 
     Ok(())
 }

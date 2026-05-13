@@ -148,7 +148,7 @@ pub struct UserValue {
     pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UseProxyBidding {
     pub auction_id: crate::AuctionId,
     pub max_items: i32,
@@ -202,7 +202,7 @@ pub struct SiteImageInfo {
 }
 
 /// Currency information for a member account
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemberCurrencyInfo {
     pub account_id: crate::AccountId,
     pub balance: Decimal,
@@ -211,7 +211,7 @@ pub struct MemberCurrencyInfo {
     pub available_credit: Option<Decimal>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemberCreditLimitOverride {
     pub credit_limit_override: Option<Decimal>,
 }

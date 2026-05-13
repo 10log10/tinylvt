@@ -19,12 +19,12 @@ pub fn use_communities() -> FetchHookReturn<Vec<responses::CommunityWithRole>> {
     use_fetch_with_cache(
         (),
         move || {
-            // get_communities returns FetchState, we need to convert to Option
+            // get_communities returns FetchData, we need to convert to Option
             match get_cached_state.get_communities() {
-                crate::hooks::FetchState::Fetched(communities) => {
+                crate::hooks::FetchData::Fetched(communities) => {
                     Some(communities.clone())
                 }
-                crate::hooks::FetchState::NotFetched => None,
+                crate::hooks::FetchData::NotFetched => None,
             }
         },
         move || !should_fetch_state.has_communities_loaded(),

@@ -657,6 +657,16 @@ pub async fn create_bid_tx(
     .execute(&mut **tx)
     .await?;
 
+    crate::pubsub::emit(
+        tx,
+        &payloads::AuctionEvent::BidsChanged {
+            auction_id: round.auction_id,
+            round_id: *round_id,
+            user_id: *user_id,
+        },
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -736,12 +746,14 @@ pub async fn delete_bid(
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
+    let mut tx = pool.begin().await?;
+
     // Verify the round exists and is ongoing
     let round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
     )
     .bind(round_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
@@ -763,8 +775,20 @@ pub async fn delete_bid(
     .bind(space_id)
     .bind(round_id)
     .bind(user_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    crate::pubsub::emit(
+        &mut tx,
+        &payloads::AuctionEvent::BidsChanged {
+            auction_id: round.auction_id,
+            round_id: *round_id,
+            user_id: *user_id,
+        },
+    )
+    .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }

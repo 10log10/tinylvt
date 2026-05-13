@@ -2,87 +2,61 @@ use payloads::{AuctionId, requests, responses};
 use yew::prelude::*;
 
 use crate::get_api_client;
-use crate::hooks::FetchState;
+use crate::hooks::{Fetch, use_fetch};
 
 /// Hook return type for proxy bidding settings
 ///
-/// See module-level documentation in `hooks/mod.rs` for state combination
-/// details.
-#[derive(Debug)]
+/// `data` is `Fetch<Option<UseProxyBidding>>`: `NotFetched` while
+/// loading, `Fetched(None)` if proxy bidding is disabled, `Fetched(Some)` if
+/// enabled. Derefs to `Fetch` so render-only consumers can
+/// take `&Fetch<Option<UseProxyBidding>>`.
+#[derive(Clone, Debug, PartialEq)]
 #[allow(dead_code)]
 pub struct ProxyBiddingSettingsHookReturn {
-    pub settings: FetchState<Option<responses::UseProxyBidding>>,
-    pub error: Option<String>,
-    pub is_loading: bool,
+    pub inner: Fetch<Option<responses::UseProxyBidding>>,
     pub refetch: Callback<()>,
     pub update: Callback<i32>,
     pub delete: Callback<()>,
 }
 
-impl ProxyBiddingSettingsHookReturn {
-    /// Returns true if this is the initial load (no data, no error, loading)
-    pub fn is_initial_loading(&self) -> bool {
-        self.is_loading && !self.settings.is_fetched() && self.error.is_none()
+impl std::ops::Deref for ProxyBiddingSettingsHookReturn {
+    type Target = Fetch<Option<responses::UseProxyBidding>>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
 /// Hook to manage proxy bidding settings for an auction
 ///
 /// Provides methods to get, update, and delete proxy bidding settings.
-/// FetchState tracks loading state, inner Option tracks whether
-/// proxy bidding is enabled (None = disabled, Some = enabled with settings).
+/// The inner Option tracks whether proxy bidding is enabled (None =
+/// disabled, Some = enabled with settings). Mutation errors are merged
+/// into `inner.errors` via `map_err`, so they surface through the same
+/// `stale_data_banner` / `render_section` paths as fetch errors.
 #[hook]
 pub fn use_proxy_bidding_settings(
     auction_id: AuctionId,
 ) -> ProxyBiddingSettingsHookReturn {
-    let settings = use_state(|| FetchState::NotFetched);
-    let error = use_state(|| None);
-    let is_loading = use_state(|| true);
+    let fetch_hook = use_fetch(auction_id, move || async move {
+        let api_client = get_api_client();
+        api_client
+            .get_proxy_bidding(&auction_id)
+            .await
+            .map_err(|e| e.to_string())
+    });
 
-    let refetch = {
-        let settings = settings.clone();
-        let error = error.clone();
-        let is_loading = is_loading.clone();
-
-        use_callback(auction_id, move |auction_id, _| {
-            let settings = settings.clone();
-            let error = error.clone();
-            let is_loading = is_loading.clone();
-
-            yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error.set(None);
-
-                let api_client = get_api_client();
-                match api_client.get_proxy_bidding(&auction_id).await {
-                    Ok(proxy_settings) => {
-                        settings.set(FetchState::Fetched(proxy_settings));
-                        error.set(None);
-                    }
-                    Err(e) => {
-                        error.set(Some(e.to_string()));
-                    }
-                }
-
-                is_loading.set(false);
-            });
-        })
-    };
+    let mutation_errors = use_state(Vec::<String>::new);
 
     let update = {
-        let settings = settings.clone();
-        let error = error.clone();
-        let is_loading = is_loading.clone();
+        let refetch = fetch_hook.refetch.clone();
+        let mutation_errors = mutation_errors.clone();
 
-        use_callback(auction_id, move |max_items, _| {
-            let settings = settings.clone();
-            let error = error.clone();
-            let is_loading = is_loading.clone();
+        use_callback(auction_id, move |max_items, auction_id| {
+            let refetch = refetch.clone();
+            let mutation_errors = mutation_errors.clone();
+            let auction_id = *auction_id;
 
             yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error.set(None);
-
                 let api_client = get_api_client();
                 let request = requests::UseProxyBidding {
                     auction_id,
@@ -92,72 +66,50 @@ pub fn use_proxy_bidding_settings(
                 match api_client.create_or_update_proxy_bidding(&request).await
                 {
                     Ok(_) => {
-                        // Refetch to get updated settings with timestamp
-                        match api_client.get_proxy_bidding(&auction_id).await {
-                            Ok(proxy_settings) => {
-                                settings
-                                    .set(FetchState::Fetched(proxy_settings));
-                                error.set(None);
-                            }
-                            Err(e) => {
-                                error.set(Some(e.to_string()));
-                            }
-                        }
+                        mutation_errors.set(vec![]);
+                        refetch.emit(());
                     }
                     Err(e) => {
-                        error.set(Some(e.to_string()));
+                        mutation_errors.set(vec![e.to_string()]);
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };
 
     let delete = {
-        let settings = settings.clone();
-        let error = error.clone();
-        let is_loading = is_loading.clone();
+        let refetch = fetch_hook.refetch.clone();
+        let mutation_errors = mutation_errors.clone();
 
-        use_callback(auction_id, move |_, _| {
-            let settings = settings.clone();
-            let error = error.clone();
-            let is_loading = is_loading.clone();
+        use_callback(auction_id, move |_, auction_id| {
+            let refetch = refetch.clone();
+            let mutation_errors = mutation_errors.clone();
+            let auction_id = *auction_id;
 
             yew::platform::spawn_local(async move {
-                is_loading.set(true);
-                error.set(None);
-
                 let api_client = get_api_client();
                 match api_client.delete_proxy_bidding(&auction_id).await {
                     Ok(_) => {
-                        settings.set(FetchState::Fetched(None));
-                        error.set(None);
+                        mutation_errors.set(vec![]);
+                        refetch.emit(());
                     }
                     Err(e) => {
-                        error.set(Some(e.to_string()));
+                        mutation_errors.set(vec![e.to_string()]);
                     }
                 }
-
-                is_loading.set(false);
             });
         })
     };
 
-    // Auto-load settings on mount and when auction_id changes
-    {
-        let refetch = refetch.clone();
-
-        use_effect_with(auction_id, move |auction_id| {
-            refetch.emit(*auction_id);
-        });
-    }
+    let mutation_errs = (*mutation_errors).clone();
+    let inner = fetch_hook.inner.clone().map_err(move |mut errs| {
+        errs.extend(mutation_errs);
+        errs
+    });
 
     ProxyBiddingSettingsHookReturn {
-        settings: (*settings).clone(),
-        error: (*error).clone(),
-        is_loading: *is_loading,
-        refetch: Callback::from(move |_| refetch.emit(auction_id)),
+        inner,
+        refetch: fetch_hook.refetch,
         update,
         delete,
     }

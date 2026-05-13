@@ -8,7 +8,7 @@ use yew::prelude::*;
 use crate::components::Modal;
 use crate::components::user_identity_display::render_user_name;
 use crate::get_api_client;
-use crate::hooks::{FetchState, use_member_credit_limit_override};
+use crate::hooks::{render_section, use_member_credit_limit_override};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -26,29 +26,59 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
         props.member.user_id,
     );
 
+    html! {
+        <Modal on_close={props.on_close.clone()} max_width="max-w-md">
+            <h2 class="text-xl font-semibold text-neutral-900 \
+                        dark:text-neutral-100 mb-4">
+                {"Edit Credit Limit"}
+            </h2>
+            {render_section(
+                &credit_limit_hook.inner,
+                "credit limit",
+                |data, _is_loading, _errors| html! {
+                    <EditCreditLimitForm
+                        member={props.member.clone()}
+                        community_id={props.community_id}
+                        currency={props.currency.clone()}
+                        current_credit_limit_override={
+                            data.credit_limit_override
+                        }
+                        on_close={props.on_close.clone()}
+                        on_success={props.on_success.clone()}
+                    />
+                },
+            )}
+        </Modal>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct FormProps {
+    member: UserIdentity,
+    community_id: CommunityId,
+    currency: CurrencySettings,
+    /// The current override value, already resolved via the parent's
+    /// `render_section`. `None` means the member uses the community default.
+    current_credit_limit_override: Option<Decimal>,
+    on_close: Callback<()>,
+    on_success: Callback<()>,
+}
+
+/// Form body. Mounted only after the credit-limit fetch resolves, so the
+/// initial checkbox state can be derived directly from the prop instead of
+/// peeking at fetch state.
+#[function_component]
+fn EditCreditLimitForm(props: &FormProps) -> Html {
     let limit_input = use_state(String::new);
     let input_touched = use_state(|| false);
-    let use_community_default = use_state(|| false);
+    let use_community_default =
+        use_state(|| props.current_credit_limit_override.is_none());
     let is_submitting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
 
-    // Initialize checkbox state when data loads
-    {
-        let use_community_default = use_community_default.clone();
-        let credit_limit_override = credit_limit_hook
-            .data
-            .clone()
-            .map(|cl| cl.credit_limit_override);
-        use_effect_with(credit_limit_override, move |credit_limit_override| {
-            if let FetchState::Fetched(cl) = credit_limit_override {
-                use_community_default.set(cl.is_none());
-            }
-        });
-    }
-
-    // Validate and parse the input, returning the credit limit override value
-    // Returns Ok(None) for community default, Ok(Some(limit)) for valid input,
-    // Err(message) for invalid input
+    // Validate and parse the input, returning the credit limit override
+    // value. Returns Ok(None) for community default, Ok(Some(limit)) for
+    // valid input, Err(message) for invalid input.
     let parse_input =
         |input: &str, use_default: bool| -> Result<Option<Decimal>, String> {
             if use_default {
@@ -147,172 +177,159 @@ pub fn EditCreditLimitModal(props: &Props) -> Html {
 
     let member_display = render_user_name(&props.member);
 
-    let currency = props.currency.clone();
-    let on_close = props.on_close.clone();
+    let default_limit = props
+        .currency
+        .default_credit_limit()
+        .map(|d| props.currency.format_amount(d))
+        .unwrap_or_else(|| "unlimited".into());
+
+    let current_display = match props.current_credit_limit_override {
+        Some(limit) => props.currency.format_amount(limit),
+        None => format!("Community default ({})", default_limit),
+    };
+
+    let checkbox_label = format!("Use community default ({})", default_limit);
 
     html! {
-        <Modal on_close={on_close.clone()} max_width="max-w-md">
-            <h2 class="text-xl font-semibold text-neutral-900 \
-                        dark:text-neutral-100 mb-4">
-                {"Edit Credit Limit"}
-            </h2>
-            {credit_limit_hook.render("credit limit", move |data, _, _| {
-                let current_credit_limit_override = data.credit_limit_override;
-                let default_limit = currency.default_credit_limit()
-                    .map(|d| currency.format_amount(d))
-                    .unwrap_or_else(|| "unlimited".into());
+        <>
+            <p class="text-sm text-neutral-600 \
+                      dark:text-neutral-400 mb-4">
+                {"Editing credit limit for "}
+                <span class="font-medium">{member_display}</span>
+            </p>
 
-                let current_display = match current_credit_limit_override {
-                    Some(limit) => currency.format_amount(limit),
-                    None => format!("Community default ({})", default_limit),
-                };
+            if let Some(msg) = &*error_message {
+                <div class="bg-red-50 dark:bg-red-900/20 \
+                            border border-red-200 \
+                            dark:border-red-800 rounded p-3 \
+                            text-sm text-red-800 \
+                            dark:text-red-200 mb-4">
+                    {msg}
+                </div>
+            }
 
-                let checkbox_label =
-                    format!("Use community default ({})", default_limit);
+            <div class="space-y-4">
+                <div class="text-sm">
+                    <span class="text-neutral-600 \
+                                 dark:text-neutral-400">
+                        {"Current: "}
+                    </span>
+                    <span class="font-medium text-neutral-900 \
+                                 dark:text-neutral-100">
+                        {current_display}
+                    </span>
+                </div>
 
-                html! {
-                    <>
-                        <p class="text-sm text-neutral-600 \
-                                  dark:text-neutral-400 mb-4">
-                            {"Editing credit limit for "}
-                            <span class="font-medium">{member_display.clone()}</span>
-                        </p>
+                <div class="flex items-center">
+                    <input
+                        type="checkbox"
+                        id="no-override"
+                        checked={*use_community_default}
+                        onchange={on_checkbox_change.clone()}
+                        disabled={*is_submitting}
+                        class="h-4 w-4 text-neutral-900 \
+                               dark:text-neutral-100 \
+                               border-neutral-300 \
+                               dark:border-neutral-600 rounded \
+                               focus:ring-neutral-500"
+                    />
+                    <label for="no-override"
+                           class="ml-2 text-sm text-neutral-700 \
+                                  dark:text-neutral-300">
+                        {checkbox_label}
+                    </label>
+                </div>
 
-                        if let Some(msg) = &*error_message {
-                            <div class="bg-red-50 dark:bg-red-900/20 \
-                                        border border-red-200 \
-                                        dark:border-red-800 rounded p-3 \
-                                        text-sm text-red-800 \
-                                        dark:text-red-200 mb-4">
-                                {msg}
-                            </div>
-                        }
-
-                        <div class="space-y-4">
-                            <div class="text-sm">
-                                <span class="text-neutral-600 \
+                if !*use_community_default {
+                    <div>
+                        <label class="block text-sm font-medium \
+                                      text-neutral-700 \
+                                      dark:text-neutral-300 mb-1">
+                            {"Custom Credit Limit"}
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 \
+                                        pl-3 flex items-center \
+                                        pointer-events-none">
+                                <span class="text-neutral-500 \
                                              dark:text-neutral-400">
-                                    {"Current: "}
-                                </span>
-                                <span class="font-medium text-neutral-900 \
-                                             dark:text-neutral-100">
-                                    {current_display}
+                                    {&props.currency.symbol}
                                 </span>
                             </div>
-
-                            <div class="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="no-override"
-                                    checked={*use_community_default}
-                                    onchange={on_checkbox_change.clone()}
-                                    disabled={*is_submitting}
-                                    class="h-4 w-4 text-neutral-900 \
-                                           dark:text-neutral-100 \
-                                           border-neutral-300 \
-                                           dark:border-neutral-600 rounded \
-                                           focus:ring-neutral-500"
-                                />
-                                <label for="no-override"
-                                       class="ml-2 text-sm text-neutral-700 \
-                                              dark:text-neutral-300">
-                                    {checkbox_label}
-                                </label>
-                            </div>
-
-                            if !*use_community_default {
-                                <div>
-                                    <label class="block text-sm font-medium \
-                                                  text-neutral-700 \
-                                                  dark:text-neutral-300 mb-1">
-                                        {"Custom Credit Limit"}
-                                    </label>
-                                    <div class="relative">
-                                        <div class="absolute inset-y-0 left-0 \
-                                                    pl-3 flex items-center \
-                                                    pointer-events-none">
-                                            <span class="text-neutral-500 \
-                                                         dark:text-neutral-400">
-                                                {&currency.symbol}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="text"
-                                            class={classes!(
-                                                "w-full", "pl-8", "pr-3", "py-2",
-                                                "border", "rounded", "bg-white",
-                                                "dark:bg-neutral-800",
-                                                "text-neutral-900",
-                                                "dark:text-neutral-100",
-                                                if validation_error.is_some() {
-                                                    "border-red-300 \
-                                                     dark:border-red-600"
-                                                } else {
-                                                    "border-neutral-300 \
-                                                     dark:border-neutral-600"
-                                                }
-                                            )}
-                                            placeholder="0.00"
-                                            value={(*limit_input).clone()}
-                                            oninput={on_limit_change.clone()}
-                                            disabled={*is_submitting}
-                                        />
-                                    </div>
-                                    if let Some(err) = &validation_error {
-                                        <p class="mt-1 text-sm text-red-600 \
-                                                  dark:text-red-400">
-                                            {err}
-                                        </p>
+                            <input
+                                type="text"
+                                class={classes!(
+                                    "w-full", "pl-8", "pr-3", "py-2",
+                                    "border", "rounded", "bg-white",
+                                    "dark:bg-neutral-800",
+                                    "text-neutral-900",
+                                    "dark:text-neutral-100",
+                                    if validation_error.is_some() {
+                                        "border-red-300 \
+                                         dark:border-red-600"
+                                    } else {
+                                        "border-neutral-300 \
+                                         dark:border-neutral-600"
                                     }
-                                </div>
-                            }
-                        </div>
-
-                        <div class="flex gap-3 mt-6">
-                            <button
-                                onclick={on_submit.clone()}
-                                disabled={!can_submit}
-                                class="flex-1 justify-center py-2 px-4 border \
-                                       border-transparent rounded-md shadow-sm \
-                                       text-sm font-medium text-white \
-                                       bg-neutral-900 hover:bg-neutral-800 \
-                                       dark:bg-neutral-100 \
-                                       dark:text-neutral-900 \
-                                       dark:hover:bg-neutral-200 \
-                                       focus:outline-none focus:ring-2 \
-                                       focus:ring-offset-2 \
-                                       focus:ring-neutral-500 \
-                                       disabled:opacity-50 \
-                                       disabled:cursor-not-allowed \
-                                       transition-colors duration-200"
-                            >
-                                {if *is_submitting { "Updating..." }
-                                 else { "Update Credit Limit" }}
-                            </button>
-                            <button
-                                onclick={on_close.reform(|_| ())}
+                                )}
+                                placeholder="0.00"
+                                value={(*limit_input).clone()}
+                                oninput={on_limit_change.clone()}
                                 disabled={*is_submitting}
-                                class="flex-1 py-2 px-4 border \
-                                       border-neutral-300 \
-                                       dark:border-neutral-600 rounded-md \
-                                       shadow-sm text-sm font-medium \
-                                       text-neutral-700 dark:text-neutral-300 \
-                                       bg-white dark:bg-neutral-800 \
-                                       hover:bg-neutral-50 \
-                                       dark:hover:bg-neutral-700 \
-                                       focus:outline-none focus:ring-2 \
-                                       focus:ring-offset-2 \
-                                       focus:ring-neutral-500 \
-                                       disabled:opacity-50 \
-                                       disabled:cursor-not-allowed \
-                                       transition-colors duration-200"
-                            >
-                                {"Cancel"}
-                            </button>
+                            />
                         </div>
-                    </>
+                        if let Some(err) = &validation_error {
+                            <p class="mt-1 text-sm text-red-600 \
+                                      dark:text-red-400">
+                                {err}
+                            </p>
+                        }
+                    </div>
                 }
-            })}
-        </Modal>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button
+                    onclick={on_submit}
+                    disabled={!can_submit}
+                    class="flex-1 justify-center py-2 px-4 border \
+                           border-transparent rounded-md shadow-sm \
+                           text-sm font-medium text-white \
+                           bg-neutral-900 hover:bg-neutral-800 \
+                           dark:bg-neutral-100 \
+                           dark:text-neutral-900 \
+                           dark:hover:bg-neutral-200 \
+                           focus:outline-none focus:ring-2 \
+                           focus:ring-offset-2 \
+                           focus:ring-neutral-500 \
+                           disabled:opacity-50 \
+                           disabled:cursor-not-allowed \
+                           transition-colors duration-200"
+                >
+                    {if *is_submitting { "Updating..." }
+                     else { "Update Credit Limit" }}
+                </button>
+                <button
+                    onclick={props.on_close.reform(|_| ())}
+                    disabled={*is_submitting}
+                    class="flex-1 py-2 px-4 border \
+                           border-neutral-300 \
+                           dark:border-neutral-600 rounded-md \
+                           shadow-sm text-sm font-medium \
+                           text-neutral-700 dark:text-neutral-300 \
+                           bg-white dark:bg-neutral-800 \
+                           hover:bg-neutral-50 \
+                           dark:hover:bg-neutral-700 \
+                           focus:outline-none focus:ring-2 \
+                           focus:ring-offset-2 \
+                           focus:ring-neutral-500 \
+                           disabled:opacity-50 \
+                           disabled:cursor-not-allowed \
+                           transition-colors duration-200"
+                >
+                    {"Cancel"}
+                </button>
+            </div>
+        </>
     }
 }

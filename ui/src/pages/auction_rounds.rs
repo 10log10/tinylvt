@@ -1,17 +1,13 @@
-use payloads::{AuctionId, CurrencySettings};
+use payloads::{AuctionId, CurrencySettings, responses::UserProfile};
 use yew::prelude::*;
-use yewdux::prelude::*;
 
-use crate::{
-    State,
-    components::{
-        AuctionContext, AuctionPageWrapper, AuctionTabHeader, TimestampDisplay,
-        auction_tab_header::ActiveTab,
-    },
-    hooks::{
-        use_auction_round_results, use_auction_rounds, use_auction_user_bids,
-        use_spaces,
-    },
+use crate::components::{
+    AuctionContext, AuctionPageWrapper, AuctionTabHeader,
+    ConnectionStatusIndicator, TimestampDisplay, auction_tab_header::ActiveTab,
+};
+use crate::hooks::{
+    render_section, stale_data_banner, use_auction_round_results,
+    use_auction_rounds, use_auction_user_bids, use_spaces,
 };
 
 #[derive(Properties, PartialEq)]
@@ -32,6 +28,7 @@ pub fn AuctionRoundsPage(props: &Props) -> Html {
                     <RoundsPageContent
                         auction={ctx.auction.clone()}
                         currency={ctx.currency().clone()}
+                        current_user={ctx.current_user.clone()}
                     />
                 </div>
             </div>
@@ -50,6 +47,7 @@ pub fn AuctionRoundsPage(props: &Props) -> Html {
 struct RoundsPageContentProps {
     auction: payloads::responses::Auction,
     currency: CurrencySettings,
+    current_user: UserProfile,
 }
 
 #[function_component]
@@ -57,16 +55,21 @@ fn RoundsPageContent(props: &RoundsPageContentProps) -> Html {
     let auction_id = props.auction.auction_id;
     let rounds_hook = use_auction_rounds(auction_id);
 
-    rounds_hook.render("rounds", {
+    render_section(&rounds_hook.inner, "rounds", {
         let auction = props.auction.clone();
         let currency = props.currency.clone();
-        move |rounds, _is_loading, _error| {
+        let current_user = props.current_user.clone();
+        move |rounds, _is_loading, errors| {
             html! {
-                <RoundsContent
-                    auction={auction.clone()}
-                    rounds={rounds.clone()}
-                    currency={currency.clone()}
-                />
+                <>
+                    {stale_data_banner(errors)}
+                    <RoundsContent
+                        auction={auction.clone()}
+                        rounds={rounds.clone()}
+                        currency={currency.clone()}
+                        current_user={current_user.clone()}
+                    />
+                </>
             }
         }
     })
@@ -77,6 +80,7 @@ struct RoundsContentProps {
     auction: payloads::responses::Auction,
     rounds: Vec<payloads::responses::AuctionRound>,
     currency: CurrencySettings,
+    current_user: UserProfile,
 }
 
 #[function_component]
@@ -84,15 +88,6 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
     let rounds = &props.rounds;
     let auction_id = props.auction.auction_id;
     let site_id = props.auction.auction_details.site_id;
-    let (state, _) = use_store::<State>();
-
-    // Get current user's username
-    let current_username = match &state.auth_state {
-        crate::state::AuthState::LoggedIn(profile) => {
-            Some(profile.username.clone())
-        }
-        _ => None,
-    };
 
     // Fetch all user bids and round results for the auction
     let user_bids_hook = use_auction_user_bids(auction_id, rounds.clone());
@@ -100,14 +95,21 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
         use_auction_round_results(auction_id, rounds.clone());
     let spaces_hook = use_spaces(site_id);
 
+    // The subscribed fetch hooks share an EventSource per auction; reading
+    // connection_status from any of them returns the same live status.
+    let connection_status = user_bids_hook.connection_status;
+
     if rounds.is_empty() {
         return html! {
-            <div class="text-center py-12">
-                <p class="text-neutral-600 dark:text-neutral-400">
-                    {"This auction has not started yet. No rounds have been \
-                     created."}
-                </p>
-            </div>
+            <>
+                <ConnectionStatusIndicator status={connection_status} />
+                <div class="text-center py-12">
+                    <p class="text-neutral-600 dark:text-neutral-400">
+                        {"This auction has not started yet. No rounds have \
+                         been created."}
+                    </p>
+                </div>
+            </>
         };
     }
 
@@ -117,10 +119,6 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
         b.round_details.round_num.cmp(&a.round_details.round_num)
     });
 
-    let bids_by_round = user_bids_hook.data.clone();
-    let results_by_round = round_results_hook.data.clone();
-    let spaces = spaces_hook.data.as_ref().cloned().unwrap_or_default();
-
     html! {
         <div>
             <h2 class="text-xl font-semibold text-neutral-900 \
@@ -128,72 +126,56 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
                 {"Auction Rounds"}
             </h2>
 
-            // Show errors for round results and user bids
-            {if let Some(err) = &round_results_hook.error {
-                html! {
-                    <div class="mb-4 p-4 rounded-md bg-red-50 \
-                               dark:bg-red-900/20 border border-red-200 \
-                               dark:border-red-800">
-                        <p class="text-sm text-red-700 dark:text-red-400">
-                            {format!("Error loading round results: {}", err)}
-                        </p>
-                    </div>
-                }
-            } else {
-                html! {}
-            }}
+            <ConnectionStatusIndicator status={connection_status} />
 
-            {if let Some(err) = &user_bids_hook.error {
-                html! {
-                    <div class="mb-4 p-4 rounded-md bg-red-50 \
-                               dark:bg-red-900/20 border border-red-200 \
-                               dark:border-red-800">
-                        <p class="text-sm text-red-700 dark:text-red-400">
-                            {format!("Error loading your bids: {}", err)}
-                        </p>
-                    </div>
-                }
-            } else {
-                html! {}
-            }}
+            {render_section(
+                &user_bids_hook
+                    .inner
+                    .zip_ref(&round_results_hook.inner)
+                    .zip_ref(&spaces_hook.inner),
+                "rounds",
+                |((bids_by_round, results_by_round), spaces), _, errors| html! {
+                    <>
+                        {stale_data_banner(errors)}
 
-            <div class="space-y-4">
-                {sorted_rounds.iter().map(|round| {
-                    let round_id = round.round_id;
-                    let round_num = round.round_details.round_num;
-                    let user_bids_for_round = bids_by_round.as_ref()
-                        .and_then(|map| map.get(&round_id))
-                        .cloned();
-                    let results_for_round = results_by_round.as_ref()
-                        .and_then(|map| map.get(&round_id))
-                        .cloned();
-                    // Get previous round's results for calculating bid values
-                    let previous_round_results = if round_num > 0 {
-                        sorted_rounds.iter()
-                            .find(|r| r.round_details.round_num == round_num - 1)
-                            .and_then(|prev_round| {
-                                results_by_round.as_ref()
-                                    .and_then(|map| map.get(&prev_round.round_id))
-                                    .cloned()
-                            })
-                    } else {
-                        None
-                    };
-                    html! {
-                        <RoundCard
-                            key={round_id.0.to_string()}
-                            round={round.clone()}
-                            bid_increment={props.auction.auction_details.auction_params.bid_increment}
-                            currency={props.currency.clone()}
-                            user_bids={user_bids_for_round}
-                            round_results={results_for_round}
-                            previous_round_results={previous_round_results}
-                            current_username={current_username.clone()}
-                            spaces={spaces.clone()}
-                        />
-                    }
-                }).collect::<Html>()}
-            </div>
+                        <div class="space-y-4">
+                            {sorted_rounds.iter().map(|round| {
+                                let round_id = round.round_id;
+                                let round_num = round.round_details.round_num;
+                                let user_bids_for_round =
+                                    bids_by_round.get(&round_id).cloned();
+                                // Previous round's results, used to compute
+                                // the displayed bid values in this round. If
+                                // that previous round's results fetch errored
+                                // we still pass the Err through so the bid
+                                // section can fall back to "—" rather than
+                                // showing a misleading 0.
+                                let previous_round_results = if round_num > 0 {
+                                    sorted_rounds.iter()
+                                        .find(|r| r.round_details.round_num == round_num - 1)
+                                        .and_then(|prev_round| {
+                                            results_by_round.get(&prev_round.round_id).cloned()
+                                        })
+                                } else {
+                                    None
+                                };
+                                html! {
+                                    <RoundCard
+                                        key={round_id.0.to_string()}
+                                        round={round.clone()}
+                                        bid_increment={props.auction.auction_details.auction_params.bid_increment}
+                                        currency={props.currency.clone()}
+                                        user_bids={user_bids_for_round}
+                                        previous_round_results={previous_round_results}
+                                        current_user={props.current_user.clone()}
+                                        spaces={(*spaces).clone()}
+                                    />
+                                }
+                            }).collect::<Html>()}
+                        </div>
+                    </>
+                },
+            )}
         </div>
     }
 }
@@ -203,10 +185,16 @@ struct RoundCardProps {
     round: payloads::responses::AuctionRound,
     bid_increment: rust_decimal::Decimal,
     currency: CurrencySettings,
-    user_bids: Option<Vec<payloads::SpaceId>>,
-    round_results: Option<Vec<payloads::RoundSpaceResult>>,
-    previous_round_results: Option<Vec<payloads::RoundSpaceResult>>,
-    current_username: Option<String>,
+    /// `None` means no bids hook entry yet (parent still loading); `Some(Ok)`
+    /// is the user's bid space ids; `Some(Err)` carries the per-round fetch
+    /// error so the bids section renders an inline error.
+    user_bids: Option<Result<Vec<payloads::SpaceId>, String>>,
+    /// Previous round's results — drives both the high-bidder section and
+    /// the bid value computation in this round's bids list. Same shape as
+    /// `user_bids`.
+    previous_round_results:
+        Option<Result<Vec<payloads::RoundSpaceResult>, String>>,
+    current_user: UserProfile,
     spaces: Vec<payloads::responses::Space>,
 }
 
@@ -214,48 +202,6 @@ struct RoundCardProps {
 fn RoundCard(props: &RoundCardProps) -> Html {
     let round = &props.round;
     let round_num = round.round_details.round_num;
-
-    // Get the results from the PREVIOUS round to determine which spaces
-    // the user was high bidder on in that round (which means they won
-    // those spaces in the previous round)
-    let high_bidder_spaces = if let (Some(username), Some(results)) =
-        (&props.current_username, &props.previous_round_results)
-    {
-        results
-            .iter()
-            .filter(|result| &result.winner.username == username)
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
-
-    // User bids in this round with their values
-    // Bid value = previous round result value + bid increment
-    let user_bid_details = if let Some(bid_space_ids) = &props.user_bids {
-        bid_space_ids
-            .iter()
-            .filter_map(|space_id| {
-                let space =
-                    props.spaces.iter().find(|s| s.space_id == *space_id)?;
-                // Get the previous round's result for this space
-                let prev_value =
-                    props.previous_round_results.as_ref().and_then(|results| {
-                        results
-                            .iter()
-                            .find(|r| r.space_id == *space_id)
-                            .map(|r| r.value)
-                    });
-                // Bid value is previous value + increment (or 0 in round 0)
-                let bid_value = match prev_value {
-                    Some(value) => value + props.bid_increment,
-                    None => rust_decimal::Decimal::ZERO,
-                };
-                Some((space.space_details.name.clone(), bid_value))
-            })
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
 
     html! {
         <div class="border border-neutral-200 dark:border-neutral-700 \
@@ -305,27 +251,7 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                                    dark:text-neutral-300 mb-2">
                             {"Your Bids"}
                         </h4>
-                        {if user_bid_details.is_empty() {
-                            html! {
-                                <p class="text-sm text-neutral-600 \
-                                          dark:text-neutral-400">
-                                    {"No bids placed"}
-                                </p>
-                            }
-                        } else {
-                            html! {
-                                <ul class="space-y-1">
-                                    {user_bid_details.iter().map(|(name, value)| {
-                                        html! {
-                                            <li class="text-sm text-neutral-900 \
-                                                       dark:text-neutral-100">
-                                                {format!("{}: {}", name, props.currency.format_amount(*value))}
-                                            </li>
-                                        }
-                                    }).collect::<Html>()}
-                                </ul>
-                            }
-                        }}
+                        {render_bids_section(props)}
                     </div>
                 </div>
                 <div>
@@ -338,32 +264,132 @@ fn RoundCard(props: &RoundCardProps) -> Html {
                                 "High Bidder Status".to_string()
                             }}
                         </h4>
-                        {if high_bidder_spaces.is_empty() || round_num == 0 {
-                            html! {
-                                <p class="text-sm text-neutral-600 \
-                                          dark:text-neutral-400">
-                                    {"None"}
-                                </p>
-                            }
-                        } else {
-                            html! {
-                                <ul class="space-y-1">
-                                    {high_bidder_spaces.iter().filter_map(|result| {
-                                        let space = props.spaces.iter()
-                                            .find(|s| s.space_id == result.space_id)?;
-                                        Some(html! {
-                                            <li class="text-sm text-neutral-900 \
-                                                       dark:text-neutral-100">
-                                                {format!("{}: {}", space.space_details.name, props.currency.format_amount(result.value))}
-                                            </li>
-                                        })
-                                    }).collect::<Html>()}
-                                </ul>
-                            }
-                        }}
+                        {render_high_bidder_section(props)}
                     </div>
                 </div>
             </div>
         </div>
+    }
+}
+
+fn render_bids_section(props: &RoundCardProps) -> Html {
+    let bid_space_ids = match &props.user_bids {
+        Some(Ok(ids)) => ids,
+        Some(Err(msg)) => {
+            return error_text(&format!("Couldn't load bids: {msg}"));
+        }
+        None => return placeholder_text("No bids placed"),
+    };
+
+    if bid_space_ids.is_empty() {
+        return placeholder_text("No bids placed");
+    }
+
+    html! {
+        <ul class="space-y-1">
+            {bid_space_ids.iter().filter_map(|space_id| {
+                let space = props.spaces.iter()
+                    .find(|s| s.space_id == *space_id)?;
+                let value_label = compute_bid_value_label(
+                    space_id,
+                    &props.previous_round_results,
+                    props.bid_increment,
+                    &props.currency,
+                );
+                Some(html! {
+                    <li class="text-sm text-neutral-900 dark:text-neutral-100">
+                        {format!("{}: {}", space.space_details.name, value_label)}
+                    </li>
+                })
+            }).collect::<Html>()}
+        </ul>
+    }
+}
+
+/// Bid value = previous round's result for the space + bid increment, or
+/// 0 if there is no previous result. `None` means there is no previous
+/// round at all (round 0); `Some(Ok)` with no row for this space means the
+/// previous round had no bid on it (so it opens at 0 again this round).
+/// `Some(Err)` is the only case where we can't compute a value, and
+/// renders as `"value unavailable"`.
+///
+/// This relies on the parent gating render on `use_auction_round_results`
+/// resolving, so an in-flight fetch never reaches this function as `None`.
+fn compute_bid_value_label(
+    space_id: &payloads::SpaceId,
+    previous_round_results: &Option<
+        Result<Vec<payloads::RoundSpaceResult>, String>,
+    >,
+    bid_increment: rust_decimal::Decimal,
+    currency: &CurrencySettings,
+) -> String {
+    match previous_round_results {
+        Some(Ok(results)) => {
+            let value = results
+                .iter()
+                .find(|r| r.space_id == *space_id)
+                .map(|prev| prev.value + bid_increment)
+                .unwrap_or(rust_decimal::Decimal::ZERO);
+            currency.format_amount(value)
+        }
+        Some(Err(_)) => "value unavailable".to_string(),
+        None => currency.format_amount(rust_decimal::Decimal::ZERO),
+    }
+}
+
+fn render_high_bidder_section(props: &RoundCardProps) -> Html {
+    // `None` means there is no previous round (round 0), so there can't be
+    // a high bidder yet — same rendering as "previous round had no winners
+    // for this user". Same gating-on-render assumption as
+    // `compute_bid_value_label`.
+    let results = match &props.previous_round_results {
+        Some(Ok(r)) => r,
+        Some(Err(msg)) => {
+            return error_text(&format!("Couldn't load round results: {msg}"));
+        }
+        None => return placeholder_text("None"),
+    };
+
+    let high_bidder_spaces: Vec<_> = results
+        .iter()
+        .filter(|r| r.winner.user_id == props.current_user.user_id)
+        .collect();
+
+    if high_bidder_spaces.is_empty() {
+        return placeholder_text("None");
+    }
+
+    html! {
+        <ul class="space-y-1">
+            {high_bidder_spaces.iter().filter_map(|result| {
+                let space = props.spaces.iter()
+                    .find(|s| s.space_id == result.space_id)?;
+                Some(html! {
+                    <li class="text-sm text-neutral-900 dark:text-neutral-100">
+                        {format!(
+                            "{}: {}",
+                            space.space_details.name,
+                            props.currency.format_amount(result.value),
+                        )}
+                    </li>
+                })
+            }).collect::<Html>()}
+        </ul>
+    }
+}
+
+fn placeholder_text(text: &str) -> Html {
+    html! {
+        <p class="text-sm text-neutral-600 dark:text-neutral-400">
+            {text.to_string()}
+        </p>
+    }
+}
+
+fn error_text(text: &str) -> Html {
+    html! {
+        <p class="text-sm text-red-600 dark:text-red-400">
+            {text.to_string()}
+        </p>
     }
 }

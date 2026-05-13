@@ -4,7 +4,9 @@ use yew_router::prelude::*;
 
 use crate::Route;
 use crate::components::{EmailVerificationBanner, RequireAuth};
-use crate::hooks::{use_communities, use_push_route, use_title};
+use crate::hooks::{
+    render_section, use_communities, use_push_route, use_title,
+};
 
 #[function_component]
 pub fn CommunitiesPage() -> Html {
@@ -64,7 +66,10 @@ fn CommunitiesPageInner(props: &CommunitiesPageInnerProps) -> Html {
                 </button>
             </div>
 
-            {communities_hook.render("communities", |community_list, is_loading, error| {
+            {render_section(
+                &communities_hook.inner,
+                "communities",
+                |community_list, is_loading, errors| {
                 html! {
                     <>
                         {if is_loading {
@@ -79,17 +84,13 @@ fn CommunitiesPageInner(props: &CommunitiesPageInnerProps) -> Html {
                             html! {}
                         }}
 
-                        {if let Some(err) = error {
-                            html! {
-                                <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                                    <p class="text-sm text-red-700 dark:text-red-400">
-                                        {"Error refreshing: "}{err}
-                                    </p>
-                                </div>
-                            }
-                        } else {
-                            html! {}
-                        }}
+                        {for errors.iter().map(|err| html! {
+                            <div class="p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                                <p class="text-sm text-red-700 dark:text-red-400">
+                                    {"Error refreshing: "}{err}
+                                </p>
+                            </div>
+                        })}
 
                         {if community_list.is_empty() {
                             html! {

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use api::{
     Config, build,
+    pubsub::PubSub,
     scheduler::Scheduler,
     telemetry::{get_subscriber, init_subscriber},
     time::TimeSource,
@@ -70,7 +71,9 @@ async fn main() -> std::io::Result<()> {
     });
 
     let stripe_service = config.create_stripe_service();
+    let pubsub = PubSub::new();
 
-    let server = build(&mut config, pool, time_source, stripe_service).await?;
+    let server =
+        build(&mut config, pool, time_source, stripe_service, pubsub).await?;
     server.await
 }

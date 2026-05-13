@@ -41,6 +41,7 @@ sqlx-postgres = "0.8.3"
 stripe = { version = "0.41.0", package = "async-stripe", default-features = false, features = ["runtime-tokio-hyper", "full", "webhook-events"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { version = "0.1.18", features = ["sync"] }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }

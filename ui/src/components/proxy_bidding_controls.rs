@@ -1,20 +1,53 @@
 use yew::prelude::*;
 
+use crate::hooks::{ProxyBiddingSettingsHookReturn, render_section};
+
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    pub is_enabled: bool,
-    pub max_items: i32,
-    pub on_toggle: Callback<bool>,
-    pub on_update: Callback<i32>,
-    pub is_loading: bool,
+    /// The proxy-bidding settings hook. The component reads is_enabled /
+    /// max_items from the fetched settings and triggers update/delete via
+    /// the hook's callbacks.
+    pub settings: ProxyBiddingSettingsHookReturn,
 }
 
 #[function_component]
 pub fn ProxyBiddingControls(props: &Props) -> Html {
+    render_section(&props.settings.inner, "proxy bidding settings", {
+        let update = props.settings.update.clone();
+        let delete = props.settings.delete.clone();
+        move |settings_opt: &Option<payloads::responses::UseProxyBidding>,
+              _is_loading,
+              _errors| {
+            let is_enabled = settings_opt.is_some();
+            let max_items =
+                settings_opt.as_ref().map(|s| s.max_items).unwrap_or(1);
+            html! {
+                <ProxyBiddingControlsLoaded
+                    is_enabled={is_enabled}
+                    max_items={max_items}
+                    update={update.clone()}
+                    delete={delete.clone()}
+                />
+            }
+        }
+    })
+}
+
+#[derive(Properties, PartialEq)]
+struct LoadedProps {
+    is_enabled: bool,
+    max_items: i32,
+    update: Callback<i32>,
+    delete: Callback<()>,
+}
+
+#[function_component]
+fn ProxyBiddingControlsLoaded(props: &LoadedProps) -> Html {
     let max_items_input = use_state(|| props.max_items.to_string());
     let is_editing = use_state(|| false);
 
-    // Reset input when props change
+    // Reset input when the underlying max_items changes (e.g., after a save
+    // round-trips and the hook updates).
     {
         let max_items_input = max_items_input.clone();
         let max_items = props.max_items;
@@ -32,22 +65,28 @@ pub fn ProxyBiddingControls(props: &Props) -> Html {
     };
 
     let on_toggle_click = {
-        let on_toggle = props.on_toggle.clone();
+        let update = props.update.clone();
+        let delete = props.delete.clone();
         let is_enabled = props.is_enabled;
+        let max_items = props.max_items;
         Callback::from(move |_| {
-            on_toggle.emit(!is_enabled);
+            if is_enabled {
+                delete.emit(());
+            } else {
+                update.emit(max_items);
+            }
         })
     };
 
     let on_save_click = {
         let max_items_input = max_items_input.clone();
-        let on_update = props.on_update.clone();
+        let update = props.update.clone();
         let is_editing = is_editing.clone();
         Callback::from(move |_| {
             if let Ok(value) = (*max_items_input).parse::<i32>()
                 && value > 0
             {
-                on_update.emit(value);
+                update.emit(value);
                 is_editing.set(false);
             }
         })
@@ -81,7 +120,6 @@ pub fn ProxyBiddingControls(props: &Props) -> Html {
                     </h3>
                     <button
                         onclick={on_toggle_click}
-                        disabled={props.is_loading}
                         class={format!(
                             "relative inline-flex h-6 w-11 items-center \
                              rounded-full transition-colors {}",
@@ -139,7 +177,6 @@ pub fn ProxyBiddingControls(props: &Props) -> Html {
                                             <div class="flex gap-2">
                                                 <button
                                                     onclick={on_save_click}
-                                                    disabled={props.is_loading}
                                                     class="bg-neutral-900 \
                                                            hover:bg-neutral-800 \
                                                            dark:bg-neutral-100 \
@@ -148,22 +185,19 @@ pub fn ProxyBiddingControls(props: &Props) -> Html {
                                                            text-white px-3 py-1.5 \
                                                            rounded-md text-sm \
                                                            font-medium \
-                                                           transition-colors \
-                                                           disabled:opacity-50"
+                                                           transition-colors"
                                                 >
                                                     {"Save"}
                                                 </button>
                                                 <button
                                                     onclick={on_cancel_click}
-                                                    disabled={props.is_loading}
                                                     class="border border-neutral-300 \
                                                            dark:border-neutral-600 \
                                                            hover:bg-neutral-100 \
                                                            dark:hover:bg-neutral-700 \
                                                            px-3 py-1.5 rounded-md \
                                                            text-sm font-medium \
-                                                           transition-colors \
-                                                           disabled:opacity-50"
+                                                           transition-colors"
                                                 >
                                                     {"Cancel"}
                                                 </button>
@@ -181,7 +215,6 @@ pub fn ProxyBiddingControls(props: &Props) -> Html {
                                             </span>
                                             <button
                                                 onclick={on_edit_click}
-                                                disabled={props.is_loading}
                                                 class="text-sm text-neutral-600 \
                                                        hover:text-neutral-900 \
                                                        dark:text-neutral-400 \

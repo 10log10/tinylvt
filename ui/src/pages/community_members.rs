@@ -8,7 +8,7 @@ use crate::components::{
     RemoveMemberModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
-use crate::hooks::{use_members, use_push_route};
+use crate::hooks::{render_section, use_members, use_push_route};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -58,28 +58,30 @@ fn MembersContent(props: &MembersContentProps) -> Html {
         })
     };
 
-    members_hook.render("members", |members, is_loading, error| {
-        html! {
-            <div class="relative">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-xl font-semibold text-neutral-900 \
-                               dark:text-neutral-100">
-                        {"Community Members"}
-                    </h2>
-                    {if is_loading {
-                        html! {
-                            <span class="text-xs text-neutral-500 \
-                                        dark:text-neutral-400 italic">
-                                {"Refreshing..."}
-                            </span>
-                        }
-                    } else {
-                        html! {}
-                    }}
-                </div>
+    render_section(
+        &members_hook.inner,
+        "members",
+        |members, is_loading, errors| {
+            html! {
+                <div class="relative">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-semibold text-neutral-900 \
+                                   dark:text-neutral-100">
+                            {"Community Members"}
+                        </h2>
+                        {if is_loading {
+                            html! {
+                                <span class="text-xs text-neutral-500 \
+                                            dark:text-neutral-400 italic">
+                                    {"Refreshing..."}
+                                </span>
+                            }
+                        } else {
+                            html! {}
+                        }}
+                    </div>
 
-                {if let Some(err) = error {
-                    html! {
+                    {for errors.iter().map(|err| html! {
                         <div class="mb-4 p-4 rounded-md bg-red-50 \
                                     dark:bg-red-900/20 border border-red-200 \
                                     dark:border-red-800">
@@ -87,59 +89,57 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                                 {"Error refreshing: "}{err}
                             </p>
                         </div>
-                    }
-                } else {
-                    html! {}
-                }}
+                    })}
 
-                {if members.is_empty() {
-                    html! {
-                        <div class="text-center py-12">
-                            <p class="text-neutral-600 dark:text-neutral-400">
-                                {"No members found in this community."}
-                            </p>
-                        </div>
-                    }
-                } else {
-                    html! {
-                        <div class="space-y-3">
-                            {members.iter().map(|member| {
-                                let on_update = members_hook.refetch.clone();
-                                html! {
-                                    <MemberRow
-                                        key={member.user.user_id.to_string()}
-                                        member={member.clone()}
-                                        community={props.community.clone()}
-                                        on_update={on_update}
-                                    />
-                                }
-                            }).collect::<Html>()}
-                        </div>
-                    }
-                }}
+                    {if members.is_empty() {
+                        html! {
+                            <div class="text-center py-12">
+                                <p class="text-neutral-600 dark:text-neutral-400">
+                                    {"No members found in this community."}
+                                </p>
+                            </div>
+                        }
+                    } else {
+                        html! {
+                            <div class="space-y-3">
+                                {members.iter().map(|member| {
+                                    let on_update = members_hook.refetch.clone();
+                                    html! {
+                                        <MemberRow
+                                            key={member.user.user_id.to_string()}
+                                            member={member.clone()}
+                                            community={props.community.clone()}
+                                            on_update={on_update}
+                                        />
+                                    }
+                                }).collect::<Html>()}
+                            </div>
+                        }
+                    }}
 
-                {if can_invite {
-                    html! {
-                        <div class="mt-6 flex justify-center">
-                            <button
-                                onclick={on_invite_click.clone()}
-                                class="bg-neutral-900 hover:bg-neutral-800 \
-                                       dark:bg-neutral-100 \
-                                       dark:text-neutral-900 \
-                                       dark:hover:bg-neutral-200 text-white \
-                                       px-4 py-2 rounded-md text-sm \
-                                       font-medium transition-colors"
-                            >
-                                {"Invite Members"}
-                            </button>
-                        </div>
-                    }
-                } else {
-                    html! {}
-                }}
-            </div>
-        }
-    })
+                    {if can_invite {
+                        html! {
+                            <div class="mt-6 flex justify-center">
+                                <button
+                                    onclick={on_invite_click.clone()}
+                                    class="bg-neutral-900 hover:bg-neutral-800 \
+                                           dark:bg-neutral-100 \
+                                           dark:text-neutral-900 \
+                                           dark:hover:bg-neutral-200 text-white \
+                                           px-4 py-2 rounded-md text-sm \
+                                           font-medium transition-colors"
+                                >
+                                    {"Invite Members"}
+                                </button>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
+                </div>
+            }
+        },
+    )
 }
 
 #[derive(Properties, PartialEq)]

@@ -686,6 +686,33 @@ pub mod billing;
 pub mod requests;
 pub mod responses;
 
+/// Live update events delivered to the UI over Server-Sent Events. Payloads
+/// are routing-only — the client refetches the actual state on receipt.
+///
+/// `BidsChanged` is user-scoped: the SSE handler delivers it only to streams
+/// authenticated as the matching `user_id`. The other variants are filtered by
+/// `auction_id` only, since the data they invalidate is visible to anyone who
+/// can view the auction.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AuctionEvent {
+    RoundCreated {
+        auction_id: AuctionId,
+        round_id: AuctionRoundId,
+    },
+    RoundEnded {
+        auction_id: AuctionId,
+        round_id: AuctionRoundId,
+    },
+    AuctionEnded {
+        auction_id: AuctionId,
+    },
+    BidsChanged {
+        auction_id: AuctionId,
+        round_id: AuctionRoundId,
+        user_id: UserId,
+    },
+}
+
 pub use billing::{
     BillingInterval, CheckoutSessionResponse, CommunityStorageUsage,
     StorageUsage, SubscriptionInfo, SubscriptionStatus, SubscriptionTier,

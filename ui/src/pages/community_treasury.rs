@@ -90,32 +90,30 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                             {"Treasury Account"}
                         </h2>
 
-                        {
-                            if treasury_account.is_loading {
-                                html! {
-                                    <div class="h-20 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                }
-                            } else if let Some(error) = &treasury_account.error {
-                                html! {
-                                    <div class="text-red-600 dark:text-red-400">
-                                        {format!("Error loading treasury account: {}", error)}
+                        {treasury_account.inner.render(
+                            |account, _is_loading, _errors| html! {
+                                <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
+                                    <div class="text-sm text-neutral-600 dark:text-neutral-400">
+                                        {"Balance"}
                                     </div>
-                                }
-                            } else if let Some(account) = treasury_account.data.as_ref() {
-                                html! {
-                                    <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
-                                        <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                            {"Balance"}
-                                        </div>
-                                        <div class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
-                                            {props.community.community.currency.format_amount(account.balance_cached)}
-                                        </div>
+                                    <div class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
+                                        {props.community.community.currency.format_amount(account.balance_cached)}
                                     </div>
-                                }
-                            } else {
-                                html! {}
-                            }
-                        }
+                                </div>
+                            },
+                            || html! {
+                                <div class="h-20 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                            },
+                            |errors: &[String]| html! {
+                                <div class="space-y-2">
+                                    {for errors.iter().map(|err| html! {
+                                        <div class="text-red-600 dark:text-red-400">
+                                            {format!("Error loading treasury account: {}", err)}
+                                        </div>
+                                    })}
+                                </div>
+                            },
+                        )}
                     </div>
 
                     // Treasury Credit Operation Form Section
@@ -220,22 +218,8 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                             {"Treasury Transaction History"}
                         </h2>
 
-                        {
-                            if treasury_transactions.is_loading {
-                                html! {
-                                    <div class="space-y-3">
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                        <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
-                                    </div>
-                                }
-                            } else if let Some(error) = &treasury_transactions.error {
-                                html! {
-                                    <div class="text-red-600 dark:text-red-400">
-                                        {format!("Error loading transactions: {}", error)}
-                                    </div>
-                                }
-                            } else if let Some(txns) = treasury_transactions.data.as_ref() {
+                        {treasury_transactions.inner.render(
+                            |txns, is_loading, _errors| {
                                 let offset_handle = offset.clone();
                                 let on_offset_change = Callback::from(move |new_offset: i64| {
                                     offset_handle.set(new_offset);
@@ -253,14 +237,28 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                             limit={limit}
                                             current_count={txns.len()}
                                             on_offset_change={on_offset_change}
-                                            is_loading={treasury_transactions.is_loading}
+                                            is_loading={is_loading}
                                         />
                                     </>
                                 }
-                            } else {
-                                html! {}
-                            }
-                        }
+                            },
+                            || html! {
+                                <div class="space-y-3">
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                    <div class="h-16 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse"></div>
+                                </div>
+                            },
+                            |errors: &[String]| html! {
+                                <div class="space-y-2">
+                                    {for errors.iter().map(|err| html! {
+                                        <div class="text-red-600 dark:text-red-400">
+                                            {format!("Error loading transactions: {}", err)}
+                                        </div>
+                                    })}
+                                </div>
+                            },
+                        )}
                     </div>
                 </div>
             </div>
