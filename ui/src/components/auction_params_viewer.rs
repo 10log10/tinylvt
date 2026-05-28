@@ -45,7 +45,7 @@ pub fn AuctionParamsViewer(props: &Props) -> Html {
                     {"Bid Increment"}
                 </label>
                 <p class="text-neutral-900 dark:text-neutral-100">
-                    {props.currency.format_amount(props.auction_params.bid_increment)}
+                    {props.currency.format_amount(props.auction_params.bid_increment.0)}
                 </p>
             </div>
 

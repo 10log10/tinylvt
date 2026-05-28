@@ -1,16 +1,19 @@
 use payloads::{
-    CommunityId, SiteId, SiteImageId, Space, requests::SPACE_NAME_MAX_LEN,
+    CommunityId, CurrencySettings, ReservePrice, SiteId, SiteImageId, Space,
+    requests::SPACE_NAME_MAX_LEN,
 };
+use rust_decimal::Decimal;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use super::{SiteImageSelector, TextInput};
+use super::{ReservePriceField, SiteImageSelector, TextInput};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub site_id: SiteId,
     pub community_id: CommunityId,
+    pub currency: CurrencySettings,
     pub on_close: Callback<()>,
     pub on_space_created: Callback<()>,
 }
@@ -20,6 +23,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
     let space_name = use_state(String::new);
     let description_ref = use_node_ref();
     let eligibility_ref = use_node_ref();
+    let reserve_price = use_state(|| ReservePrice(Decimal::ZERO));
     let available_ref = use_node_ref();
 
     let is_loading = use_state(|| false);
@@ -83,6 +87,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         let space_name = space_name.clone();
         let description_ref = description_ref.clone();
         let eligibility_ref = eligibility_ref.clone();
+        let reserve_price = reserve_price.clone();
         let available_ref = available_ref.clone();
         let is_loading = is_loading.clone();
         let error = error.clone();
@@ -147,6 +152,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                 eligibility_points,
                 is_available,
                 site_image_id: *selected_image_id,
+                reserve_price: *reserve_price,
             };
 
             let is_loading = is_loading.clone();
@@ -157,6 +163,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
             let space_name_state = space_name.clone();
             let description_ref = description_ref.clone();
             let eligibility_ref = eligibility_ref.clone();
+            let reserve_price_state = reserve_price.clone();
             let available_ref = available_ref.clone();
 
             yew::platform::spawn_local(async move {
@@ -181,6 +188,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                         {
                             elig_elem.set_value("1.0");
                         }
+                        reserve_price_state.set(ReservePrice(Decimal::ZERO));
                         if let Some(avail_elem) =
                             available_ref.cast::<HtmlInputElement>()
                         {
@@ -317,6 +325,20 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                                    text-neutral-900 dark:text-neutral-100
                                    focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
                                    disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                            {"Reserve price"}
+                        </label>
+                        <ReservePriceField
+                            value={*reserve_price}
+                            currency={props.currency.clone()}
+                            on_change={Callback::from({
+                                let reserve_price = reserve_price.clone();
+                                move |v: ReservePrice| reserve_price.set(v)
+                            })}
                         />
                     </div>
 

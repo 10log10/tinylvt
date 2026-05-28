@@ -4,7 +4,9 @@ use crate::TestApp;
 use anyhow::Result;
 use api::scheduler;
 use jiff::{Span, Timestamp};
-use payloads::{CommunityId, SiteId, requests, responses};
+use payloads::{
+    BidIncrement, CommunityId, ReservePrice, SiteId, requests, responses,
+};
 use rust_decimal::Decimal;
 
 use super::TZ;
@@ -167,7 +169,7 @@ async fn create_coworking_site(
         ),
         default_auction_params: AuctionParams {
             round_duration: Span::new().minutes(3), // Fast-paced desk auctions
-            bid_increment: Decimal::new(150, 2),    // $1.50 increments
+            bid_increment: BidIncrement(Decimal::new(150, 2)), // $1.50
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),
@@ -208,7 +210,7 @@ async fn create_meetup_site(
         default_auction_params: AuctionParams {
             round_duration: Span::new().minutes(10), /* Longer rounds for
                                                       * bigger decisions */
-            bid_increment: Decimal::new(500, 2), // $5.00 - higher stakes
+            bid_increment: BidIncrement(Decimal::new(500, 2)), // $5.00
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),
@@ -281,7 +283,7 @@ async fn create_ongoing_auction_with_rounds(
         start_at: auction_start,
         auction_params: AuctionParams {
             round_duration,
-            bid_increment: Decimal::new(100, 2), // $1.00
+            bid_increment: BidIncrement(Decimal::new(100, 2)), // $1.00
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),
@@ -310,6 +312,7 @@ async fn create_ongoing_auction_with_rounds(
         eligibility_points: 8.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let space_a_id = app.client.create_space(&space_a_details).await?;
     let space_a = app.client.get_space(&space_a_id).await?;
@@ -321,6 +324,7 @@ async fn create_ongoing_auction_with_rounds(
         eligibility_points: 5.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let space_b_id = app.client.create_space(&space_b_details).await?;
     let space_b = app.client.get_space(&space_b_id).await?;
@@ -332,6 +336,7 @@ async fn create_ongoing_auction_with_rounds(
         eligibility_points: 10.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let space_c_id = app.client.create_space(&space_c_details).await?;
     let space_c = app.client.get_space(&space_c_id).await?;
@@ -482,7 +487,7 @@ async fn create_work_day_auction(
         start_at: auction_start_at,
         auction_params: AuctionParams {
             round_duration: Span::new().minutes(5),
-            bid_increment: Decimal::new(250, 2), // $2.50
+            bid_increment: BidIncrement(Decimal::new(250, 2)), // $2.50
             activity_rule_params: ActivityRuleParams {
                 eligibility_progression: vec![
                     (0, 0.5),

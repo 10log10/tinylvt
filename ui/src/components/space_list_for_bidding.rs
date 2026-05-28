@@ -50,7 +50,7 @@ pub struct Props {
     /// this is always present. Identity comparisons (e.g., `is_high_bidder`)
     /// use `user_id`.
     pub current_user: UserProfile,
-    pub bid_increment: Decimal,
+    pub bid_increment: payloads::BidIncrement,
     pub currency: CurrencySettings,
     pub on_bid: Callback<SpaceId>,
     pub on_delete_bid: Callback<SpaceId>,
@@ -117,10 +117,12 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
             let price = result.map(|r| r.value);
             let winner = result.map(|r| r.winner.clone());
             let user_value = props.user_values.get(&space_id).copied();
-            // Calculate surplus using a price of 0 if no previous price
-            // exists (e.g., first round on this space).
-            let surplus =
-                user_value.map(|v| v - price.unwrap_or(Decimal::ZERO));
+            let surplus = user_value.map(|v| {
+                v - payloads::current_space_price(
+                    price,
+                    space.space_details.reserve_price,
+                )
+            });
             SpaceRowData {
                 space: (*space).clone(),
                 price,
@@ -400,7 +402,7 @@ struct SpaceRowProps {
     space: responses::Space,
     /// Per-row price. `None` if no prior bids on this space.
     price: Option<Decimal>,
-    bid_increment: Decimal,
+    bid_increment: payloads::BidIncrement,
     currency: CurrencySettings,
     /// Per-row user value (their max willingness-to-pay for this space).
     user_value: Option<Decimal>,
@@ -422,15 +424,40 @@ struct SpaceRowProps {
     on_value_enter: Callback<()>,
 }
 
+/// Small trailing label that appears next to a negative price/reserve to
+/// remind the reader that "negative" means the winner is compensated for
+/// taking on the space. On mobile the trailer stacks under the price so
+/// the column heading still sits over the number rather than over the
+/// (longer) trailer text. Returns empty html for non-negative amounts.
+fn negative_explainer(amount: Decimal) -> Html {
+    if amount < Decimal::ZERO {
+        html! {
+            <span class="block md:inline md:ml-1 text-xs font-normal \
+                         text-neutral-500 dark:text-neutral-400">
+                {"(winner gets paid)"}
+            </span>
+        }
+    } else {
+        html! {}
+    }
+}
+
 #[function_component]
 fn SpaceRow(props: &SpaceRowProps) -> Html {
     let space_id = props.space.space_id;
+    let reserve_price = props.space.space_details.reserve_price;
 
-    // The bid price (current price + bid increment, or 0 for first bid).
-    let bid_price = match props.price {
-        Some(price) => price + props.bid_increment,
-        None => Decimal::ZERO,
-    };
+    let bid_price = payloads::next_bid_amount(
+        props.price,
+        props.bid_increment,
+        reserve_price,
+    );
+
+    // The price shown in the row's "Price" column. Falls back to the
+    // reserve when no prior round has produced a price, so the user sees
+    // the effective starting price rather than a "$--" placeholder.
+    let displayed_price =
+        payloads::current_space_price(props.price, reserve_price);
 
     let on_bid_click = {
         let on_bid = props.on_bid.clone();
@@ -445,9 +472,10 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
         Callback::from(move |v: String| {
             if v.is_empty() {
                 on_delete.emit(space_id);
-            } else if let Ok(d) = v.parse::<Decimal>()
-                && d >= Decimal::ZERO
-            {
+            } else if let Ok(d) = v.parse::<Decimal>() {
+                // Negative values are valid for chore semantics — "I'll
+                // accept down to -$5" means "this is worth at least -$5
+                // to me." The backend enforces the gating rules.
                 on_update.emit((space_id, d));
             }
             // Invalid input is silently ignored; InlineEdit reverts to the
@@ -514,14 +542,8 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     <div class="text-sm font-medium \
                                 text-neutral-900 \
                                 dark:text-white">
-                        {match props.price {
-                            Some(price) => html! {
-                                {props.currency.format_amount(price)}
-                            },
-                            None => html! {
-                                {props.currency.placeholder_value()}
-                            },
-                        }}
+                        {props.currency.format_amount(displayed_price)}
+                        {negative_explainer(displayed_price)}
                     </div>
                 </div>
 
@@ -678,6 +700,64 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     }}
                 </div>
             </div>
+            {sign_mismatch_warning(
+                reserve_price.0,
+                props.user_value,
+                &props.currency,
+            )}
+        </div>
+    }
+}
+
+/// Renders a verbose warning under a bidding row when the user's stated
+/// value looks inconsistent with the space's chore/normal classification.
+/// Three flavors:
+/// - Reserve is a chore but user typed a positive value (they'd pay to take the
+///   chore).
+/// - Reserve is non-negative but user typed a negative value (they'd only
+///   accept the space if paid; on a non-chore reserve this means they won't
+///   bid).
+/// - Reserve is a chore but user typed zero (they'd take the chore for free --
+///   legal but worth confirming).
+///
+/// A zero reserve is treated as non-negative (no chore semantics).
+/// Returns empty html otherwise.
+fn sign_mismatch_warning(
+    reserve_price: Decimal,
+    user_value: Option<Decimal>,
+    currency: &CurrencySettings,
+) -> Html {
+    let Some(value) = user_value else {
+        return html! {};
+    };
+    let reserve_is_chore = reserve_price < Decimal::ZERO;
+
+    let message = if reserve_is_chore && value > Decimal::ZERO {
+        format!(
+            "You've said you'd pay {} to take this chore. Confirm you want \
+             to pay rather than be paid.",
+            currency.format_amount(value),
+        )
+    } else if reserve_is_chore && value == Decimal::ZERO {
+        "You've said you'd take this chore for free. Confirm you don't \
+         want to be paid for it."
+            .to_string()
+    } else if !reserve_is_chore && value < Decimal::ZERO {
+        format!(
+            "You've said you'd only accept {} to win this space. This \
+             space charges its winner, so a negative value means you \
+             won't bid here unless the reserve is changed to a chore.",
+            currency.format_amount(value.abs()),
+        )
+    } else {
+        return html! {};
+    };
+
+    html! {
+        <div class="mt-3 text-xs text-amber-700 dark:text-amber-400 \
+                    bg-amber-50 dark:bg-amber-900/20 border \
+                    border-amber-200 dark:border-amber-800 rounded p-2">
+            {message}
         </div>
     }
 }

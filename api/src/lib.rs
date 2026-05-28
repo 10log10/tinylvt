@@ -15,6 +15,7 @@ use actix_session::{
 };
 use actix_web::cookie::{Key, time::Duration};
 use actix_web::dev::Server;
+pub use actix_web::dev::ServerHandle;
 use actix_web::{App, HttpServer, web};
 use secrecy::{ExposeSecret, SecretBox};
 use sqlx::PgPool;
@@ -31,7 +32,7 @@ pub async fn build(
     time_source: TimeSource,
     stripe_service: std::sync::Arc<stripe_service::StripeService>,
     pubsub: pubsub::PubSub,
-) -> std::io::Result<Server> {
+) -> std::io::Result<(Server, ServerHandle)> {
     // Spawn the Postgres listener task that forwards NOTIFYs from the
     // `auction_changes` channel into the in-process broadcast. The listener
     // loops forever with retry+backoff; it only returns when the broadcast
@@ -136,7 +137,8 @@ pub async fn build(
     })
     .listen(listener)?
     .run();
-    Ok(server)
+    let handle = server.handle();
+    Ok((server, handle))
 }
 
 /// Configuration loaded from environment variables at startup.

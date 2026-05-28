@@ -119,16 +119,20 @@ fn determine_counterparty(
         })
     };
 
+    // Helper: does this entry touch the treasury account at all?
+    let has_treasury_line = || -> bool {
+        txn.lines
+            .iter()
+            .any(|line| matches!(&line.party, TransactionParty::Treasury))
+    };
+
     match target_account {
         // Transactions from the User's perspective
         AccountOwner::Member(user_id) => match txn.entry_type {
-            // Treasury operations
-            EntryType::IssuanceGrantSingle
-            | EntryType::IssuanceGrantBulk
-            | EntryType::CreditPurchase
-            | EntryType::DistributionCorrection
-            | EntryType::DebtSettlement
-            | EntryType::BalanceReset => Counterparty::Treasury,
+            // Coleader-initiated treasury operations
+            EntryType::TreasuryTransfer | EntryType::BalanceReset => {
+                Counterparty::Treasury
+            }
             EntryType::AuctionSettlement
             | EntryType::OrphanedAccountTransfer => {
                 match currency_mode {
@@ -146,29 +150,36 @@ fn determine_counterparty(
                     | CurrencyMode::PrepaidCredits => Counterparty::Treasury,
                 }
             }
-            // Transfers are only between members
-            EntryType::Transfer => find_member_except(user_id)
-                .map(Counterparty::Member)
-                .unwrap_or(Counterparty::NMembers(0)), // Should not happen
+            // Transfer can be member->member or member->treasury
+            EntryType::Transfer => {
+                if has_treasury_line() {
+                    Counterparty::Treasury
+                } else {
+                    find_member_except(user_id)
+                        .map(Counterparty::Member)
+                        .unwrap_or(Counterparty::NMembers(0))
+                }
+            }
         },
         // Transactions from the Treasury's perspective
         AccountOwner::Treasury => match txn.entry_type {
-            // Bulk treasury operations to all active members
-            EntryType::IssuanceGrantBulk
-            | EntryType::DistributionCorrection
-            | EntryType::BalanceReset => {
-                Counterparty::NMembers(count_members())
+            // Treasury transfer: single-member or bulk depending on lines
+            EntryType::TreasuryTransfer => {
+                let member_count = count_members();
+                if member_count == 1 {
+                    find_member()
+                        .map(Counterparty::Member)
+                        .unwrap_or(Counterparty::NMembers(0))
+                } else {
+                    Counterparty::NMembers(member_count)
+                }
             }
-            // Treasury operations to individual members
-            EntryType::IssuanceGrantSingle
-            | EntryType::CreditPurchase
-            | EntryType::DebtSettlement => find_member()
-                .map(Counterparty::Member)
-                .unwrap_or(Counterparty::NMembers(0)), // Should not happen
+            // Balance reset always touches all members
+            EntryType::BalanceReset => Counterparty::NMembers(count_members()),
             EntryType::AuctionSettlement => {
                 Counterparty::NMembers(count_members())
             }
-            // Transfers are only between members, should not happen
+            // Member-initiated transfer to treasury
             EntryType::Transfer => find_member()
                 .map(Counterparty::Member)
                 .unwrap_or(Counterparty::NMembers(0)),
@@ -193,15 +204,9 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
 
     // Format entry type for display
     let entry_type_label = match txn.entry_type {
-        payloads::EntryType::IssuanceGrantSingle => "Allowance",
-        payloads::EntryType::IssuanceGrantBulk => "Allowance (Bulk)",
-        payloads::EntryType::CreditPurchase => "Credit Purchase",
-        payloads::EntryType::DistributionCorrection => {
-            "Distribution Correction"
-        }
-        payloads::EntryType::DebtSettlement => "Debt Settlement",
-        payloads::EntryType::AuctionSettlement => "Auction Settlement",
         payloads::EntryType::Transfer => "Transfer",
+        payloads::EntryType::TreasuryTransfer => "Treasury Transfer",
+        payloads::EntryType::AuctionSettlement => "Auction Settlement",
         payloads::EntryType::BalanceReset => "Balance Reset",
         payloads::EntryType::OrphanedAccountTransfer => {
             "Orphaned Account Transfer"

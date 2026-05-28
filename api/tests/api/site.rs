@@ -1,3 +1,5 @@
+use payloads::ReservePrice;
+use rust_decimal::Decimal;
 use test_helpers::spawn_app;
 
 #[tokio::test]
@@ -185,7 +187,7 @@ async fn list_sites() -> anyhow::Result<()> {
         description: Some("A second test site".to_string()),
         default_auction_params: payloads::AuctionParams {
             round_duration: jiff::Span::new().hours(2), // Different duration
-            bid_increment: rust_decimal::Decimal::new(200, 2), // $2.00
+            bid_increment: payloads::BidIncrement(Decimal::new(200, 2)), // $2
             activity_rule_params: payloads::ActivityRuleParams {
                 eligibility_progression: vec![(1, 0.8)], /* 80% eligibility
                                                           * required */
@@ -255,6 +257,7 @@ async fn space_name_must_be_unique() -> anyhow::Result<()> {
         eligibility_points: 1.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     app.client.create_space(&space1_details).await?;
 
@@ -266,6 +269,7 @@ async fn space_name_must_be_unique() -> anyhow::Result<()> {
         eligibility_points: 1.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let result = app.client.create_space(&space2_details).await;
 
@@ -301,6 +305,7 @@ async fn space_restore_detects_name_conflict() -> anyhow::Result<()> {
         eligibility_points: 1.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let space1 = app.client.create_space(&space1_details).await?;
     app.client.soft_delete_space(&space1).await?;
@@ -313,6 +318,7 @@ async fn space_restore_detects_name_conflict() -> anyhow::Result<()> {
         eligibility_points: 1.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     app.client.create_space(&space2_details).await?;
 
@@ -350,6 +356,7 @@ async fn space_copy_on_write_with_auction_history() -> anyhow::Result<()> {
         eligibility_points: 1.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     };
     let space = app.client.create_space(&space_details).await?;
 
@@ -363,6 +370,7 @@ async fn space_copy_on_write_with_auction_history() -> anyhow::Result<()> {
             eligibility_points: 1.0,
             is_available: true,
             site_image_id: None,
+            reserve_price: ReservePrice(Decimal::ZERO),
         },
     };
     let trivial_result = app.client.update_space(&trivial_update).await?;
@@ -396,6 +404,7 @@ async fn space_copy_on_write_with_auction_history() -> anyhow::Result<()> {
             eligibility_points: 1.0,
             is_available: true,
             site_image_id: None,
+            reserve_price: ReservePrice(Decimal::ZERO),
         },
     };
     let nontrivial_result = app.client.update_space(&nontrivial_update).await?;

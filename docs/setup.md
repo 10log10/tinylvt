@@ -80,6 +80,22 @@ available for collaboration.
 **Tip:** Think about how spaces relate to each other. If people often want
 adjacent spaces together, consider creating bundles.
 
+### Reserve Prices
+
+Each space has a **reserve price** — the starting price the first bid is
+placed at. The default of zero works for most cases, but you can change it
+per space:
+
+- **Positive reserve:** No one wins the space unless they value it above this
+  threshold. Useful when the space has value when left common (e.g. a shared
+  living room that stays common unless someone pays enough to host an event).
+- **Negative reserve:** Turns the auction into a chore auction. Bidding opens
+  at the negative amount and rises toward zero; the winner is compensated
+  rather than charged. Set the reserve to the largest compensation the
+  community is willing to offer.
+
+See [Auctions](/docs/auctions) for how reserves shape bidding.
+
 ## Running Your First Auction
 
 1. Navigate to a site

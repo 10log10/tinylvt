@@ -120,7 +120,9 @@ pub fn CreateSiteForm(props: &CreateSiteFormProps) -> Html {
                 description,
                 default_auction_params: AuctionParams {
                     round_duration: jiff::Span::new().minutes(5),
-                    bid_increment: rust_decimal::Decimal::new(100, 2), // $1.00
+                    bid_increment: payloads::BidIncrement(
+                        rust_decimal::Decimal::new(100, 2), // $1.00
+                    ),
                     activity_rule_params: ActivityRuleParams {
                         // 100% from round 0: bidders can freely move between
                         // items while maintaining participation each round.

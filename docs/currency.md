@@ -102,6 +102,28 @@ most restrictive mode, suitable when members aren't trusted to honor IOUs.
 **Example:** A marina allocating boat slips. Slip holders prepay for credits
 and bid for their preferred locations. No credit risk for the marina.
 
+## Chore Auctions (Negative Reserves)
+
+Spaces with a negative reserve price represent chores: the winner is
+*compensated* rather than charged. The currency mode determines where that
+compensation comes from.
+
+- **Points Allowance, Deferred Payment, Prepaid Credits:** The treasury pays
+  the winner. At settlement, the winner's balance is credited and the
+  treasury's balance is debited by the same amount. This is the reverse of a
+  normal auction (where the winner is debited and the treasury is credited).
+- **Distributed Clearing:** All active community members pay equally,
+  including the winner. If a chore settles at -$30 in a household of three,
+  each active member is debited $10 and the winner is credited $30 — net
+  cost $10 to the two non-winners, net gain $20 to the winner. This is the
+  reverse of how a normal Distributed Clearing auction redistributes a
+  winner's payment back to the membership.
+
+Mixed auctions (some positive prices, some negative) settle in a single
+journal entry: each space's amount flows in its own direction, and the totals
+are netted against the counterparty (treasury or active membership) for that
+mode.
+
 ## Common Ownership vs. Landlord Model
 
 The currency modes exist on a spectrum:

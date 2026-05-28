@@ -183,7 +183,7 @@ fn RoundsContent(props: &RoundsContentProps) -> Html {
 #[derive(Properties, PartialEq)]
 struct RoundCardProps {
     round: payloads::responses::AuctionRound,
-    bid_increment: rust_decimal::Decimal,
+    bid_increment: payloads::BidIncrement,
     currency: CurrencySettings,
     /// `None` means no bids hook entry yet (parent still loading); `Some(Ok)`
     /// is the user's bid space ids; `Some(Err)` carries the per-round fetch
@@ -292,6 +292,7 @@ fn render_bids_section(props: &RoundCardProps) -> Html {
                     .find(|s| s.space_id == *space_id)?;
                 let value_label = compute_bid_value_label(
                     space_id,
+                    space.space_details.reserve_price,
                     &props.previous_round_results,
                     props.bid_increment,
                     &props.currency,
@@ -306,34 +307,43 @@ fn render_bids_section(props: &RoundCardProps) -> Html {
     }
 }
 
-/// Bid value = previous round's result for the space + bid increment, or
-/// 0 if there is no previous result. `None` means there is no previous
-/// round at all (round 0); `Some(Ok)` with no row for this space means the
-/// previous round had no bid on it (so it opens at 0 again this round).
-/// `Some(Err)` is the only case where we can't compute a value, and
-/// renders as `"value unavailable"`.
+/// What a bid placed this round would be valued at: previous round's
+/// settled value plus the bid increment, or the space's reserve price if
+/// no prior round has produced a value for it. `None` previous_round_results
+/// means there is no previous round (round 0) -- same fallback. `Some(Err)`
+/// is the only case where we can't compute a value, and renders as `"value
+/// unavailable"`.
 ///
 /// This relies on the parent gating render on `use_auction_round_results`
 /// resolving, so an in-flight fetch never reaches this function as `None`.
 fn compute_bid_value_label(
     space_id: &payloads::SpaceId,
+    reserve_price: payloads::ReservePrice,
     previous_round_results: &Option<
         Result<Vec<payloads::RoundSpaceResult>, String>,
     >,
-    bid_increment: rust_decimal::Decimal,
+    bid_increment: payloads::BidIncrement,
     currency: &CurrencySettings,
 ) -> String {
     match previous_round_results {
         Some(Ok(results)) => {
-            let value = results
+            let prev_value = results
                 .iter()
                 .find(|r| r.space_id == *space_id)
-                .map(|prev| prev.value + bid_increment)
-                .unwrap_or(rust_decimal::Decimal::ZERO);
+                .map(|prev| prev.value);
+            let value = payloads::next_bid_amount(
+                prev_value,
+                bid_increment,
+                reserve_price,
+            );
             currency.format_amount(value)
         }
         Some(Err(_)) => "value unavailable".to_string(),
-        None => currency.format_amount(rust_decimal::Decimal::ZERO),
+        None => currency.format_amount(payloads::next_bid_amount(
+            None,
+            bid_increment,
+            reserve_price,
+        )),
     }
 }
 

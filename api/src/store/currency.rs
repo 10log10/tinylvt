@@ -264,7 +264,7 @@ async fn get_locked_balance_tx(
         .flatten();
 
         // Get bid increment for calculating bid amounts
-        let bid_increment: Decimal = sqlx::query_scalar(
+        let bid_increment: payloads::BidIncrement = sqlx::query_scalar(
             "SELECT bid_increment FROM auction_params WHERE id = $1",
         )
         .bind(auction.auction_params_id)
@@ -290,8 +290,13 @@ async fn get_locked_balance_tx(
             .fetch_all(&mut **tx)
             .await?;
 
+            // Clamp negative values (chore wins) to zero: a chore winner is
+            // owed compensation if the auction settles now, but a later
+            // round could displace them, so treating the unrealized chore
+            // reward as freed available credit would let them place
+            // positive bids funded by money they may never receive.
             for value in winning_values {
-                total_locked += value;
+                total_locked += value.max(Decimal::ZERO);
             }
         }
 
@@ -300,13 +305,15 @@ async fn get_locked_balance_tx(
         struct UnprocessedBid {
             space_id: payloads::SpaceId,
             round_num: i32,
+            reserve_price: payloads::ReservePrice,
         }
 
         let unprocessed_bids: Vec<UnprocessedBid> = sqlx::query_as(
             r#"
-            SELECT b.space_id, ar.round_num
+            SELECT b.space_id, ar.round_num, s.reserve_price
             FROM bids b
             JOIN auction_rounds ar ON b.round_id = ar.id
+            JOIN spaces s ON b.space_id = s.id
             WHERE ar.auction_id = $1
               AND ar.round_num > $2
               AND b.user_id = $3
@@ -341,11 +348,17 @@ async fn get_locked_balance_tx(
                 None
             };
 
-            // Locked amount = (prev value + bid increment) OR zero
-            let locked_for_bid = prev_round_value
-                .map(|v| v + bid_increment)
-                .unwrap_or(Decimal::ZERO);
-            total_locked += locked_for_bid;
+            // Clamp negative bid amounts (chore bids) to zero: the bidder
+            // isn't on the hook for anything until they actually win, and
+            // a later round could displace them, so treating a negative
+            // bid as freed credit would let them pre-spend money they may
+            // never receive.
+            let bid_amount = payloads::next_bid_amount(
+                prev_round_value,
+                bid_increment,
+                bid.reserve_price,
+            );
+            total_locked += bid_amount.max(Decimal::ZERO);
         }
     }
 
@@ -659,16 +672,20 @@ pub async fn create_auction_settlement_entry(
     .fetch_one(&mut **tx)
     .await?;
 
-    // Filter out zero payments and calculate total
+    // Filter out zero payments and calculate total. Non-zero (positive or
+    // negative) amounts flow through — negatives are chore settlements that
+    // credit the winner.
     let winner_payments: HashMap<UserId, Decimal> = winner_payments
         .into_iter()
-        .filter(|(_, amount)| *amount > Decimal::ZERO)
+        .filter(|(_, amount)| *amount != Decimal::ZERO)
         .collect();
 
-    let total_paid: Decimal = winner_payments.values().sum();
+    let total_settled: Decimal = winner_payments.values().sum();
 
-    if total_paid == Decimal::ZERO {
-        // No payments to process, return early
+    if winner_payments.is_empty() {
+        // No winners to settle. Net-zero mixed auctions (positive and
+        // negative amounts cancelling) still record an entry below for
+        // audit transparency; only "no winners at all" is skipped.
         return Ok(());
     }
 
@@ -695,7 +712,7 @@ pub async fn create_auction_settlement_entry(
             let treasury_account =
                 get_account_tx(community_id, AccountOwner::Treasury, tx)
                     .await?;
-            lines.push((treasury_account.id, total_paid));
+            lines.push((treasury_account.id, total_settled));
         }
         CurrencyMode::DistributedClearing => {
             // Distribute equally among active members
@@ -709,14 +726,14 @@ pub async fn create_auction_settlement_entry(
                 let treasury_account =
                     get_account_tx(community_id, AccountOwner::Treasury, tx)
                         .await?;
-                lines.push((treasury_account.id, total_paid));
+                lines.push((treasury_account.id, total_settled));
             } else {
                 // Add credit lines for each active member
                 // Winners who are also active members will have both debit
                 // (above) and credit (here) lines, making the journal
                 // transparent
                 let distribution_lines = distribute_amount_evenly(
-                    total_paid,
+                    total_settled,
                     &active_member_account_ids,
                 );
                 lines.extend(distribution_lines);
@@ -1335,16 +1352,21 @@ pub async fn update_credit_limit_override(
     Ok(account)
 }
 
-/// Create a transfer from one member to another
+/// Create a member-initiated transfer to another member or to the treasury
 ///
 /// Creates a journal entry with entry_type='transfer' that debits the
-/// sender's account and credits the recipient's account.
+/// sender's account and credits the destination account.
 ///
-/// The sender must be a validated member of the community. Any member can
-/// send transfers to other members in the same community.
+/// The sender must be a validated member of the community. The destination
+/// is either another member in the same community, or the community
+/// treasury for modes where the treasury is the structural counterparty
+/// (points_allocation, deferred_payment, prepaid_credits). Treasury
+/// destinations are rejected in distributed_clearing -- the treasury has
+/// no steady-state counterparty role there, so member-initiated transfers
+/// to it have no clean meaning.
 pub async fn create_transfer(
     sender: &super::ValidatedMember,
-    to_user_id: &UserId,
+    to: AccountOwner,
     amount: Decimal,
     note: Option<String>,
     idempotency_key: IdempotencyKey,
@@ -1360,19 +1382,28 @@ pub async fn create_transfer(
 
     let mut tx = pool.begin().await?;
 
-    // Get both accounts
+    // For treasury destinations, validate that the currency mode permits
+    // member-initiated transfers to the treasury.
+    if matches!(to, AccountOwner::Treasury) {
+        let currency_mode: CurrencyMode = sqlx::query_scalar(
+            "SELECT currency_mode FROM communities WHERE id = $1",
+        )
+        .bind(sender.0.community_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if currency_mode == CurrencyMode::DistributedClearing {
+            return Err(StoreError::InvalidTreasuryOperation);
+        }
+    }
+
     let from_account = get_account_tx(
         &sender.0.community_id,
         AccountOwner::Member(sender.0.user_id),
         &mut tx,
     )
     .await?;
-    let to_account = get_account_tx(
-        &sender.0.community_id,
-        AccountOwner::Member(*to_user_id),
-        &mut tx,
-    )
-    .await?;
+    let to_account =
+        get_account_tx(&sender.0.community_id, to, &mut tx).await?;
 
     // Create journal lines: debit sender, credit recipient
     let lines = vec![
@@ -1404,18 +1435,20 @@ pub async fn create_transfer(
 
 /// Unified treasury credit operation with permission checking
 ///
-/// Credits one or more member accounts from the treasury. The entry type is
-/// determined automatically based on the community's currency mode and the
-/// recipient pattern.
+/// Credits one or more member accounts from the treasury. Always emits a
+/// `TreasuryTransfer` entry; the *reason* (allowance, debt settlement, ad-hoc
+/// compensation, etc.) is captured in the optional note.
 ///
 /// Requires coleader or higher permissions.
 ///
-/// Entry type selection:
-/// - points_allocation + SingleMember → IssuanceGrantSingle
-/// - points_allocation + AllActiveMembers → IssuanceGrantBulk
-/// - distributed_clearing + AllActiveMembers → DistributionCorrection
-/// - deferred_payment + SingleMember → DebtSettlement
-/// - prepaid_credits + SingleMember → CreditPurchase
+/// Valid (mode, recipient) combinations:
+/// - points_allocation + SingleMember (ad-hoc grant)
+/// - points_allocation + AllActiveMembers (bulk allowance/distribution)
+/// - distributed_clearing + AllActiveMembers (redistribution toward zero; the
+///   only mode that accepts negative amounts, bounded by the move-toward- zero
+///   check)
+/// - deferred_payment + SingleMember (IOU settlement or ad-hoc grant)
+/// - prepaid_credits + SingleMember (credit purchase or ad-hoc grant)
 ///
 /// Returns the number of recipients and total amount debited from treasury.
 pub async fn treasury_credit_operation(
@@ -1435,8 +1468,8 @@ pub async fn treasury_credit_operation(
     // Round to DB scale to ensure consistency
     let amount_per_recipient = round_to_db_scale(amount_per_recipient);
 
-    if amount_per_recipient <= Decimal::ZERO {
-        return Err(StoreError::AmountMustBePositive);
+    if amount_per_recipient == Decimal::ZERO {
+        return Err(StoreError::AmountMustBeNonZero);
     }
 
     let community_id = &actor.0.community_id;
@@ -1451,6 +1484,22 @@ pub async fn treasury_credit_operation(
     .bind(community_id)
     .fetch_one(&mut *tx)
     .await?;
+
+    // Negative amounts are only meaningful for distribution corrections that
+    // redistribute a chore-settlement debt parked on the treasury back to
+    // active members. Reject negatives for every other (mode, recipient)
+    // combination.
+    if amount_per_recipient < Decimal::ZERO
+        && !matches!(
+            (currency_mode, &recipient),
+            (
+                CurrencyMode::DistributedClearing,
+                payloads::TreasuryRecipient::AllActiveMembers,
+            )
+        )
+    {
+        return Err(StoreError::NegativeTreasuryAmountNotAllowed);
+    }
 
     // Get recipient account IDs based on TreasuryRecipient
     let recipient_account_ids: Vec<AccountId> = match &recipient {
@@ -1492,19 +1541,19 @@ pub async fn treasury_credit_operation(
         });
     }
 
-    // Determine entry type based on mode and recipient pattern
+    // Validate (mode, recipient) combination. All valid combinations now
+    // emit the same `TreasuryTransfer` variant -- the reason for the
+    // transfer (if any) lives in the entry's note, not in the enum.
     use CurrencyMode::*;
     use payloads::TreasuryRecipient::*;
-    let entry_type = match (currency_mode, &recipient) {
-        (PointsAllocation, SingleMember(_)) => EntryType::IssuanceGrantSingle,
-        (PointsAllocation, AllActiveMembers) => EntryType::IssuanceGrantBulk,
-        (DistributedClearing, AllActiveMembers) => {
-            EntryType::DistributionCorrection
-        }
-        (DeferredPayment, SingleMember(_)) => EntryType::DebtSettlement,
-        (PrepaidCredits, SingleMember(_)) => EntryType::CreditPurchase,
+    match (currency_mode, &recipient) {
+        (PointsAllocation, SingleMember(_) | AllActiveMembers)
+        | (DistributedClearing, AllActiveMembers)
+        | (DeferredPayment, SingleMember(_))
+        | (PrepaidCredits, SingleMember(_)) => {}
         _ => return Err(StoreError::InvalidTreasuryOperation),
-    };
+    }
+    let entry_type = EntryType::TreasuryTransfer;
 
     // Get treasury account and lock it to prevent race conditions
     let treasury_account = get_account_for_update_tx(
@@ -1521,15 +1570,30 @@ pub async fn treasury_credit_operation(
     let total_amount =
         amount_per_recipient * Decimal::from(recipient_count as i64);
 
-    // Check if this currency mode restricts treasury from going negative
-    let prevent_negative_treasury = matches!(
-        currency_mode,
-        CurrencyMode::DistributedClearing | CurrencyMode::DeferredPayment
-    );
-
-    if prevent_negative_treasury {
-        // Treasury balance going negative would mean treasury owes money
-        if treasury_account.balance_cached - total_amount < Decimal::ZERO {
+    // Treasury balance gates by currency mode:
+    // - DistributedClearing: operations must move the treasury balance toward
+    //   zero. The treasury holds a leftover credit (positive balance) from a
+    //   settlement with no active members, or a chore debt (negative balance)
+    //   from the equivalent chore case; either way, the redistribution
+    //   operation should bring it back to zero without overshooting and without
+    //   crossing sign in the same direction.
+    // - DeferredPayment / PointsAllocation / PrepaidCredits: no constraint --
+    //   the treasury is the structural counterparty and its balance can go
+    //   arbitrarily positive or negative. External settlement zeroes it out
+    //   when redemption rights are exercised (see `debts_callable`).
+    if currency_mode == CurrencyMode::DistributedClearing {
+        let balance = treasury_account.balance_cached;
+        let new_balance = balance - total_amount;
+        if balance >= Decimal::ZERO && total_amount >= Decimal::ZERO {
+            if new_balance < Decimal::ZERO {
+                return Err(StoreError::InsufficientBalance);
+            }
+        } else if balance <= Decimal::ZERO && total_amount <= Decimal::ZERO {
+            if new_balance > Decimal::ZERO {
+                return Err(StoreError::InsufficientBalance);
+            }
+        } else {
+            // Mixed signs would push the treasury further from zero
             return Err(StoreError::InsufficientBalance);
         }
     }

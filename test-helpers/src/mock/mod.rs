@@ -6,9 +6,11 @@
 //! - Screenshot automation
 //! - Any other testing scenarios
 
+mod chore_dataset;
 mod desk_allocation;
 mod dev_dataset;
 
+pub use chore_dataset::ChoreDataset;
 pub use desk_allocation::DeskAllocationScreenshot;
 pub use dev_dataset::DevDataset;
 

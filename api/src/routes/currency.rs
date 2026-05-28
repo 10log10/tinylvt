@@ -110,7 +110,7 @@ pub async fn create_transfer(
 
     store::currency::create_transfer(
         &validated_member,
-        &details.to_user_id,
+        details.to,
         details.amount,
         details.note.clone(),
         details.idempotency_key,

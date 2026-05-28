@@ -83,7 +83,7 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
 
             if let Ok(parsed_decimal) = value.parse::<rust_decimal::Decimal>() {
                 let mut updated = auction_params.clone();
-                updated.bid_increment = parsed_decimal;
+                updated.bid_increment = payloads::BidIncrement(parsed_decimal);
                 on_change.emit(updated);
                 return;
             }
@@ -158,7 +158,7 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
                         type="text"
                         id="bid-increment"
                         name="bid_increment"
-                        value={format!("{:.2}", props.auction_params.bid_increment)}
+                        value={format!("{:.2}", props.auction_params.bid_increment.0)}
                         onchange={on_bid_increment_change}
                         disabled={props.disabled}
                         placeholder="1.00"

@@ -423,11 +423,11 @@ async fn update_round_space_results_within_tx(
                     )
                 })?;
 
-            let new_value = match prev_result {
-                Some(prev) => prev.value + auction_params.bid_increment,
-                None => rust_decimal::Decimal::ZERO, /* Start at zero in
-                                                      * first round */
-            };
+            let new_value = payloads::next_bid_amount(
+                prev_result.as_ref().map(|p| p.value),
+                auction_params.bid_increment,
+                space.reserve_price,
+            );
 
             (new_value, winner)
         } else {
@@ -1042,6 +1042,11 @@ async fn process_proxy_bidding_for_round(
 
     tracing::info!("Found {} spaces", spaces.len());
 
+    // Index spaces by id so the per-user proxy loop can do cheap reserve
+    // price lookups without re-scanning the list.
+    let spaces_by_id: HashMap<SpaceId, store::Space> =
+        spaces.into_iter().map(|s| (s.id, s)).collect();
+
     // Get the most recent completed round results to determine current prices
     // We look at the round with the highest round_num that is less than the
     // current round
@@ -1081,7 +1086,7 @@ async fn process_proxy_bidding_for_round(
     for settings in proxy_settings {
         if let Err(e) = process_user_proxy_bidding(
             &settings,
-            &spaces,
+            &spaces_by_id,
             &prev_round_space_results,
             round.auction_id,
             &round.id,
@@ -1116,13 +1121,14 @@ async fn process_proxy_bidding_for_round(
 #[allow(clippy::too_many_arguments)]
 async fn process_user_proxy_bidding(
     settings: &store::UseProxyBidding,
-    // all spaces
-    spaces: &[store::Space],
+    // All spaces for the auction, indexed by id for cheap reserve_price
+    // lookups when computing surpluses.
+    spaces: &HashMap<SpaceId, store::Space>,
     // prices as of the previous round; does not exist for round 0
     prev_round_space_results: &[store::RoundSpaceResult],
     auction_id: payloads::AuctionId,
     current_round_id: &payloads::AuctionRoundId,
-    bid_increment: rust_decimal::Decimal,
+    bid_increment: payloads::BidIncrement,
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
@@ -1161,7 +1167,7 @@ async fn process_user_proxy_bidding(
 
     let user_values = sqlx::query_as::<_, store::UserValue>(user_values_query)
         .bind(settings.user_id)
-        .bind(spaces.iter().map(|s| s.id).collect::<Vec<_>>())
+        .bind(spaces.keys().copied().collect::<Vec<_>>())
         .fetch_all(&mut *tx)
         .await
         .with_context(|| {
@@ -1182,20 +1188,37 @@ async fn process_user_proxy_bidding(
     let mut space_surpluses: Vec<(SpaceId, Decimal, Decimal)> = Vec::new();
     for user_value_entry in &user_values {
         let space_id = &user_value_entry.space_id;
-        // Get current price from the most recent completed round results, add
-        // the bid increment, and calculate the potential surplus
-        let current_price = prev_round_space_results
+        // The user_values query filters by `space_id = ANY(spaces.keys())`,
+        // so every entry's space should be in the spaces map. Skip with a
+        // warning if not, rather than silently falling back.
+        let Some(space) = spaces.get(space_id) else {
+            tracing::warn!(
+                space_id = ?space_id,
+                user_id = ?settings.user_id,
+                "proxy bidding: user_value references a space not in the \
+                 spaces map; skipping",
+            );
+            continue;
+        };
+        // Compute what the next bid on this space would cost, then
+        // compare to the user's stated value. Surplus < 0 means the user
+        // wouldn't bid here.
+        let prev_value = prev_round_space_results
             .iter()
             .find(|r| r.space_id == *space_id)
-            .map(|r| r.value + bid_increment)
-            .unwrap_or_else(|| Decimal::ZERO);
+            .map(|r| r.value);
+        let next_bid = payloads::next_bid_amount(
+            prev_value,
+            bid_increment,
+            space.reserve_price,
+        );
 
-        let surplus = user_value_entry.value - current_price;
+        let surplus = user_value_entry.value - next_bid;
         tracing::info!(
-            "{:?}: user_value={}, current_price={}, surplus={}",
+            "{:?}: user_value={}, next_bid={}, surplus={}",
             user_value_entry.space_id,
             user_value_entry.value,
-            current_price,
+            next_bid,
             surplus
         );
 

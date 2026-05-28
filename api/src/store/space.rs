@@ -78,9 +78,10 @@ async fn create_space_tx(
             eligibility_points,
             is_available,
             site_image_id,
+            reserve_price,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING *",
     )
     .bind(details.site_id)
     .bind(&details.name)
@@ -88,6 +89,7 @@ async fn create_space_tx(
     .bind(details.eligibility_points)
     .bind(details.is_available)
     .bind(details.site_image_id)
+    .bind(details.reserve_price)
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut **tx)
     .await
@@ -164,14 +166,19 @@ async fn space_has_auction_history(
     Ok(has_history)
 }
 
-/// Check if update contains nontrivial changes (name or eligibility_points).
-/// These fields trigger copy-on-write when the space has auction history.
+/// Check if update contains nontrivial changes (name, eligibility_points, or
+/// reserve_price). These fields trigger copy-on-write when the space has
+/// auction history. reserve_price is included because a pending bid placed
+/// before any prior round result reads the reserve live at settlement time;
+/// editing it would retroactively change the bid's value out from under the
+/// bidder.
 fn has_nontrivial_changes(
     old_space: &Space,
     new_details: &payloads::Space,
 ) -> bool {
     old_space.name != new_details.name
         || old_space.eligibility_points != new_details.eligibility_points
+        || old_space.reserve_price != new_details.reserve_price
 }
 
 /// Internal transaction-aware space update function.
@@ -211,10 +218,11 @@ async fn update_space_tx(
     let nontrivial = has_nontrivial_changes(&old_space, details);
 
     if has_history && nontrivial {
-        // Copy-on-write: create new space and soft-delete old one
-        let new_space = create_space_tx(details, tx, time_source).await?;
-
-        // Soft-delete old space
+        // Copy-on-write: soft-delete the old space first, then create the
+        // new one. Order matters because the (site_id, name) unique index
+        // applies to non-deleted rows only; if the new space keeps the
+        // old name (which it does when only e.g. reserve_price changes),
+        // creating it before the soft-delete would collide.
         let now = time_source.now().to_sqlx();
         sqlx::query(
             "UPDATE spaces SET deleted_at = $2, updated_at = $2 WHERE id = $1",
@@ -223,6 +231,8 @@ async fn update_space_tx(
         .bind(now)
         .execute(&mut **tx)
         .await?;
+
+        let new_space = create_space_tx(details, tx, time_source).await?;
 
         return Ok(payloads::responses::UpdateSpaceResult {
             space: new_space.into(),
@@ -239,8 +249,9 @@ async fn update_space_tx(
             eligibility_points = $3,
             is_available = $4,
             site_image_id = $5,
-            updated_at = $7
-        WHERE id = $6
+            reserve_price = $6,
+            updated_at = $8
+        WHERE id = $7
         RETURNING *",
     )
     .bind(&details.name)
@@ -248,6 +259,7 @@ async fn update_space_tx(
     .bind(details.eligibility_points)
     .bind(details.is_available)
     .bind(details.site_image_id)
+    .bind(details.reserve_price)
     .bind(space_id)
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut **tx)

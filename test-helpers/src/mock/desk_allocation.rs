@@ -224,7 +224,7 @@ async fn create_grad_office_site(
         ),
         default_auction_params: AuctionParams {
             round_duration: Span::new().seconds(15),
-            bid_increment: Decimal::new(10, 0), // C10 increments
+            bid_increment: payloads::BidIncrement(Decimal::new(10, 0)), // C10
             activity_rule_params: ActivityRuleParams {
                 // 100% eligibility required from round 0 - bidders can freely
                 // move between desks since they're substitutes, but must
@@ -277,6 +277,7 @@ async fn create_grad_office_desks(
             eligibility_points: 1.0,
             is_available: true,
             site_image_id: None,
+            reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
         };
         let space_id = app.client.create_space(&space_details).await?;
         let space = app.client.get_space(&space_id).await?;

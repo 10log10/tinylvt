@@ -638,13 +638,21 @@ pub async fn create_bid_tx(
         None
     };
 
-    // Bid amount = (prev value + bid increment) OR zero
-    let bid_amount = prev_value
-        .map(|v| v + auction_params.bid_increment)
-        .unwrap_or(Decimal::ZERO);
+    let bid_amount = payloads::next_bid_amount(
+        prev_value,
+        auction_params.bid_increment,
+        space.reserve_price,
+    );
 
-    // Check if user has sufficient credit for this bid
-    currency::check_sufficient_credit_tx(&account.id, bid_amount, tx).await?;
+    // Check if user has sufficient credit for this bid. Skip when the bid
+    // amount is non-positive: a chore bid doesn't put the bidder on the
+    // hook for anything (and the locked-balance computation similarly
+    // clamps chore bids to zero rather than treating them as freed
+    // credit).
+    if bid_amount > Decimal::ZERO {
+        currency::check_sufficient_credit_tx(&account.id, bid_amount, tx)
+            .await?;
+    }
 
     // Create the bid
     sqlx::query(

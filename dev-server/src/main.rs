@@ -10,7 +10,7 @@ use anyhow::Result;
 use api::scheduler::Scheduler;
 use jiff::Timestamp;
 use std::time::Duration;
-use test_helpers::mock::DeskAllocationScreenshot;
+use test_helpers::mock::{ChoreDataset, DeskAllocationScreenshot};
 use tokio::time::interval;
 use tracing::info;
 
@@ -36,6 +36,10 @@ async fn main() -> Result<()> {
     let dataset = DeskAllocationScreenshot::create(&app).await?;
     // dataset.activate_subscription(&app).await?;
 
+    // Set up chore auction data (negative reserves)
+    info!("🧹 Setting up chore auction data...");
+    let chore_dataset = ChoreDataset::create(&app).await?;
+
     // Start scheduler to process auction rounds and proxy bidding
     info!("⏲️  Starting auction scheduler...");
     start_scheduler(&app);
@@ -54,6 +58,7 @@ async fn main() -> Result<()> {
     );
     info!("");
     dataset.print_summary();
+    chore_dataset.print_summary();
     info!("");
     info!("👋 Press Ctrl+C to shutdown");
 

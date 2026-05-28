@@ -151,12 +151,19 @@ pub struct MembershipSchedule {
     pub email: String,
 }
 
+/// Minimum step between bids in successive rounds for the same space.
+/// Wraps `Decimal` so it can't be silently swapped with other decimal
+/// quantities (reserve price, balance, etc.) at call sites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(Type), sqlx(transparent))]
+pub struct BidIncrement(pub Decimal);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "use-sqlx", derive(FromRow))]
 pub struct AuctionParams {
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxSpan"))]
     pub round_duration: Span,
-    pub bid_increment: Decimal,
+    pub bid_increment: BidIncrement,
     pub activity_rule_params: ActivityRuleParams,
 }
 
@@ -226,6 +233,15 @@ impl PartialEq for Site {
     }
 }
 
+/// Starting price the first time anyone bids on a space in an auction.
+/// Positive = normal reserve. Negative = chore (winner is compensated by
+/// the negative amount). Wraps `Decimal` so it can't be silently swapped
+/// with other decimal quantities (bid increment, balance, etc.) at call
+/// sites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(Type), sqlx(transparent))]
+pub struct ReservePrice(pub Decimal);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Space {
     pub site_id: SiteId,
@@ -234,6 +250,33 @@ pub struct Space {
     pub eligibility_points: f64,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
+    pub reserve_price: ReservePrice,
+}
+
+/// What a new bid placed right now would commit the bidder to. If a prior
+/// round settled a value for this space, the next bid is that value plus
+/// the bid increment; otherwise it opens at the reserve price (which may
+/// be negative for chores).
+pub fn next_bid_amount(
+    prev_value: Option<Decimal>,
+    bid_increment: BidIncrement,
+    reserve_price: ReservePrice,
+) -> Decimal {
+    match prev_value {
+        Some(v) => v + bid_increment.0,
+        None => reserve_price.0,
+    }
+}
+
+/// The current going price of the space: the most recent settled value,
+/// or the reserve price if no round has produced a value yet. Unlike
+/// `next_bid_amount`, no bid increment is added -- this is what the space
+/// is "worth" right now, not what the next bid would cost.
+pub fn current_space_price(
+    prev_value: Option<Decimal>,
+    reserve_price: ReservePrice,
+) -> Decimal {
+    prev_value.unwrap_or(reserve_price.0)
 }
 
 /// An auction for a site's possession period
@@ -588,18 +631,21 @@ impl AccountOwner {
     sqlx(type_name = "entry_type", rename_all = "snake_case")
 )]
 pub enum EntryType {
-    // Treasury credit operations
-    IssuanceGrantSingle,
-    IssuanceGrantBulk,
-    CreditPurchase,
-    DistributionCorrection,
-    DebtSettlement,
+    // Member-initiated transfer: member->member, or member->treasury for
+    // modes where the treasury is the structural counterparty
+    // (points_allocation, deferred_payment, prepaid_credits).
+    Transfer,
+    // Coleader-initiated treasury credit operation. Treasury crediting one
+    // member or all active members; covers allowance issuance, credit
+    // purchases, debt settlements, distribution corrections, and ad-hoc
+    // compensation. The *reason* lives in the entry's note, not in the
+    // variant.
+    TreasuryTransfer,
+    // Auction settlement to treasury or active members depending on mode.
+    // Scheduler-generated; links to auction_id.
+    AuctionSettlement,
     // Reset all balances in the community
     BalanceReset,
-    // Auction settlement to treasury or active members depending on mode
-    AuctionSettlement,
-    // Member-member transfer
-    Transfer,
     // Transfer from orphaned account (member who left) to treasury or
     // active members
     OrphanedAccountTransfer,

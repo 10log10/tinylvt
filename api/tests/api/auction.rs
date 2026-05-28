@@ -433,6 +433,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
             eligibility_points: 15.0, // Higher points than space_a
             is_available: true,
             site_image_id: None,
+            reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
         })
         .await?;
     let space_b = app.client.get_space(&space_b).await?;

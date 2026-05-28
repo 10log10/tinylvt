@@ -73,7 +73,7 @@ async fn main() -> std::io::Result<()> {
     let stripe_service = config.create_stripe_service();
     let pubsub = PubSub::new();
 
-    let server =
+    let (server, _handle) =
         build(&mut config, pool, time_source, stripe_service, pubsub).await?;
     server.await
 }

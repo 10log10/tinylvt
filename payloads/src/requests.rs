@@ -336,7 +336,10 @@ pub struct GetMemberTransactions {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTransfer {
     pub community_id: crate::CommunityId,
-    pub to_user_id: crate::UserId,
+    /// Transfer destination: another member, or the community treasury.
+    /// Treasury destinations are rejected in `distributed_clearing` mode
+    /// (the treasury is not the structural counterparty there).
+    pub to: crate::AccountOwner,
     pub amount: Decimal,
     pub note: Option<String>,
     pub idempotency_key: crate::IdempotencyKey,

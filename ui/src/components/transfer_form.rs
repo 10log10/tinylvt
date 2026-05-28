@@ -1,5 +1,6 @@
 use payloads::{
-    CommunityId, CurrencySettings, IdempotencyKey, UserId,
+    AccountOwner, CommunityId, CurrencyMode, CurrencySettings, IdempotencyKey,
+    UserId,
     requests::{self, JOURNAL_NOTE_MAX_LEN},
 };
 use rust_decimal::Decimal;
@@ -97,9 +98,23 @@ pub struct Props {
     pub on_success: Callback<()>,
 }
 
+/// Transfer destination: another member, or the community treasury.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DestinationKind {
+    Member,
+    Treasury,
+}
+
 #[function_component]
 pub fn TransferForm(props: &Props) -> Html {
+    // Whether the treasury is a valid destination in this currency mode.
+    // The treasury is the structural counterparty in every mode except
+    // distributed_clearing.
+    let treasury_allowed =
+        props.currency.mode() != CurrencyMode::DistributedClearing;
+
     // Form state
+    let destination_kind = use_state(|| DestinationKind::Member);
     let selected_recipient = use_state(|| None::<UserId>);
     let amount_input = use_state(String::new);
     let note_input = use_state(String::new);
@@ -196,6 +211,7 @@ pub fn TransferForm(props: &Props) -> Html {
 
     let on_submit = {
         let community_id = props.community_id;
+        let destination_kind = destination_kind.clone();
         let selected_recipient = selected_recipient.clone();
         let amount_input = amount_input.clone();
         let note_input = note_input.clone();
@@ -207,11 +223,17 @@ pub fn TransferForm(props: &Props) -> Html {
 
         Callback::from(move |_| {
             // Validate
-            if selected_recipient.is_none() {
-                error_message
-                    .set(Some("Please select a recipient".to_string()));
-                return;
-            }
+            let to = match *destination_kind {
+                DestinationKind::Member => match *selected_recipient {
+                    Some(user_id) => AccountOwner::Member(user_id),
+                    None => {
+                        error_message
+                            .set(Some("Please select a recipient".to_string()));
+                        return;
+                    }
+                },
+                DestinationKind::Treasury => AccountOwner::Treasury,
+            };
 
             if amount_input.is_empty() {
                 error_message.set(Some("Please enter an amount".to_string()));
@@ -222,7 +244,6 @@ pub fn TransferForm(props: &Props) -> Html {
                 return;
             }
 
-            let recipient_id = selected_recipient.unwrap();
             let amount = match Decimal::from_str(&amount_input) {
                 Ok(amt) => amt,
                 Err(_) => {
@@ -253,7 +274,7 @@ pub fn TransferForm(props: &Props) -> Html {
                 let api_client = get_api_client();
                 let request = requests::CreateTransfer {
                     community_id,
-                    to_user_id: recipient_id,
+                    to,
                     amount,
                     note,
                     idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -285,6 +306,7 @@ pub fn TransferForm(props: &Props) -> Html {
         let amount_input = amount_input.clone();
         let note_input = note_input.clone();
         let selected_recipient = selected_recipient.clone();
+        let destination_kind = destination_kind.clone();
         let error_message = error_message.clone();
         let success_message = success_message.clone();
         let amount_error = amount_error.clone();
@@ -293,16 +315,45 @@ pub fn TransferForm(props: &Props) -> Html {
             amount_input.set(String::new());
             note_input.set(String::new());
             selected_recipient.set(None);
+            destination_kind.set(DestinationKind::Member);
             error_message.set(None);
             success_message.set(None);
             amount_error.set(None);
         })
     };
 
-    let can_submit = selected_recipient.is_some()
+    let destination_selected = match *destination_kind {
+        DestinationKind::Member => selected_recipient.is_some(),
+        DestinationKind::Treasury => true,
+    };
+    let can_submit = destination_selected
         && !amount_input.is_empty()
         && amount_error.is_none()
         && !*is_submitting;
+
+    // Toggle between member and treasury destinations
+    let on_kind_member = {
+        let destination_kind = destination_kind.clone();
+        let success_message = success_message.clone();
+        let error_message = error_message.clone();
+        Callback::from(move |_| {
+            destination_kind.set(DestinationKind::Member);
+            success_message.set(None);
+            error_message.set(None);
+        })
+    };
+    let on_kind_treasury = {
+        let destination_kind = destination_kind.clone();
+        let selected_recipient = selected_recipient.clone();
+        let success_message = success_message.clone();
+        let error_message = error_message.clone();
+        Callback::from(move |_| {
+            destination_kind.set(DestinationKind::Treasury);
+            selected_recipient.set(None);
+            success_message.set(None);
+            error_message.set(None);
+        })
+    };
 
     html! {
         <div class="space-y-4">
@@ -332,18 +383,87 @@ pub fn TransferForm(props: &Props) -> Html {
                 }
             }
 
-            // Recipient select
-            <div>
-                <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                    {"Recipient"}
-                </label>
-                <MemberSelect
-                    community_id={props.community_id}
-                    selected={*selected_recipient}
-                    on_change={on_recipient_change}
-                    disabled={*is_submitting}
-                />
-            </div>
+            // Destination kind toggle (member vs treasury). The treasury
+            // option is hidden in distributed_clearing, where the treasury
+            // is not the structural counterparty.
+            {
+                if treasury_allowed {
+                    let toggle_button_classes = |selected: bool, side: &'static str| {
+                        classes!(
+                            "px-3", "py-2", "text-sm", "font-medium", "border",
+                            side,
+                            if selected {
+                                classes!(
+                                    "bg-neutral-900", "text-white",
+                                    "border-neutral-900",
+                                    "dark:bg-neutral-100", "dark:text-neutral-900",
+                                    "dark:border-neutral-100",
+                                )
+                            } else {
+                                classes!(
+                                    "bg-white", "text-neutral-700",
+                                    "border-neutral-300",
+                                    "dark:bg-neutral-800", "dark:text-neutral-300",
+                                    "dark:border-neutral-600",
+                                )
+                            },
+                        )
+                    };
+                    let member_selected =
+                        *destination_kind == DestinationKind::Member;
+                    html! {
+                        <div>
+                            <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                                {"Send to"}
+                            </label>
+                            <div class="inline-flex" role="group">
+                                <button
+                                    type="button"
+                                    class={toggle_button_classes(member_selected, "rounded-l")}
+                                    onclick={on_kind_member}
+                                    disabled={*is_submitting}
+                                >
+                                    {"Member"}
+                                </button>
+                                <button
+                                    type="button"
+                                    class={classes!(
+                                        toggle_button_classes(!member_selected, "rounded-r"),
+                                        "-ml-px",
+                                    )}
+                                    onclick={on_kind_treasury}
+                                    disabled={*is_submitting}
+                                >
+                                    {"Treasury"}
+                                </button>
+                            </div>
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
+
+            // Recipient select (shown only for member destinations)
+            {
+                if *destination_kind == DestinationKind::Member {
+                    html! {
+                        <div>
+                            <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                                {"Recipient"}
+                            </label>
+                            <MemberSelect
+                                community_id={props.community_id}
+                                selected={*selected_recipient}
+                                on_change={on_recipient_change}
+                                disabled={*is_submitting}
+                            />
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
 
             // Amount input
             <div>

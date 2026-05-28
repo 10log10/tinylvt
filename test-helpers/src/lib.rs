@@ -5,8 +5,11 @@ use api::{Config, telemetry};
 use base64::Engine;
 use jiff::Span;
 use jiff_sqlx::ToSqlx;
-use payloads::{CommunityId, SiteId, requests, responses};
+use payloads::{
+    BidIncrement, CommunityId, ReservePrice, SiteId, requests, responses,
+};
 use reqwest::StatusCode;
+use rust_decimal::Decimal;
 use sqlx::{Error, PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::time::Duration;
 use tracing_log::LogTracer;
@@ -52,6 +55,23 @@ pub struct TestApp {
     pub time_source: TimeSource,
     pub stripe_service: std::sync::Arc<api::stripe_service::StripeService>,
     pub pubsub: api::pubsub::PubSub,
+    /// Used in Drop to stop the actix server. Without this, the server's
+    /// worker threads (one per CPU core, each running its own tokio runtime)
+    /// outlive the `#[tokio::test]` runtime that spawned them, keep their
+    /// `Arc<PgPool>` clones alive, and hold idle Postgres connections open
+    /// for the rest of the test process. Across a full suite that exhausts
+    /// `max_connections` on the test database.
+    server_handle: api::ServerHandle,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        // `ServerHandle::stop` synchronously sends the stop command on a
+        // channel — only the returned future awaits completion. Dropping the
+        // future is fine; the command has already been delivered, and the
+        // actix worker threads process it on their own runtimes.
+        std::mem::drop(self.server_handle.stop(false));
+    }
 }
 
 /// Email testing utilities for TestApp
@@ -596,7 +616,7 @@ pub fn to_login_credentials(
 fn auction_params_a() -> payloads::AuctionParams {
     payloads::AuctionParams {
         round_duration: Span::new().minutes(1),
-        bid_increment: rust_decimal::dec!(1.0),
+        bid_increment: BidIncrement(rust_decimal::dec!(1.0)),
         activity_rule_params: payloads::ActivityRuleParams {
             eligibility_progression: vec![
                 (0, 0.5),
@@ -634,7 +654,7 @@ fn site_details_a(community_id: CommunityId) -> payloads::Site {
 pub fn site_details_b(community_id: CommunityId) -> payloads::Site {
     let default_auction_params = payloads::AuctionParams {
         round_duration: Span::new().minutes(5),
-        bid_increment: rust_decimal::dec!(2.5),
+        bid_increment: BidIncrement(rust_decimal::dec!(2.5)),
         activity_rule_params: payloads::ActivityRuleParams {
             eligibility_progression: vec![
                 (0, 0.6),
@@ -704,6 +724,7 @@ pub fn space_details_a(site_id: SiteId) -> payloads::Space {
         eligibility_points: 10.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     }
 }
 
@@ -716,6 +737,7 @@ pub fn space_details_b(site_id: SiteId) -> payloads::Space {
         eligibility_points: 10.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     }
 }
 
@@ -728,6 +750,7 @@ pub fn space_details_c(site_id: SiteId) -> payloads::Space {
         eligibility_points: 10.0,
         is_available: true,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     }
 }
 
@@ -739,6 +762,7 @@ fn space_details_a_update(site_id: SiteId) -> payloads::Space {
         eligibility_points: 15.0,
         is_available: false,
         site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
     }
 }
 
@@ -751,6 +775,7 @@ pub fn assert_space_equal(
     assert_eq!(space.description, retrieved.description);
     assert_eq!(space.eligibility_points, retrieved.eligibility_points);
     assert_eq!(space.is_available, retrieved.is_available);
+    assert_eq!(space.reserve_price, retrieved.reserve_price);
     Ok(())
 }
 
@@ -880,7 +905,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
     // listener's entry-reset and lose their receivers.
     let mut listener_ready_probe = pubsub.subscribe();
 
-    let server = api::build(
+    let (server, server_handle) = api::build(
         &mut config,
         db_pool.clone(),
         time_source.clone(),
@@ -889,7 +914,30 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
     )
     .await
     .unwrap();
-    tokio::spawn(server);
+
+    // Run the actix `Server` future on a dedicated OS thread with its own
+    // `current_thread` runtime, rather than `tokio::spawn`'ing it onto the
+    // `#[tokio::test]` runtime. The Server future is what receives
+    // `ServerCommand::Stop` (from `ServerHandle::stop`) and dispatches stop
+    // signals to actix's worker threads. If the Server future runs on the
+    // test runtime, it is canceled when the test ends — before it can
+    // process a Stop sent from `TestApp::Drop`. The workers then keep
+    // running on their own independent runtimes, holding `Arc<PgPool>`
+    // clones, and leak ~2 idle Postgres connections per test.
+    //
+    // Running it on a dedicated thread decouples its lifetime from the test
+    // runtime: Drop sends Stop synchronously, the server thread polls and
+    // processes it, workers exit, pool clones drop, connections close.
+    std::thread::Builder::new()
+        .name(format!("test-actix-server-{}", config.port))
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("building test server runtime");
+            rt.block_on(server).expect("test server exited with error");
+        })
+        .expect("spawning test server thread");
 
     match listener_ready_probe.recv().await {
         Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
@@ -909,6 +957,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         time_source,
         stripe_service,
         pubsub,
+        server_handle,
     }
 }
 

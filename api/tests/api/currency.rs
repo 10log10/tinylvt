@@ -2,7 +2,8 @@ use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use payloads::{
-    AuctionId, EntryType, IdempotencyKey, SiteId, SpaceId, TreasuryRecipient,
+    AccountOwner, AuctionId, EntryType, IdempotencyKey, SiteId, SpaceId,
+    TreasuryRecipient,
 };
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
@@ -226,7 +227,7 @@ async fn test_create_transfer_success() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -280,7 +281,7 @@ async fn test_create_transfer_insufficient_balance() -> anyhow::Result<()> {
         .client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(10, 0), // Even small amount should fail
             note: Some("Too much".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -319,7 +320,7 @@ async fn test_create_transfer_idempotency() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("First".into()),
             idempotency_key,
@@ -330,7 +331,7 @@ async fn test_create_transfer_idempotency() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("Second".into()),
             idempotency_key,
@@ -485,7 +486,7 @@ async fn test_get_member_transactions() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("Transfer to Bob".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -622,52 +623,6 @@ async fn test_treasury_operation_prevents_negative_balance_distributed_clearing(
         .treasury_credit_operation(&requests::TreasuryCreditOperation {
             community_id,
             recipient: TreasuryRecipient::AllActiveMembers,
-            amount_per_recipient: Decimal::new(100, 0),
-            note: Some("Should fail".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
-        })
-        .await;
-
-    // Should fail with insufficient balance
-    assert!(result.is_err());
-    let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(
-        err_msg.contains("InsufficientBalance")
-            || err_msg.contains("Insufficient balance")
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_treasury_operation_prevents_negative_balance_deferred_payment()
--> anyhow::Result<()> {
-    let app = spawn_app().await;
-    let community_id = app.create_two_person_community().await?;
-
-    // Set to deferred_payment mode
-    sqlx::query(
-        r#"
-        UPDATE communities
-        SET currency_mode = 'deferred_payment'
-        WHERE id = $1
-        "#,
-    )
-    .bind(community_id)
-    .execute(&app.db_pool)
-    .await?;
-
-    // Get member for SingleMember operation (required for
-    // deferred_payment)
-    let members = app.client.get_members(&community_id).await?;
-    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
-
-    // Attempt treasury credit operation without sufficient balance
-    let result = app
-        .client
-        .treasury_credit_operation(&requests::TreasuryCreditOperation {
-            community_id,
-            recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
             amount_per_recipient: Decimal::new(100, 0),
             note: Some("Should fail".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -1694,7 +1649,7 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: alice.user.user_id,
+            to: AccountOwner::Member(alice.user.user_id),
             amount: Decimal::new(50, 0),
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -1726,7 +1681,7 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob.user.user_id,
+            to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(50, 0),
             note: Some("Paying Bob back".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -1829,6 +1784,190 @@ async fn create_community_prepaid_credits_mode() -> anyhow::Result<()> {
         .await?;
     assert_eq!(info.balance, Decimal::new(100, 0));
     assert_eq!(info.available_credit, Some(Decimal::new(100, 0)));
+
+    Ok(())
+}
+
+// ============================================================================
+// Member -> Treasury transfer tests (treasury-as-counterparty model)
+// ============================================================================
+
+/// In every mode where the treasury is the structural counterparty
+/// (points_allocation, deferred_payment, prepaid_credits), a member can
+/// transfer balance back to the treasury. The motion is the same in all
+/// three: the treasury credits the member, the member transfers some or
+/// all of it back, and the two balances move toward zero in lockstep.
+#[tokio::test]
+async fn test_member_to_treasury_transfer_round_trip() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // points_allocation needs allowance fields set; the helper handles
+    // that. The other two modes can be set with a direct UPDATE.
+    let modes = [
+        (
+            "points_allocation",
+            Decimal::new(30, 0),
+            Decimal::new(30, 0),
+        ),
+        (
+            "deferred_payment",
+            Decimal::new(100, 0),
+            Decimal::new(100, 0),
+        ),
+        ("prepaid_credits", Decimal::new(50, 0), Decimal::new(20, 0)),
+    ];
+
+    for (mode, issued, returned) in modes {
+        // Each mode has its own (required, forbidden) field combination
+        // (see currency.up.sql CHECK constraints). Write the full row
+        // shape for the target mode in one UPDATE.
+        let (allowance_amount, allowance_period, allowance_start) =
+            if mode == "points_allocation" {
+                ("1000", "INTERVAL '1 week'", "NOW()")
+            } else {
+                ("NULL", "NULL", "NULL")
+            };
+        let default_credit_limit = if mode == "deferred_payment" {
+            "NULL"
+        } else {
+            "0"
+        };
+        let debts_callable = mode != "points_allocation";
+        sqlx::query(&format!(
+            "UPDATE communities SET \
+                currency_mode = '{mode}', \
+                allowance_amount = {allowance_amount}, \
+                allowance_period = {allowance_period}, \
+                allowance_start = {allowance_start}, \
+                default_credit_limit = {default_credit_limit}, \
+                debts_callable = {debts_callable} \
+             WHERE id = $1"
+        ))
+        .bind(community_id)
+        .execute(&app.db_pool)
+        .await?;
+
+        let treasury_before = app
+            .client
+            .get_treasury_account(&requests::GetTreasuryAccount {
+                community_id,
+            })
+            .await?
+            .balance_cached;
+        let bob_before = app
+            .client
+            .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+                community_id,
+                member_user_id: Some(bob.user.user_id),
+            })
+            .await?
+            .balance;
+
+        // Treasury credits Bob.
+        app.login_alice().await?;
+        app.client
+            .treasury_credit_operation(&requests::TreasuryCreditOperation {
+                community_id,
+                recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
+                amount_per_recipient: issued,
+                note: Some(format!("credit in {mode}")),
+                idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            })
+            .await?;
+
+        // Bob transfers `returned` back.
+        app.login_bob().await?;
+        app.client
+            .create_transfer(&requests::CreateTransfer {
+                community_id,
+                to: AccountOwner::Treasury,
+                amount: returned,
+                note: Some(format!("return in {mode}")),
+                idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            })
+            .await?;
+
+        // Net effect on both accounts: +issued - returned.
+        let net = issued - returned;
+        app.login_alice().await?;
+        let treasury_after = app
+            .client
+            .get_treasury_account(&requests::GetTreasuryAccount {
+                community_id,
+            })
+            .await?
+            .balance_cached;
+        let bob_after = app
+            .client
+            .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+                community_id,
+                member_user_id: Some(bob.user.user_id),
+            })
+            .await?
+            .balance;
+        assert_eq!(
+            treasury_after - treasury_before,
+            -net,
+            "treasury delta in {mode}"
+        );
+        assert_eq!(bob_after - bob_before, net, "bob delta in {mode}");
+    }
+
+    Ok(())
+}
+
+/// Member->treasury transfers are rejected in distributed_clearing: the
+/// treasury is not the structural counterparty in that mode.
+#[tokio::test]
+async fn test_member_to_treasury_rejected_in_distributed_clearing()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    // Default mode is distributed_clearing.
+
+    let result = app
+        .client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Treasury,
+            amount: Decimal::new(10, 0),
+            note: Some("Should fail".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await;
+
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+/// In points_allocation (default_credit_limit = 0), a member cannot
+/// transfer more to the treasury than they actually hold. The standard
+/// credit-limit gate inside `create_transfer` enforces this without
+/// additional logic.
+#[tokio::test]
+async fn test_member_to_treasury_capped_by_balance() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    // Alice has zero balance (no allowance issued yet). Try to transfer
+    // 10 to treasury -- should fail.
+    let result = app
+        .client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Treasury,
+            amount: Decimal::new(10, 0),
+            note: Some("Too much".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await;
+
+    assert_status_code(result, StatusCode::BAD_REQUEST);
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use api::store;
-use payloads::{IdempotencyKey, requests};
+use payloads::{AccountOwner, IdempotencyKey, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -353,7 +353,7 @@ async fn delete_user_with_transaction_history() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob_id,
+            to: AccountOwner::Member(bob_id),
             amount: Decimal::new(5000, 2), // 50.00
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),

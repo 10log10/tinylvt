@@ -32,12 +32,21 @@ pub struct Props {
     /// If set, shows a ✕ remove button in edit mode
     #[prop_or_default]
     pub on_remove: Option<Callback<()>>,
-    /// Extra CSS classes for the display span
+    /// Extra CSS classes for the display span. Composed with the
+    /// built-in `DISPLAY_CLASSES` unless `replace_classes` is true.
     #[prop_or_default]
     pub display_class: Classes,
-    /// Extra CSS classes for the input element
+    /// Extra CSS classes for the input element. Composed with the
+    /// built-in `INPUT_CLASSES` unless `replace_classes` is true.
     #[prop_or_default]
     pub input_class: Classes,
+    /// If true, `display_class` and `input_class` fully replace the
+    /// built-in classes instead of being appended. Use this when the
+    /// caller wants to render the field as a standard form input where
+    /// the InlineEdit defaults (compact padding, no border) would
+    /// conflict.
+    #[prop_or_default]
+    pub replace_classes: bool,
     /// HTML input type (default "text")
     #[prop_or(AttrValue::Static("text"))]
     pub input_type: AttrValue,
@@ -159,6 +168,17 @@ pub fn InlineEdit(props: &Props) -> Html {
         "text-neutral-900 dark:text-neutral-100"
     };
 
+    let input_classes = if props.replace_classes {
+        classes!(props.input_class.clone())
+    } else {
+        classes!(INPUT_CLASSES, props.input_class.clone())
+    };
+    let display_classes = if props.replace_classes {
+        classes!(empty_style, props.display_class.clone())
+    } else {
+        classes!(DISPLAY_CLASSES, empty_style, props.display_class.clone())
+    };
+
     if *is_editing {
         let input = html! {
             <input
@@ -169,10 +189,7 @@ pub fn InlineEdit(props: &Props) -> Html {
                 size="1"
                 onblur={on_blur}
                 onkeydown={on_keydown}
-                class={classes!(
-                    INPUT_CLASSES,
-                    props.input_class.clone()
-                )}
+                class={input_classes}
             />
         };
         if props.on_remove.is_some() {
@@ -196,11 +213,7 @@ pub fn InlineEdit(props: &Props) -> Html {
             <div
                 ref={props.container_ref.clone()}
                 onclick={on_display_click}
-                class={classes!(
-                    DISPLAY_CLASSES,
-                    empty_style,
-                    props.display_class.clone()
-                )}
+                class={display_classes}
             >
                 {display_text}
             </div>

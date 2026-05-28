@@ -1,5 +1,5 @@
 use payloads::{
-    CommunityId, Role, SiteId, Space, SpaceId,
+    CommunityId, CurrencySettings, Role, SiteId, Space, SpaceId,
     requests::{UpdateSpace, UpdateSpaces},
     responses::Space as SpaceResponse,
 };
@@ -8,8 +8,8 @@ use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 use crate::components::{
-    CreateSpaceModal, SiteImageSelector, SitePageWrapper, SiteTabHeader,
-    SiteWithRole, WarningModal, site_tab_header::ActiveTab,
+    CreateSpaceModal, ReservePriceField, SiteImageSelector, SitePageWrapper,
+    SiteTabHeader, SiteWithRole, WarningModal, site_tab_header::ActiveTab,
 };
 use crate::get_api_client;
 use crate::hooks::{render_section, use_auctions, use_spaces};
@@ -22,6 +22,7 @@ pub struct Props {
 #[function_component]
 pub fn SiteSpacesPage(props: &Props) -> Html {
     let render_content = Callback::from(|site_with_role: SiteWithRole| {
+        let currency = site_with_role.community.community.currency.clone();
         html! {
             <div>
                 <SiteTabHeader site={site_with_role.site.clone()} active_tab={ActiveTab::Spaces} />
@@ -30,6 +31,7 @@ pub fn SiteSpacesPage(props: &Props) -> Html {
                         site_id={site_with_role.site.site_id}
                         community_id={site_with_role.site.site_details.community_id}
                         user_role={site_with_role.user_role()}
+                        currency={currency}
                     />
                 </div>
             </div>
@@ -49,6 +51,7 @@ pub struct SpacesTabProps {
     pub site_id: SiteId,
     pub community_id: CommunityId,
     pub user_role: Role,
+    pub currency: CurrencySettings,
 }
 
 #[function_component]
@@ -72,6 +75,7 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                     spaces={(*spaces).clone()}
                     auctions={(*auctions).clone()}
                     refetch_spaces={spaces_hook.refetch.clone()}
+                    currency={props.currency.clone()}
                 />
             }
         },
@@ -86,6 +90,7 @@ struct SpacesEditorProps {
     spaces: Vec<SpaceResponse>,
     auctions: Vec<payloads::responses::Auction>,
     refetch_spaces: Callback<()>,
+    currency: CurrencySettings,
 }
 
 /// Spaces grid + edit machinery. Mounted only after spaces and auctions
@@ -386,6 +391,7 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
                                 })}
                                 on_modify={Callback::from(move |_| refetch.emit(()))}
                                 show_images={any_space_has_image}
+                                currency={props.currency.clone()}
                             />
                         }
                     }).collect::<Html>()}
@@ -402,6 +408,7 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
                     <CreateSpaceModal
                         site_id={props.site_id}
                         community_id={props.community_id}
+                        currency={props.currency.clone()}
                         on_close={on_close_create_modal}
                         on_space_created={on_space_created}
                     />
@@ -438,6 +445,7 @@ struct SpaceCardProps {
     on_modify: Callback<()>,
     /// Whether to show image section (true if any space has an image).
     show_images: bool,
+    currency: CurrencySettings,
 }
 
 #[function_component]
@@ -611,6 +619,16 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
             })
         };
 
+        let on_reserve_price_change = {
+            let on_edit_change = props.on_edit_change.clone();
+            let edit_state = edit_state.clone();
+            Callback::from(move |v: payloads::ReservePrice| {
+                let mut updated = edit_state.clone();
+                updated.reserve_price = v;
+                on_edit_change.emit(updated);
+            })
+        };
+
         let on_image_change = {
             let on_edit_change = props.on_edit_change.clone();
             let edit_state = edit_state.clone();
@@ -685,6 +703,17 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
                                    text-neutral-900 dark:text-neutral-100 text-sm
                                    focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
                                    disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                            {"Reserve price"}
+                        </label>
+                        <ReservePriceField
+                            value={edit_state.reserve_price}
+                            currency={props.currency.clone()}
+                            on_change={on_reserve_price_change}
                         />
                     </div>
 
@@ -842,6 +871,27 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
 
                     <div class="text-sm text-neutral-600 dark:text-neutral-400 space-y-1">
                         <p>{"Eligibility Points: "}{props.space.space_details.eligibility_points}</p>
+                        <p>
+                            {"Reserve price: "}
+                            {props.currency.format_amount(
+                                props.space.space_details.reserve_price.0,
+                            )}
+                            {
+                                if props.space.space_details.reserve_price.0
+                                    < rust_decimal::Decimal::ZERO
+                                {
+                                    html! {
+                                        <span class="ml-1 text-xs \
+                                                     text-neutral-500 \
+                                                     dark:text-neutral-400">
+                                            {"(winner gets paid)"}
+                                        </span>
+                                    }
+                                } else {
+                                    html! {}
+                                }
+                            }
+                        </p>
                         <p>{"Status: "}{if props.space.space_details.is_available { "Available" } else { "Unavailable" }}</p>
                         <p>{"Created: "}{props.space.created_at.to_zoned(jiff::tz::TimeZone::system()).strftime("%B %d, %Y").to_string()}</p>
                     </div>

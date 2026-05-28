@@ -87,6 +87,7 @@ impl From<Space> for payloads::Space {
             eligibility_points: space.eligibility_points,
             is_available: space.is_available,
             site_image_id: space.site_image_id,
+            reserve_price: space.reserve_price,
         }
     }
 }
@@ -193,7 +194,7 @@ pub struct AuctionParams {
     pub id: AuctionParamsId,
     #[sqlx(try_from = "SqlxSpan")]
     pub round_duration: Span,
-    pub bid_increment: Decimal,
+    pub bid_increment: payloads::BidIncrement,
     pub activity_rule_params: Json<payloads::ActivityRuleParams>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
@@ -264,6 +265,7 @@ pub struct Space {
     pub eligibility_points: f64,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
+    pub reserve_price: payloads::ReservePrice,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -636,6 +638,13 @@ pub enum StoreError {
     InsufficientBalance,
     #[error("Amount must be positive")]
     AmountMustBePositive,
+    #[error("Amount must be non-zero")]
+    AmountMustBeNonZero,
+    #[error(
+        "Negative amounts are only allowed for distribution corrections \
+         in DistributedClearing mode targeting all active members"
+    )]
+    NegativeTreasuryAmountNotAllowed,
     #[error("Invalid treasury operation for this currency mode")]
     InvalidTreasuryOperation,
     #[error("Invalid credit limit operation for this currency mode")]

@@ -1,4 +1,4 @@
-use payloads::{IdempotencyKey, requests};
+use payloads::{AccountOwner, IdempotencyKey, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
 use test_helpers::{assert_status_code, spawn_app};
@@ -142,7 +142,7 @@ async fn get_orphaned_accounts() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob_id,
+            to: AccountOwner::Member(bob_id),
             amount: Decimal::new(1000, 2), // 10.00
             note: None,
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -295,7 +295,7 @@ async fn resolve_distributed_clearing_distributes_to_members()
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob_id,
+            to: AccountOwner::Member(bob_id),
             amount: Decimal::new(10000, 2), // 100.00
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -379,7 +379,7 @@ async fn resolve_with_negative_balance() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: alice_id,
+            to: AccountOwner::Member(alice_id),
             amount: Decimal::new(3000, 2), // 30.00
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -470,7 +470,7 @@ async fn idempotency_orphaned_resolution() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob_id,
+            to: AccountOwner::Member(bob_id),
             amount: Decimal::new(10000, 2), // 100.00
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
@@ -537,7 +537,7 @@ async fn rejoin_after_leaving() -> anyhow::Result<()> {
     app.client
         .create_transfer(&requests::CreateTransfer {
             community_id,
-            to_user_id: bob_id,
+            to: AccountOwner::Member(bob_id),
             amount: Decimal::new(7500, 2), // 75.00
             note: Some("Test transfer".into()),
             idempotency_key: IdempotencyKey(Uuid::new_v4()),
