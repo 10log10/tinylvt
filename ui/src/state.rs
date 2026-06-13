@@ -223,10 +223,6 @@ impl State {
         self.individual_spaces.clear();
     }
 
-    pub fn has_auctions_loaded_for_site(&self, site_id: SiteId) -> bool {
-        self.auctions_by_site.contains_key(&site_id)
-    }
-
     pub fn get_auctions_for_site(
         &self,
         site_id: SiteId,

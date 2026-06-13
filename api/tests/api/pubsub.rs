@@ -37,7 +37,7 @@ async fn round_created_event_emitted_on_first_round() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -60,6 +60,39 @@ async fn round_created_event_emitted_on_first_round() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn schedule_changed_event_emitted_on_schedule() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let mut rx = app.pubsub.subscribe();
+
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = None;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    app.client
+        .schedule_auction(&requests::ScheduleAuction {
+            auction_id,
+            start_at: Some(app.time_source.now() + Span::new().seconds(15)),
+        })
+        .await?;
+
+    let events = collect_events(&mut rx, 1).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            AuctionEvent::AuctionScheduleChanged { auction_id: a }
+                if *a == auction_id
+        )),
+        "expected AuctionScheduleChanged for {auction_id}, got {events:?}",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn auction_ended_event_emitted_on_completion() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let mut rx = app.pubsub.subscribe();
@@ -72,7 +105,7 @@ async fn auction_ended_event_emitted_on_completion() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // First tick creates round 0.
@@ -112,7 +145,7 @@ async fn round_ended_event_emitted_on_round_transition() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Tick to create round 0.
@@ -175,7 +208,7 @@ async fn bids_changed_event_emitted_for_proxy_bidder() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Alice configures proxy bidding with a value high enough to bid.

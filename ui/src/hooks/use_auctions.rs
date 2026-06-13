@@ -7,10 +7,19 @@ use crate::{
     hooks::{FetchHookReturn, use_fetch_with_cache},
 };
 
-/// Hook to manage auctions data with lazy loading and global state caching
+/// Hook to manage auctions data with global state caching.
 ///
-/// This follows the same pattern as use_spaces and use_sites, providing
-/// efficient data loading and caching for auctions at the site level.
+/// Unlike the per-auction detail hook, the site auction list isn't
+/// SSE-subscribed (its scope is every auction in the site, not a single
+/// auction id), so lifecycle changes made elsewhere — canceling or deleting
+/// an auction on its detail page — aren't pushed here. To avoid showing a
+/// stale list after such a change, this refetches on every mount rather than
+/// only on a cold cache (`should_fetch` is always `true`).
+///
+/// Because we always refetch, the yewdux cache no longer exists to *save* a
+/// request. It's kept for one reason: rendering the previously-cached list
+/// immediately via `get_cached` while the refetch runs in the background, so
+/// revisiting the auctions tab never flashes a loading spinner.
 #[hook]
 pub fn use_auctions(
     site_id: SiteId,
@@ -18,7 +27,6 @@ pub fn use_auctions(
     let (state, dispatch) = use_store::<State>();
 
     let get_cached_state = state.clone();
-    let should_fetch_state = state.clone();
     let fetch_dispatch = dispatch.clone();
 
     use_fetch_with_cache(
@@ -28,7 +36,7 @@ pub fn use_auctions(
                 .get_auctions_for_site(site_id)
                 .map(|auction_refs| auction_refs.into_iter().cloned().collect())
         },
-        move || !should_fetch_state.has_auctions_loaded_for_site(site_id),
+        || true,
         move || {
             let dispatch = fetch_dispatch.clone();
             async move {

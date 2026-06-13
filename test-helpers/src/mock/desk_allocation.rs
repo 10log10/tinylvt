@@ -336,7 +336,7 @@ async fn create_desk_auction_with_bidding(
         site_id: site.site_id,
         possession_start_at,
         possession_end_at,
-        start_at: auction_start,
+        start_at: Some(auction_start),
         auction_params,
     };
 

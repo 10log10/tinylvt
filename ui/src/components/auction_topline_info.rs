@@ -1,50 +1,35 @@
 use crate::components::{AuctionParamsViewer, TimestampDisplay};
 use jiff::Timestamp;
-use payloads::{CurrencySettings, responses};
+use payloads::{AuctionStatus, CurrencySettings, responses};
 use yew::prelude::*;
 
-#[derive(Debug, Clone, PartialEq)]
-enum AuctionStatus {
-    Upcoming,
-    Ongoing,
-    Concluded,
+/// Display label for an auction status badge.
+pub fn status_label(status: AuctionStatus) -> &'static str {
+    match status {
+        AuctionStatus::NotScheduled => "Not scheduled",
+        AuctionStatus::Upcoming => "Upcoming",
+        AuctionStatus::Ongoing => "Ongoing",
+        AuctionStatus::Concluded => "Concluded",
+        AuctionStatus::Canceled => "Canceled",
+    }
 }
 
-impl AuctionStatus {
-    fn from_auction(auction: &responses::Auction) -> Self {
-        let now = Timestamp::now();
-
-        if let Some(_end_at) = auction.end_at {
-            Self::Concluded
-        } else if now >= auction.auction_details.start_at {
-            Self::Ongoing
-        } else {
-            Self::Upcoming
+/// Badge styling for an auction status. NotScheduled shares the Upcoming
+/// style (both are pre-start states) and Canceled shares the muted
+/// Concluded style.
+pub fn status_badge_classes(status: AuctionStatus) -> &'static str {
+    match status {
+        AuctionStatus::NotScheduled | AuctionStatus::Upcoming => {
+            "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 \
+             dark:text-neutral-200"
         }
-    }
-
-    fn label(&self) -> &'static str {
-        match self {
-            Self::Upcoming => "Upcoming",
-            Self::Ongoing => "Ongoing",
-            Self::Concluded => "Concluded",
+        AuctionStatus::Ongoing => {
+            "bg-neutral-800 text-white dark:bg-neutral-200 \
+             dark:text-neutral-900"
         }
-    }
-
-    fn badge_classes(&self) -> &'static str {
-        match self {
-            Self::Upcoming => {
-                "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 \
-                 dark:text-neutral-200"
-            }
-            Self::Ongoing => {
-                "bg-neutral-800 text-white dark:bg-neutral-200 \
-                 dark:text-neutral-900"
-            }
-            Self::Concluded => {
-                "bg-neutral-300 text-neutral-600 dark:bg-neutral-600 \
-                 dark:text-neutral-400"
-            }
+        AuctionStatus::Concluded | AuctionStatus::Canceled => {
+            "bg-neutral-300 text-neutral-600 dark:bg-neutral-600 \
+             dark:text-neutral-400"
         }
     }
 }
@@ -59,7 +44,7 @@ pub struct Props {
 #[function_component]
 pub fn AuctionToplineInfo(props: &Props) -> Html {
     let auction_details = &props.auction.auction_details;
-    let status = AuctionStatus::from_auction(&props.auction);
+    let status = props.auction.status(Timestamp::now());
     let params_expanded = use_state(|| false);
 
     let toggle_params = {
@@ -80,9 +65,9 @@ pub fn AuctionToplineInfo(props: &Props) -> Html {
                     </h2>
                     <span class={format!(
                         "px-3 py-1 rounded-full text-xs font-medium {}",
-                        status.badge_classes()
+                        status_badge_classes(status)
                     )}>
-                        {status.label()}
+                        {status_label(status)}
                     </span>
                 </div>
 
@@ -131,9 +116,19 @@ pub fn AuctionToplineInfo(props: &Props) -> Html {
                                              dark:text-neutral-400">
                                     {"Start: "}
                                 </span>
-                                <TimestampDisplay
-                                    timestamp={auction_details.start_at}
-                                />
+                                {match auction_details.start_at {
+                                    Some(start_at) => html! {
+                                        <TimestampDisplay
+                                            timestamp={start_at}
+                                        />
+                                    },
+                                    None => html! {
+                                        <span class="text-neutral-600 \
+                                                     dark:text-neutral-400">
+                                            {"Not scheduled"}
+                                        </span>
+                                    },
+                                }}
                             </div>
                             {if let Some(end_at) = props.auction.end_at {
                                 html! {

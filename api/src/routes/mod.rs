@@ -75,6 +75,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::create_auction)
         .service(auction::get_auction)
         .service(auction::delete_auction)
+        .service(auction::schedule_auction)
+        .service(auction::cancel_auction)
         .service(auction::list_auctions)
         .service(auction::get_auction_round)
         .service(auction::list_auction_rounds)

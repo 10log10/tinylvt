@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use yew::prelude::*;
 
 use crate::components::{
-    AuctionContext, AuctionPageWrapper, AuctionTabHeader, AuctionToplineInfo,
-    ConnectionStatusIndicator, CountdownTimer, ProxyBiddingControls,
-    RoundIndicator, SpaceListForBidding, UserEligibilityDisplay,
-    auction_tab_header::ActiveTab,
+    AuctionAdminControls, AuctionContext, AuctionPageWrapper, AuctionTabHeader,
+    AuctionToplineInfo, ConnectionStatusIndicator, CountdownTimer,
+    ProxyBiddingControls, RoundIndicator, SpaceListForBidding,
+    UserEligibilityDisplay, auction_tab_header::ActiveTab,
 };
 use crate::hooks::{
     Fetch, ProxyBiddingSettingsHookReturn, UserSpaceValuesHookReturn,
@@ -36,6 +36,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
                         site_timezone={ctx.site_timezone().map(String::from)}
                         currency={ctx.currency().clone()}
                         current_user={ctx.current_user.clone()}
+                        user_role={ctx.community.user_role}
                     />
                 </div>
             </div>
@@ -56,6 +57,7 @@ struct AuctionContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
+    user_role: payloads::Role,
 }
 
 #[function_component]
@@ -85,7 +87,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
         "auction",
         move |last_round_info_opt, _is_loading, errors| {
             let cancelled =
-                props.auction.end_at.is_some() && last_round_info_opt.is_none();
+                props.auction.was_canceled && last_round_info_opt.is_none();
             let body = if cancelled {
                 html! {
                     <AuctionCancelledContent
@@ -93,6 +95,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         site_timezone={props.site_timezone.clone()}
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
+                        user_role={props.user_role}
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
                     />
@@ -105,6 +108,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                             auction={props.auction.clone()}
                             site_timezone={props.site_timezone.clone()}
                             currency={props.currency.clone()}
+                            user_role={props.user_role}
                             last_round={last_round_info.last_round.clone()}
                             previous_round_id={
                                 last_round_info
@@ -126,6 +130,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         site_timezone={props.site_timezone.clone()}
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
+                        user_role={props.user_role}
                         connection_status={connection_status}
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
@@ -149,6 +154,7 @@ struct AuctionCancelledContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
+    user_role: payloads::Role,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
 }
@@ -174,10 +180,16 @@ fn AuctionCancelledContent(props: &AuctionCancelledContentProps) -> Html {
                         {"Auction Canceled"}
                     </h3>
                     <p class="text-neutral-600 dark:text-neutral-400">
-                        {"This auction was canceled before it started."}
+                        {"This auction was canceled before it started. No \
+                          spaces were allocated and no settlement occurred."}
                     </p>
                 </div>
             </div>
+
+            <AuctionAdminControls
+                auction={props.auction.clone()}
+                user_role={props.user_role}
+            />
 
             // Auction was cancelled before any rounds existed, so prices and
             // bids are empty by definition; gate on spaces + user_values.
@@ -222,13 +234,15 @@ struct AuctionNotStartedContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
+    user_role: payloads::Role,
     connection_status: crate::hooks::ConnectionStatus,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
     proxy_bidding: ProxyBiddingSettingsHookReturn,
 }
 
-/// Auction has not yet started. Show topline info, countdown, proxy-bidding
+/// Auction has not yet started. Show topline info, a countdown (or a
+/// not-yet-scheduled note when no start time is set), proxy-bidding
 /// controls, and a space list for setting values (bidding disabled).
 #[function_component]
 fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
@@ -243,20 +257,42 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
             <div class="border border-neutral-200 dark:border-neutral-700 \
                         rounded-lg p-8 bg-white dark:bg-neutral-800">
                 <div class="text-center space-y-4">
-                    <h3 class="text-lg font-medium text-neutral-900 \
-                               dark:text-white">
-                        {"Auction Not Yet Started"}
-                    </h3>
-                    <p class="text-neutral-600 dark:text-neutral-400">
-                        {"The auction will begin in:"}
-                    </p>
-                    <div class="text-3xl font-semibold text-neutral-900 \
-                                dark:text-white">
-                        <CountdownTimer
-                            target_time={props.auction.auction_details.start_at}
-                            on_complete={Option::<Callback<()>>::None}
-                        />
-                    </div>
+                    {match props.auction.auction_details.start_at {
+                        Some(start_at) => html! {
+                            <>
+                                <h3 class="text-lg font-medium \
+                                           text-neutral-900 dark:text-white">
+                                    {"Auction Not Yet Started"}
+                                </h3>
+                                <p class="text-neutral-600 \
+                                          dark:text-neutral-400">
+                                    {"The auction will begin in:"}
+                                </p>
+                                <div class="text-3xl font-semibold \
+                                            text-neutral-900 dark:text-white">
+                                    <CountdownTimer
+                                        target_time={start_at}
+                                        on_complete={
+                                            Option::<Callback<()>>::None
+                                        }
+                                    />
+                                </div>
+                            </>
+                        },
+                        None => html! {
+                            <>
+                                <h3 class="text-lg font-medium \
+                                           text-neutral-900 dark:text-white">
+                                    {"Auction Not Yet Scheduled"}
+                                </h3>
+                                <p class="text-neutral-600 \
+                                          dark:text-neutral-400">
+                                    {"A community leader will schedule or \
+                                      start this auction."}
+                                </p>
+                            </>
+                        },
+                    }}
                     <p class="text-sm text-neutral-600 dark:text-neutral-400">
                         {"You can set your space values and enable proxy \
                           bidding now to prepare for the auction."}
@@ -264,6 +300,11 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                     <ConnectionStatusIndicator status={props.connection_status} />
                 </div>
             </div>
+
+            <AuctionAdminControls
+                auction={props.auction.clone()}
+                user_role={props.user_role}
+            />
 
             <ProxyBiddingControls settings={props.proxy_bidding.clone()} />
 
@@ -313,6 +354,7 @@ struct AuctionRoundContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
     currency: CurrencySettings,
+    user_role: payloads::Role,
     last_round: payloads::responses::AuctionRound,
     /// Round id of the round before `last_round`, used to fetch prices.
     /// `None` when `last_round` is round 0 (no previous round exists).
@@ -423,6 +465,34 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 auction={props.auction.clone()}
                 site_timezone={props.site_timezone.clone()}
                 currency={props.currency.clone()}
+            />
+
+            // Mid-auction cancellation notice
+            {if props.auction.was_canceled {
+                html! {
+                    <div class="border border-neutral-200 \
+                                dark:border-neutral-700 rounded-lg p-6 \
+                                bg-white dark:bg-neutral-800">
+                        <h3 class="text-lg font-medium text-neutral-900 \
+                                   dark:text-white mb-2">
+                            {"Auction Canceled"}
+                        </h3>
+                        <p class="text-sm text-neutral-600 \
+                                  dark:text-neutral-400">
+                            {"This auction was canceled before completion. \
+                              Bids from the final round were discarded, no \
+                              spaces were allocated, and no settlement \
+                              occurred."}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
+
+            <AuctionAdminControls
+                auction={props.auction.clone()}
+                user_role={props.user_role}
             />
 
             // Current round indicator

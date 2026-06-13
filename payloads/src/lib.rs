@@ -295,8 +295,29 @@ pub struct Auction {
     /// They know when the auction will start, even if the site they're bidding
     /// for is located in a different timezone, with a possession period in the
     /// future.
-    pub start_at: Timestamp,
+    ///
+    /// None means no start time is scheduled yet: members can prepare (set
+    /// space values, enable proxy bidding) until a coleader+ starts the
+    /// auction manually or schedules a start time.
+    pub start_at: Option<Timestamp>,
     pub auction_params: AuctionParams,
+}
+
+/// The lifecycle state of an auction, derived from its timestamps and
+/// cancellation flag. See `responses::Auction::status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuctionStatus {
+    /// No start time scheduled; waiting for a coleader+ to start or schedule
+    /// the auction.
+    NotScheduled,
+    /// Scheduled to start in the future.
+    Upcoming,
+    /// Started and not yet ended.
+    Ongoing,
+    /// Ended normally with settlement.
+    Concluded,
+    /// Canceled before completion; no settlement occurred.
+    Canceled,
 }
 
 #[derive(
@@ -750,6 +771,11 @@ pub enum AuctionEvent {
         round_id: AuctionRoundId,
     },
     AuctionEnded {
+        auction_id: AuctionId,
+    },
+    /// The auction's start time was set, changed, or cleared (including
+    /// being started immediately by a coleader+).
+    AuctionScheduleChanged {
         auction_id: AuctionId,
     },
     BidsChanged {

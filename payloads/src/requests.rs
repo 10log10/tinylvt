@@ -246,6 +246,16 @@ pub struct UpdateSpaces {
     pub spaces: Vec<UpdateSpace>,
 }
 
+/// Set or clear an auction's scheduled start time. Only valid before the
+/// auction has started.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScheduleAuction {
+    pub auction_id: crate::AuctionId,
+    /// Some = set/replace the start time (must be in the future);
+    /// None = clear it, so the auction must be started manually.
+    pub start_at: Option<jiff::Timestamp>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserValue {
     pub space_id: crate::SpaceId,

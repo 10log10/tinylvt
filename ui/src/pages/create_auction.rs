@@ -8,6 +8,7 @@ use crate::{
     Route,
     components::{AuctionParamsEditor, SitePageWrapper, SiteWithRole},
     hooks::{use_auctions, use_push_route, use_title},
+    utils::time::parse_datetime_local,
 };
 
 #[derive(Properties, PartialEq)]
@@ -57,6 +58,19 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     let use_site_timezone_for_auction =
         use_state(|| site_details.timezone.is_some());
 
+    // When set, the auction is created without a start time and must be
+    // started manually (or scheduled) later.
+    let start_manually = use_state(|| true);
+
+    let on_start_manually_toggle = {
+        let start_manually = start_manually.clone();
+        Callback::from(move |e: Event| {
+            let target = e.target().unwrap();
+            let input = target.dyn_into::<web_sys::HtmlInputElement>().unwrap();
+            start_manually.set(input.checked());
+        })
+    };
+
     // Default to site's default auction params
     let auction_params = use_state(|| {
         props
@@ -95,13 +109,10 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
         let push_route = push_route.clone();
         let refetch_auctions = auctions_hook.refetch.clone();
         let site_timezone = site_details.timezone.clone();
+        let start_manually = start_manually.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
-
-            let auction_start_input =
-                auction_start_ref.cast::<HtmlInputElement>().unwrap();
-            let auction_start_str = auction_start_input.value();
 
             let possession_start_input =
                 possession_start_ref.cast::<HtmlInputElement>().unwrap();
@@ -125,18 +136,25 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
             // Possession times always use site timezone if available
             let possession_timezone = site_timezone.as_deref();
 
-            // Parse datetime-local strings to Timestamps
-            let auction_start = match parse_datetime_local(
-                &auction_start_str,
-                auction_timezone,
-            ) {
-                Ok(ts) => ts,
-                Err(e) => {
-                    error_message.set(Some(format!(
-                        "Invalid auction start time: {}",
-                        e
-                    )));
-                    return;
+            // Parse datetime-local strings to Timestamps. The auction start
+            // is skipped entirely when starting manually later.
+            let auction_start = if *start_manually {
+                None
+            } else {
+                let auction_start_input =
+                    auction_start_ref.cast::<HtmlInputElement>().unwrap();
+                match parse_datetime_local(
+                    &auction_start_input.value(),
+                    auction_timezone,
+                ) {
+                    Ok(ts) => Some(ts),
+                    Err(e) => {
+                        error_message.set(Some(format!(
+                            "Invalid auction start time: {}",
+                            e
+                        )));
+                        return;
+                    }
                 }
             };
 
@@ -171,13 +189,6 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
             // Validate times
             let now = Timestamp::now();
 
-            if auction_start <= now {
-                error_message.set(Some(
-                    "Auction start time must be in the future".to_string(),
-                ));
-                return;
-            }
-
             if possession_start >= possession_end {
                 error_message.set(Some(
                     "Possession start must be before possession end"
@@ -186,10 +197,11 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                 return;
             }
 
-            if auction_start > possession_start {
+            if let Some(auction_start) = auction_start
+                && auction_start <= now
+            {
                 error_message.set(Some(
-                    "Auction start must be at or before possession start"
-                        .to_string(),
+                    "Auction start time must be in the future".to_string(),
                 ));
                 return;
             }
@@ -331,7 +343,37 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                             {"Auction Start"}
                         </h3>
 
-                        <div>
+                        <div class="flex items-center">
+                            <input
+                                type="checkbox"
+                                id="start-manually"
+                                name="start_manually"
+                                checked={*start_manually}
+                                onchange={on_start_manually_toggle}
+                                class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded"
+                            />
+                            <label for="start-manually" class="ml-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                                {"Start manually later"}
+                            </label>
+                        </div>
+                        {if *start_manually {
+                            html! {
+                                <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900 p-3 rounded border border-neutral-200 dark:border-neutral-700">
+                                    {"The auction is created without a start \
+                                      time. Members can set their space \
+                                      values and enable proxy bidding right \
+                                      away; you start the auction (or \
+                                      schedule a start time) from the \
+                                      auction page when everyone is ready."}
+                                </p>
+                            }
+                        } else {
+                            html! {}
+                        }}
+
+                        // Keep the input rendered (hidden) when starting
+                        // manually so the NodeRef stays valid.
+                        <div class={if *start_manually { "hidden" } else { "" }}>
                             <label for="auction-start" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
                                 {"Start Time *"}
                             </label>
@@ -340,7 +382,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                                 type="datetime-local"
                                 id="auction-start"
                                 name="auction_start"
-                                required={true}
+                                required={!*start_manually}
                                 class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
                                        rounded-md shadow-sm bg-white dark:bg-neutral-700
                                        text-neutral-900 dark:text-neutral-100
@@ -352,7 +394,7 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                             </p>
                         </div>
 
-                        {if show_timezone_toggle {
+                        {if show_timezone_toggle && !*start_manually {
                             let site_tz = site_details.timezone.as_ref().unwrap();
                             html! {
                                 <div class="space-y-3 pt-2">
@@ -395,13 +437,19 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                                         checked={*use_site_timezone_for_auction}
                                         class="hidden"
                                     />
-                                    <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900 p-3 rounded border border-neutral-200 dark:border-neutral-700">
-                                        {if site_details.timezone.is_some() {
-                                            format!("Your timezone matches the site timezone ({})", user_tz_name)
-                                        } else {
-                                            format!("Time will be interpreted in your local timezone ({})", user_tz_name)
-                                        }}
-                                    </p>
+                                    {if *start_manually {
+                                        html! {}
+                                    } else {
+                                        html! {
+                                            <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900 p-3 rounded border border-neutral-200 dark:border-neutral-700">
+                                                {if site_details.timezone.is_some() {
+                                                    format!("Your timezone matches the site timezone ({})", user_tz_name)
+                                                } else {
+                                                    format!("Time will be interpreted in your local timezone ({})", user_tz_name)
+                                                }}
+                                            </p>
+                                        }
+                                    }}
                                 </>
                             }
                         }}
@@ -458,29 +506,4 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
             </div>
         </div>
     }
-}
-
-/// Parse datetime-local input string (YYYY-MM-DDTHH:MM) to Timestamp
-/// If timezone is provided, use it; otherwise use system timezone
-fn parse_datetime_local(
-    s: &str,
-    timezone: Option<&str>,
-) -> Result<Timestamp, String> {
-    // datetime-local format: "2024-01-15T14:30"
-    // Parse using jiff's civil datetime
-    let civil_dt = jiff::civil::DateTime::strptime("%Y-%m-%dT%H:%M", s)
-        .map_err(|e| format!("Failed to parse datetime: {}", e))?;
-
-    // Convert to timestamp in specified or system timezone
-    let tz = if let Some(tz_name) = timezone {
-        jiff::tz::TimeZone::get(tz_name)
-            .map_err(|e| format!("Invalid timezone '{}': {}", tz_name, e))?
-    } else {
-        jiff::tz::TimeZone::system()
-    };
-
-    civil_dt
-        .to_zoned(tz)
-        .map_err(|e| format!("Failed to convert to zoned datetime: {}", e))
-        .map(|zdt| zdt.timestamp())
 }

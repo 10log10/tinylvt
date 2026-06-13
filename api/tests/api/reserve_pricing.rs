@@ -24,7 +24,7 @@ async fn round_zero_positive_reserve_sets_value() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -65,7 +65,7 @@ async fn round_zero_negative_reserve_settles_to_winner() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -147,7 +147,7 @@ async fn negative_reserve_no_bidders_creates_no_result() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Run rounds with no bids until the auction concludes.
@@ -219,7 +219,7 @@ async fn reserve_price_update_triggers_copy_on_write() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let _ = app.client.create_auction(&auction_details).await?;
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
 
@@ -282,7 +282,7 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -396,7 +396,7 @@ async fn chore_settlement_deferred_payment() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -462,7 +462,7 @@ async fn chore_settlement_prepaid_credits() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;

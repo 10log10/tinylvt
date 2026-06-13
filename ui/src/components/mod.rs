@@ -1,5 +1,6 @@
 pub mod active_status_toggle;
 pub mod annotated_screenshot;
+pub mod auction_admin_controls;
 pub mod auction_chart;
 pub mod auction_chart_demo;
 pub mod auction_chart_player;
@@ -64,6 +65,7 @@ pub use active_status_toggle::ActiveStatusToggle;
 pub use annotated_screenshot::{
     AnnotatedScreenshot, Annotation, AnnotationLayout,
 };
+pub use auction_admin_controls::AuctionAdminControls;
 pub use auction_chart::AuctionChart;
 pub use auction_chart_demo::{AuctionChartDemo, AuctionScenarioPlayer};
 pub use auction_chart_player::AuctionChartPlayer;

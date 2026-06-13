@@ -1,5 +1,5 @@
 use jiff::Timestamp;
-use payloads::{Role, SiteId, responses};
+use payloads::{AuctionStatus, Role, SiteId, responses};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -7,6 +7,7 @@ use crate::{
     Route,
     components::{
         SitePageWrapper, SiteTabHeader, SiteWithRole, TimestampDisplay,
+        auction_topline_info::{status_badge_classes, status_label},
         site_tab_header::ActiveTab,
     },
     hooks::{render_section, use_auctions},
@@ -17,46 +18,20 @@ pub struct Props {
     pub site_id: SiteId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum AuctionStatus {
-    Upcoming,
-    Ongoing,
-    Finished,
-}
-
-impl AuctionStatus {
-    fn from_auction(auction: &responses::Auction) -> Self {
-        let now = Timestamp::now();
-
-        if auction.end_at.is_some() {
-            Self::Finished
-        } else if now >= auction.auction_details.start_at {
-            Self::Ongoing
-        } else {
-            Self::Upcoming
-        }
-    }
-
-    fn label(&self) -> &'static str {
-        match self {
-            Self::Upcoming => "Upcoming",
-            Self::Ongoing => "Ongoing",
-            Self::Finished => "Finished",
-        }
-    }
-
-    fn badge_classes(&self) -> &'static str {
-        match self {
-            Self::Upcoming => {
-                "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200"
-            }
-            Self::Ongoing => {
-                "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
-            }
-            Self::Finished => {
-                "bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-400"
-            }
-        }
+/// Compare optional timestamps treating None as the greatest value, unlike
+/// the std `Ord` for `Option` which puts None first. A missing time means
+/// "not yet": an unscheduled start sorts as newest and a missing end means
+/// the auction hasn't ended, so both belong first in the default descending
+/// (newest-first) order.
+fn cmp_none_last(
+    a: Option<Timestamp>,
+    b: Option<Timestamp>,
+) -> std::cmp::Ordering {
+    match (a, b) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(a), Some(b)) => a.cmp(&b),
     }
 }
 
@@ -173,15 +148,18 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                 };
             }
             {
-                // Filter auctions by status
+                // Filter auctions by status. Unscheduled auctions count as
+                // upcoming and canceled ones as finished for filtering;
+                // their badges stay distinct.
+                let now = Timestamp::now();
                 let mut filtered_auctions: Vec<_> = auctions
                     .iter()
-                    .filter(|auction| {
-                        let status = AuctionStatus::from_auction(auction);
-                        match status {
-                            AuctionStatus::Upcoming => *filter_upcoming,
-                            AuctionStatus::Ongoing => *filter_ongoing,
-                            AuctionStatus::Finished => *filter_finished,
+                    .filter(|auction| match auction.status(now) {
+                        AuctionStatus::NotScheduled
+                        | AuctionStatus::Upcoming => *filter_upcoming,
+                        AuctionStatus::Ongoing => *filter_ongoing,
+                        AuctionStatus::Concluded | AuctionStatus::Canceled => {
+                            *filter_finished
                         }
                     })
                     .collect();
@@ -189,19 +167,18 @@ fn AuctionsTab(props: &AuctionsTabProps) -> Html {
                 // Sort auctions
                 filtered_auctions.sort_by(|a, b| {
                     let comparison = match *sort_field {
-                        SortField::AuctionStart => a
-                            .auction_details
-                            .start_at
-                            .cmp(&b.auction_details.start_at),
-                        SortField::AuctionEnd => match (a.end_at, b.end_at) {
-                            (Some(a_end), Some(b_end)) => a_end.cmp(&b_end),
-                            (Some(_), None) => std::cmp::Ordering::Less,
-                            (None, Some(_)) => std::cmp::Ordering::Greater,
-                            (None, None) => a
-                                .auction_details
-                                .start_at
-                                .cmp(&b.auction_details.start_at),
-                        },
+                        SortField::AuctionStart => cmp_none_last(
+                            a.auction_details.start_at,
+                            b.auction_details.start_at,
+                        ),
+                        SortField::AuctionEnd => {
+                            cmp_none_last(a.end_at, b.end_at).then_with(|| {
+                                cmp_none_last(
+                                    a.auction_details.start_at,
+                                    b.auction_details.start_at,
+                                )
+                            })
+                        }
                         SortField::PossessionStart => a
                             .auction_details
                             .possession_start_at
@@ -391,7 +368,7 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
     let auction_details = &props.auction.auction_details;
     let site_details = &props.site.site_details;
     let site_timezone = site_details.timezone.clone();
-    let status = AuctionStatus::from_auction(&props.auction);
+    let status = props.auction.status(Timestamp::now());
 
     html! {
         <Link<Route>
@@ -410,9 +387,9 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                 </div>
                 <span class={format!(
                     "px-3 py-1 rounded-full text-xs font-medium {}",
-                    status.badge_classes()
+                    status_badge_classes(status)
                 )}>
-                    {status.label()}
+                    {status_label(status)}
                 </span>
             </div>
 
@@ -454,9 +431,14 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                                 dark:text-neutral-400">
                         <p>
                             {"Start: "}
-                            <TimestampDisplay
-                                timestamp={auction_details.start_at}
-                            />
+                            {match auction_details.start_at {
+                                Some(start_at) => html! {
+                                    <TimestampDisplay
+                                        timestamp={start_at}
+                                    />
+                                },
+                                None => html! { {"Not scheduled"} },
+                            }}
                         </p>
                         {if let Some(end_at) = props.auction.end_at {
                             html! {

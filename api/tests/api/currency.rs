@@ -21,7 +21,7 @@ async fn run_simple_auction(
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
@@ -1300,7 +1300,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round (round 0)

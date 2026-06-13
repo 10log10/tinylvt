@@ -128,8 +128,28 @@ pub struct Auction {
     pub auction_id: crate::AuctionId,
     pub auction_details: crate::Auction,
     pub end_at: Option<Timestamp>,
+    pub was_canceled: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+}
+
+impl Auction {
+    /// Derive the auction's lifecycle status at the given time. This is the
+    /// single source of truth for status display across the UI.
+    pub fn status(&self, now: Timestamp) -> crate::AuctionStatus {
+        use crate::AuctionStatus;
+        if self.was_canceled {
+            AuctionStatus::Canceled
+        } else if self.end_at.is_some() {
+            AuctionStatus::Concluded
+        } else {
+            match self.auction_details.start_at {
+                None => AuctionStatus::NotScheduled,
+                Some(start_at) if start_at <= now => AuctionStatus::Ongoing,
+                Some(_) => AuctionStatus::Upcoming,
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

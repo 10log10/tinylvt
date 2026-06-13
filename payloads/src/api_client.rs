@@ -469,6 +469,22 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn schedule_auction(
+        &self,
+        details: &requests::ScheduleAuction,
+    ) -> Result<(), ClientError> {
+        let response = self.post("schedule_auction", &details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn cancel_auction(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("cancel_auction", &auction_id).await?;
+        ok_empty(response).await
+    }
+
     pub async fn list_auctions(
         &self,
         site_id: &SiteId,

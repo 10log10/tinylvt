@@ -282,10 +282,11 @@ pub struct Auction {
     pub possession_start_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
     pub possession_end_at: Timestamp,
-    #[sqlx(try_from = "SqlxTs")]
-    pub start_at: Timestamp,
+    #[sqlx(try_from = "OptionalTimestamp")]
+    pub start_at: Option<Timestamp>,
     #[sqlx(try_from = "OptionalTimestamp")]
     pub end_at: Option<Timestamp>,
+    pub was_canceled: bool,
     pub auction_params_id: AuctionParamsId,
     pub scheduler_failure_count: i32,
     #[sqlx(try_from = "OptionalTimestamp")]
@@ -314,6 +315,7 @@ impl Auction {
             created_at: self.created_at,
             updated_at: self.updated_at,
             end_at: self.end_at,
+            was_canceled: self.was_canceled,
         }
     }
 }
@@ -548,6 +550,18 @@ pub enum StoreError {
     InsufficientPermissions { required: PermissionLevel },
     #[error("Auction not found")]
     AuctionNotFound,
+    #[error("Auction has already started")]
+    AuctionAlreadyStarted,
+    #[error("Auction has already ended")]
+    AuctionAlreadyEnded,
+    #[error("Only canceled auctions can be permanently deleted")]
+    AuctionNotCanceled,
+    #[error("Auction start time must be in the future")]
+    AuctionStartNotInFuture,
+    #[error("Auction start time cannot be in the past")]
+    AuctionStartInPast,
+    #[error("Possession start must be before possession end")]
+    InvalidPossessionPeriod,
     #[error("Round space result not found")]
     RoundSpaceResultNotFound,
     #[error("Bid not found")]

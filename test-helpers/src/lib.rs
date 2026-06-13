@@ -1045,7 +1045,7 @@ pub fn auction_details_a(
         site_id,
         possession_start_at: time_source.now() + Span::new().hours(1),
         possession_end_at: time_source.now() + Span::new().hours(2),
-        start_at: time_source.now(),
+        start_at: Some(time_source.now()),
         auction_params: auction_params_a(),
     }
 }

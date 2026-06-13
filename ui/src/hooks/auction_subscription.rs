@@ -43,10 +43,11 @@ pub(crate) struct AuctionSubscriptionRefetches {
     pub on_round_created: Callback<()>,
     pub on_round_ended: Callback<()>,
     pub on_auction_ended: Callback<()>,
+    pub on_auction_schedule_changed: Callback<()>,
     pub on_bids_changed: Callback<()>,
 }
 
-/// The four routing-only auction event kinds that the SSE stream delivers.
+/// The routing-only auction event kinds that the SSE stream delivers.
 /// Callers pass a slice of these into `use_subscribed_fetch` to declare which
 /// events should trigger a refetch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +55,7 @@ pub enum SubscribedEvent {
     RoundCreated,
     RoundEnded,
     AuctionEnded,
+    AuctionScheduleChanged,
     BidsChanged,
 }
 
@@ -75,6 +77,9 @@ impl SubscribedEvent {
             on_round_created: cb(SubscribedEvent::RoundCreated),
             on_round_ended: cb(SubscribedEvent::RoundEnded),
             on_auction_ended: cb(SubscribedEvent::AuctionEnded),
+            on_auction_schedule_changed: cb(
+                SubscribedEvent::AuctionScheduleChanged,
+            ),
             on_bids_changed: cb(SubscribedEvent::BidsChanged),
         }
     }
@@ -272,6 +277,9 @@ pub(crate) mod registry {
                 }
                 AuctionEvent::AuctionEnded { .. } => {
                     h.on_auction_ended.emit(());
+                }
+                AuctionEvent::AuctionScheduleChanged { .. } => {
+                    h.on_auction_schedule_changed.emit(());
                 }
                 AuctionEvent::BidsChanged { .. } => {
                     h.on_bids_changed.emit(());

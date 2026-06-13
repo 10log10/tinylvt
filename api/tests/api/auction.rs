@@ -37,6 +37,17 @@ async fn test_auction_crud() -> anyhow::Result<()> {
     assert_eq!(auctions.len(), 1);
     assert_eq!(auctions[0].auction_id, auction.auction_id);
 
+    // Hard deletion is only allowed after cancellation
+    assert_status_code(
+        app.client.delete_auction(&auction.auction_id).await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    app.client.cancel_auction(&auction.auction_id).await?;
+    let retrieved = app.client.get_auction(&auction.auction_id).await?;
+    assert!(retrieved.was_canceled);
+    assert_eq!(retrieved.end_at, Some(app.time_source.now()));
+
     app.client.delete_auction(&auction.auction_id).await?;
     let auctions = app.client.list_auctions(&site.site_id).await?;
     assert!(auctions.is_empty());
@@ -73,6 +84,19 @@ async fn test_auction_unauthorized() -> anyhow::Result<()> {
     );
     assert_status_code(
         app.client.delete_auction(&auction.auction_id).await,
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_status_code(
+        app.client
+            .schedule_auction(&requests::ScheduleAuction {
+                auction_id: auction.auction_id,
+                start_at: None,
+            })
+            .await,
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_status_code(
+        app.client.cancel_auction(&auction.auction_id).await,
         StatusCode::UNAUTHORIZED,
     );
 
@@ -129,7 +153,7 @@ async fn test_immediate_auction_round_creation() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Round 0 should be created immediately
@@ -145,6 +169,262 @@ async fn test_immediate_auction_round_creation() -> anyhow::Result<()> {
         start_time + Span::new().minutes(1)
     );
     assert_eq!(round.round_details.eligibility_threshold, 0.5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_auction_time_validation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // A start time in the past is rejected
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at =
+        Some(app.time_source.now() - Span::new().minutes(1));
+    assert_status_code(
+        app.client.create_auction(&auction_details).await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    // Starting exactly at now is allowed (immediate start)
+    auction_details.start_at = Some(app.time_source.now());
+    app.client.create_auction(&auction_details).await?;
+
+    // Possession start must be before possession end
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.possession_end_at = auction_details.possession_start_at;
+    assert_status_code(
+        app.client.create_auction(&auction_details).await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unscheduled_auction_ignored_by_scheduler() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = None;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(retrieved.auction_details.start_at, None);
+
+    // The scheduler should never pick up an unscheduled auction, no matter
+    // how much time passes.
+    app.time_source.advance(Span::new().hours(24));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert!(rounds.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_schedule_auction() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = None;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // bob is a plain member, not coleader+
+    app.login_bob().await?;
+    assert_status_code(
+        app.client
+            .schedule_auction(&requests::ScheduleAuction {
+                auction_id,
+                start_at: Some(app.time_source.now() + Span::new().hours(1)),
+            })
+            .await,
+        StatusCode::BAD_REQUEST,
+    );
+    app.login_alice().await?;
+
+    // Schedule a future start time
+    let scheduled = app.time_source.now() + Span::new().hours(1);
+    app.client
+        .schedule_auction(&requests::ScheduleAuction {
+            auction_id,
+            start_at: Some(scheduled),
+        })
+        .await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(retrieved.auction_details.start_at, Some(scheduled));
+
+    // Reschedule
+    let rescheduled = app.time_source.now() + Span::new().hours(2);
+    app.client
+        .schedule_auction(&requests::ScheduleAuction {
+            auction_id,
+            start_at: Some(rescheduled),
+        })
+        .await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(retrieved.auction_details.start_at, Some(rescheduled));
+
+    // Clear the schedule
+    app.client
+        .schedule_auction(&requests::ScheduleAuction {
+            auction_id,
+            start_at: None,
+        })
+        .await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(retrieved.auction_details.start_at, None);
+
+    // A start time in the past is rejected
+    assert_status_code(
+        app.client
+            .schedule_auction(&requests::ScheduleAuction {
+                auction_id,
+                start_at: Some(app.time_source.now() - Span::new().minutes(1)),
+            })
+            .await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    // Once the scheduled start passes, the auction has started and can no
+    // longer be rescheduled. This is also the "start now" UI flow, which
+    // schedules a start a few seconds in the future.
+    let soon = app.time_source.now() + Span::new().seconds(15);
+    app.client
+        .schedule_auction(&requests::ScheduleAuction {
+            auction_id,
+            start_at: Some(soon),
+        })
+        .await?;
+    app.time_source.set(soon);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(rounds[0].round_details.round_num, 0);
+    assert_eq!(rounds[0].round_details.start_at, soon);
+
+    assert_status_code(
+        app.client
+            .schedule_auction(&requests::ScheduleAuction {
+                auction_id,
+                start_at: Some(app.time_source.now() + Span::new().hours(1)),
+            })
+            .await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cancel_before_start() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let start_time = app.time_source.now() + Span::new().hours(1);
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // bob is a plain member, not coleader+
+    app.login_bob().await?;
+    assert_status_code(
+        app.client.cancel_auction(&auction_id).await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    app.login_alice().await?;
+    let cancel_time = app.time_source.now();
+    app.client.cancel_auction(&auction_id).await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert!(retrieved.was_canceled);
+    assert_eq!(retrieved.end_at, Some(cancel_time));
+
+    // The scheduler never starts a canceled auction, even past its
+    // scheduled start time: jump the clock to one minute after the
+    // scheduled start and tick.
+    app.time_source.set(start_time + Span::new().minutes(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert!(rounds.is_empty());
+
+    // Canceling again fails
+    assert_status_code(
+        app.client.cancel_auction(&auction_id).await,
+        StatusCode::BAD_REQUEST,
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cancel_mid_auction_blocks_settlement() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Round 0 with a bid, then round 1 created from the standing bid
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    app.client
+        .create_bid(&space.space_id, &rounds[0].round_id)
+        .await?;
+    app.time_source
+        .set(rounds[0].round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 2);
+
+    // Cancel mid-round
+    let cancel_time = app.time_source.now();
+    app.client.cancel_auction(&auction_id).await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert!(retrieved.was_canceled);
+    assert_eq!(retrieved.end_at, Some(cancel_time));
+
+    // Without cancellation, the bidless round 1 ending would conclude the
+    // auction and create a settlement entry. After cancellation the
+    // scheduler ignores the auction entirely: no new rounds, no settlement.
+    app.time_source
+        .set(rounds[1].round_details.end_at + Span::new().seconds(1));
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(rounds.len(), 2);
+
+    let settlement_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM journal_entries
+        WHERE entry_type = 'auction_settlement' AND auction_id = $1",
+    )
+    .bind(auction_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(settlement_count, 0);
+
+    // Despite round/bid history, the canceled auction can be hard-deleted
+    app.client.delete_auction(&auction_id).await?;
+    assert_status_code(
+        app.client.get_auction(&auction_id).await,
+        StatusCode::NOT_FOUND,
+    );
 
     Ok(())
 }
@@ -174,7 +454,7 @@ async fn test_auction_rounds_dst() -> anyhow::Result<()> {
         "2024-03-10T01:59:00-08:00[America/Los_Angeles]".parse()?;
     let start_time = start_time.timestamp();
     app.time_source.set(start_time);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
 
     // Set round duration to one day
     auction_details.auction_params.round_duration = jiff::Span::new().days(1);
@@ -217,7 +497,7 @@ async fn test_bid_crud() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
@@ -270,7 +550,7 @@ async fn test_bid_after_round_end() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
@@ -322,7 +602,7 @@ async fn test_continued_bidding() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
@@ -442,7 +722,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
@@ -533,7 +813,7 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
@@ -615,7 +895,7 @@ async fn test_bid_unavailable_space() -> anyhow::Result<()> {
     let start_time = app.time_source.now();
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
-    auction_details.start_at = start_time;
+    auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round

@@ -67,7 +67,9 @@ fn SiteOverviewContent(props: &SiteOverviewContentProps) -> Html {
                         .iter()
                         .filter(|a| {
                             a.end_at.is_none()
-                                && a.auction_details.start_at <= now
+                                && a.auction_details
+                                    .start_at
+                                    .is_some_and(|s| s <= now)
                         })
                         .cloned()
                         .collect();
@@ -80,14 +82,28 @@ fn SiteOverviewContent(props: &SiteOverviewContentProps) -> Html {
                         .cloned();
 
                     // Upcoming: end_at is None AND start_at > now, sort by
-                    // start_at asc, take first
+                    // start_at asc, take first. If nothing is scheduled, fall
+                    // back to the earliest-created unscheduled auction, which
+                    // is the most likely to be scheduled first (e.g. in a
+                    // rolling pipeline of auction creations and schedulings).
                     let upcoming_auction = auctions
                         .iter()
                         .filter(|a| {
                             a.end_at.is_none()
-                                && a.auction_details.start_at > now
+                                && a.auction_details
+                                    .start_at
+                                    .is_some_and(|s| s > now)
                         })
                         .min_by_key(|a| a.auction_details.start_at)
+                        .or_else(|| {
+                            auctions
+                                .iter()
+                                .filter(|a| {
+                                    a.end_at.is_none()
+                                        && a.auction_details.start_at.is_none()
+                                })
+                                .min_by_key(|a| a.created_at)
+                        })
                         .cloned();
 
                     html! {
@@ -209,17 +225,19 @@ fn AuctionHighlightCard(props: &AuctionHighlightCardProps) -> Html {
                                                     />
                                                 </>
                                             }
-                                        } else {
+                                        } else if let Some(start_at) =
+                                            auction_details.start_at
+                                        {
                                             html! {
                                                 <>
                                                     {"Starts "}
                                                     <TimestampDisplay
-                                                        timestamp={
-                                                            auction_details.start_at
-                                                        }
+                                                        timestamp={start_at}
                                                     />
                                                 </>
                                             }
+                                        } else {
+                                            html! { {"Not yet scheduled"} }
                                         }}
                                     </span>
                                 </div>
@@ -330,17 +348,26 @@ fn OngoingAuctionCard(props: &OngoingAuctionCardProps) -> Html {
                         </span>
                     </div>
 
-                    <div class="text-sm">
-                        <span class="font-medium text-neutral-700
-                                     dark:text-neutral-300">
-                            {"Started: "}
-                        </span>
-                        <span class="text-neutral-600 dark:text-neutral-400">
-                            <TimestampDisplay
-                                timestamp={auction_details.start_at}
-                            />
-                        </span>
-                    </div>
+                    // Ongoing auctions always have a start time, but the
+                    // field is optional at the type level.
+                    {if let Some(start_at) = auction_details.start_at {
+                        html! {
+                            <div class="text-sm">
+                                <span class="font-medium text-neutral-700
+                                             dark:text-neutral-300">
+                                    {"Started: "}
+                                </span>
+                                <span class="text-neutral-600
+                                             dark:text-neutral-400">
+                                    <TimestampDisplay
+                                        timestamp={start_at}
+                                    />
+                                </span>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
                 <div class="flex items-center text-sm text-neutral-500

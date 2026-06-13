@@ -192,10 +192,11 @@ async fn lock_next_auction_needing_update(
 ) -> anyhow::Result<Option<store::Auction>> {
     // Exponential backoff: 5 minutes * 2^failure_count, capped at 5 failures
     // (which gives max backoff of ~2.5 hours)
-    sqlx::query_as::<_, store::Auction>(
+    sqlx::query_as::<_, store::Auction>(&format!(
         "SELECT auctions.* FROM auctions
         JOIN sites ON auctions.site_id = sites.id
         WHERE sites.deleted_at IS NULL
+            AND start_at IS NOT NULL
             AND $1 >= start_at
             AND end_at IS NULL
             AND NOT EXISTS (
@@ -210,12 +211,11 @@ async fn lock_next_auction_needing_update(
                     INTERVAL '5 minutes' * POW(2, LEAST(scheduler_failure_count, 5))
             )
             -- Try to take a transaction-scoped advisory lock for this auction
-            AND pg_try_advisory_xact_lock(
-                hashtextextended('auction_processing:' || auctions.id::text, 0)
-            )
+            AND pg_try_advisory_xact_lock({})
         ORDER BY random()
         LIMIT 1",
-    )
+        store::auction::auction_processing_lock_key("auctions.id")
+    ))
     .bind(time_source.now().to_sqlx())
     .fetch_optional(&mut **tx)
     .await
@@ -547,10 +547,16 @@ pub async fn add_subsequent_rounds_for_auction(
             .context("getting site; skipping")?
             .timezone;
 
+    // Only started auctions are processed by the scheduler, so a missing
+    // start time here is a bug, not an expected state.
+    let auction_start = auction
+        .start_at
+        .context("auction has no start time; cannot create rounds")?;
+
     let start_time_ts = previous_round
         .as_ref()
         .map(|r| r.end_at)
-        .unwrap_or(auction.start_at);
+        .unwrap_or(auction_start);
 
     // use DST-aware datetime math in case the round duration is days or
     // larger
@@ -561,7 +567,7 @@ pub async fn add_subsequent_rounds_for_auction(
         Ok(t) => t,
         Err(e) => {
             tracing::warn!("{e:#}");
-            auction.start_at.to_zoned(TimeZone::UTC)
+            auction_start.to_zoned(TimeZone::UTC)
         }
     };
 

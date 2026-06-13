@@ -103,7 +103,8 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
     let has_in_progress_auction = {
         let now = jiff::Timestamp::now();
         props.auctions.iter().any(|auction| {
-            auction.auction_details.start_at <= now && auction.end_at.is_none()
+            auction.auction_details.start_at.is_some_and(|s| s <= now)
+                && auction.end_at.is_none()
         })
     };
 

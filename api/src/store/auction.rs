@@ -163,6 +163,18 @@ pub async fn create_auction(
         return Err(StoreError::SiteDeleted);
     }
 
+    if details.possession_start_at >= details.possession_end_at {
+        return Err(StoreError::InvalidPossessionPeriod);
+    }
+
+    // A start time more than one round in the past would create round 0 already
+    // ended, so nobody (human or proxy) could ever bid and the auction would
+    // immediately self-conclude with no allocations. Starting exactly at now is
+    // allowed: that's the immediate-start pattern used in tests.
+    if details.start_at.is_some_and(|s| s < time_source.now()) {
+        return Err(StoreError::AuctionStartInPast);
+    }
+
     // Check storage limit before creating auction
     super::billing::check_storage_limit(
         pool,
@@ -193,7 +205,7 @@ pub async fn create_auction(
     .bind(details.site_id)
     .bind(details.possession_start_at.to_sqlx())
     .bind(details.possession_end_at.to_sqlx())
-    .bind(details.start_at.to_sqlx())
+    .bind(details.start_at.map(|t| t.to_sqlx()))
     .bind(auction_params_id)
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
@@ -233,6 +245,137 @@ pub async fn delete_auction(
     user_id: &UserId,
     pool: &PgPool,
 ) -> Result<(), StoreError> {
+    let (auction, _) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Coleader,
+        pool,
+    )
+    .await?;
+
+    // Hard deletion is only allowed after cancellation, so auctions stay
+    // visible to bidders by default and settled auctions (whose journal
+    // entries reference them with ON DELETE RESTRICT) are never deletable.
+    if !auction.was_canceled {
+        return Err(StoreError::AuctionNotCanceled);
+    }
+
+    sqlx::query("DELETE FROM auctions WHERE id = $1")
+        .bind(auction_id)
+        .execute(pool)
+        .await?;
+
+    tracing::info!(%auction_id, "permanently deleted canceled auction");
+
+    Ok(())
+}
+
+/// SQL expression computing the advisory lock key that coordinates auction
+/// processing between the scheduler and lifecycle mutations. `id_expr` is a
+/// SQL expression yielding the auction id.
+pub(crate) fn auction_processing_lock_key(id_expr: &str) -> String {
+    format!("hashtextextended('auction_processing:' || {id_expr}::text, 0)")
+}
+
+/// Take the same transaction-scoped advisory lock the scheduler holds while
+/// processing an auction (see `scheduler::lock_next_auction_needing_update`),
+/// blocking until it's available, then re-read the auction so state checks
+/// can't race round creation or settlement.
+async fn lock_auction_for_update(
+    auction_id: &AuctionId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Auction, StoreError> {
+    sqlx::query(&format!(
+        "SELECT pg_advisory_xact_lock({})",
+        auction_processing_lock_key("$1")
+    ))
+    .bind(auction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+        .bind(auction_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => StoreError::AuctionNotFound,
+            e => e.into(),
+        })
+}
+
+/// Set, change, or clear the auction's scheduled start time. Only valid
+/// before the auction has started.
+pub async fn schedule_auction(
+    details: &payloads::requests::ScheduleAuction,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let (_, _) = get_validated_auction(
+        &details.auction_id,
+        user_id,
+        PermissionLevel::Coleader,
+        pool,
+    )
+    .await?;
+
+    let now = time_source.now();
+    if details.start_at.is_some_and(|s| s <= now) {
+        return Err(StoreError::AuctionStartNotInFuture);
+    }
+
+    let mut tx = pool.begin().await?;
+    let auction = lock_auction_for_update(&details.auction_id, &mut tx).await?;
+
+    if auction.end_at.is_some() {
+        return Err(StoreError::AuctionAlreadyEnded);
+    }
+    // Once the start time has passed the auction is started (round 0 is
+    // created within a scheduler tick), so rescheduling is refused even if
+    // the round doesn't exist quite yet.
+    if auction.start_at.is_some_and(|s| s <= now) {
+        return Err(StoreError::AuctionAlreadyStarted);
+    }
+
+    sqlx::query(
+        "UPDATE auctions SET start_at = $1, updated_at = $2 WHERE id = $3",
+    )
+    .bind(details.start_at.map(|t| t.to_sqlx()))
+    .bind(now.to_sqlx())
+    .bind(details.auction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    crate::pubsub::emit(
+        &mut tx,
+        &payloads::AuctionEvent::AuctionScheduleChanged {
+            auction_id: details.auction_id,
+        },
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(
+        auction_id = %details.auction_id,
+        start_at = ?details.start_at,
+        "auction start time rescheduled",
+    );
+
+    Ok(())
+}
+
+/// Cancel an auction that hasn't ended yet. Sets end_at so the scheduler
+/// stops processing it (no further rounds, and no settlement journal entry
+/// is ever created) and was_canceled so the cancellation is visible to
+/// bidders. The auction row is kept for transparency; a canceled auction
+/// can be hard-deleted afterwards via `delete_auction`.
+pub async fn cancel_auction(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
     let (_, _) = get_validated_auction(
         auction_id,
         user_id,
@@ -241,10 +384,39 @@ pub async fn delete_auction(
     )
     .await?;
 
-    sqlx::query("DELETE FROM auctions WHERE id = $1")
-        .bind(auction_id)
-        .execute(pool)
-        .await?;
+    let now = time_source.now();
+    let mut tx = pool.begin().await?;
+    // Holding the scheduler's advisory lock means we can't race a
+    // concluding round's settlement: either we commit first and the
+    // scheduler's `end_at IS NULL` predicate excludes the auction forever,
+    // or the scheduler settles first and the re-read sees end_at set.
+    let auction = lock_auction_for_update(auction_id, &mut tx).await?;
+
+    if auction.end_at.is_some() {
+        return Err(StoreError::AuctionAlreadyEnded);
+    }
+
+    sqlx::query(
+        "UPDATE auctions
+        SET end_at = $1, was_canceled = TRUE, updated_at = $1
+        WHERE id = $2",
+    )
+    .bind(now.to_sqlx())
+    .bind(auction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    crate::pubsub::emit(
+        &mut tx,
+        &payloads::AuctionEvent::AuctionEnded {
+            auction_id: *auction_id,
+        },
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(%auction_id, "auction canceled");
 
     Ok(())
 }

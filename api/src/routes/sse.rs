@@ -126,7 +126,10 @@ fn event_matches(
     match event {
         AuctionEvent::RoundCreated { auction_id: a, .. }
         | AuctionEvent::RoundEnded { auction_id: a, .. }
-        | AuctionEvent::AuctionEnded { auction_id: a } => *a == auction_id,
+        | AuctionEvent::AuctionEnded { auction_id: a }
+        | AuctionEvent::AuctionScheduleChanged { auction_id: a } => {
+            *a == auction_id
+        }
         AuctionEvent::BidsChanged {
             auction_id: a,
             user_id: u,

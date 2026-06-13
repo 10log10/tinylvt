@@ -41,6 +41,30 @@ pub async fn delete_auction(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[post("/schedule_auction")]
+pub async fn schedule_auction(
+    user: Identity,
+    details: web::Json<payloads::requests::ScheduleAuction>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::schedule_auction(&details, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[post("/cancel_auction")]
+pub async fn cancel_auction(
+    user: Identity,
+    auction_id: web::Json<payloads::AuctionId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    store::cancel_auction(&auction_id, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[post("/auctions")]
 pub async fn list_auctions(
     user: Identity,

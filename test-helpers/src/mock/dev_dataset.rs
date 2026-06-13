@@ -48,7 +48,6 @@ impl DevDataset {
             app,
             &coworking_site.site_id,
             2, // Day after tomorrow
-            "upcoming",
         )
         .await?;
 
@@ -280,7 +279,7 @@ async fn create_ongoing_auction_with_rounds(
         site_id: *site_id,
         possession_start_at,
         possession_end_at,
-        start_at: auction_start,
+        start_at: Some(auction_start),
         auction_params: AuctionParams {
             round_duration,
             bid_increment: BidIncrement(Decimal::new(100, 2)), // $1.00
@@ -443,12 +442,12 @@ async fn create_ongoing_auction_with_rounds(
     Ok((auction_response, space_a, space_b, space_c))
 }
 
-/// Creates an auction for a work day (9am-9pm) with realistic scheduling
+/// Creates an upcoming auction for a work day (9am-9pm) with realistic
+/// scheduling: the auction starts in 23 hours.
 async fn create_work_day_auction(
     app: &TestApp,
     site_id: &SiteId,
     days_from_now: i64, // Days from current time for possession
-    auction_type: &str, // "upcoming" or "ongoing"
 ) -> Result<responses::Auction> {
     use payloads::{ActivityRuleParams, Auction, AuctionParams};
 
@@ -467,24 +466,13 @@ async fn create_work_day_auction(
         .in_tz(TZ)?
         .timestamp();
 
-    // Set auction start time based on type
-    let auction_start_at = match auction_type {
-        "upcoming" => {
-            // Upcoming auction hasn't started yet - starts in 23 hours
-            now + Span::new().hours(23)
-        }
-        "ongoing" => {
-            // Ongoing auction started 1 hour ago
-            now - Span::new().hours(1)
-        }
-        _ => now, // Default to now
-    };
+    let auction_start_at = now + Span::new().hours(23);
 
     let auction_details = Auction {
         site_id: *site_id,
         possession_start_at,
         possession_end_at,
-        start_at: auction_start_at,
+        start_at: Some(auction_start_at),
         auction_params: AuctionParams {
             round_duration: Span::new().minutes(5),
             bid_increment: BidIncrement(Decimal::new(250, 2)), // $2.50

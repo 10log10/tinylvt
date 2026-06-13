@@ -268,7 +268,7 @@ async fn run_chore_auction(
         site_id: site.site_id,
         possession_start_at,
         possession_end_at,
-        start_at: auction_start,
+        start_at: Some(auction_start),
         auction_params,
     };
 
