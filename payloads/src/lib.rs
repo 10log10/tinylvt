@@ -175,6 +175,87 @@ impl PartialEq for AuctionParams {
     }
 }
 
+/// The scheduler ticks once per second, so a round only transitions on the
+/// first tick that observes its end time has passed. Round durations near or
+/// below that granularity would transition late relative to their nominal
+/// length and leave no usable bidding window. Five seconds keeps several tick
+/// cycles of margin; it can be this short because proxy bidding drives fast
+/// rounds without a human needing to be in the loop each round.
+pub const MIN_ROUND_DURATION_SECS: i64 = 5;
+
+/// Hard ceiling on the number of rounds a single auction may run. The auction
+/// normally concludes on its own once each space's price rises past every
+/// bidder's value, but a tiny bid increment relative to bidders' values (or a
+/// bug) could in principle keep producing bids for an enormous number of
+/// rounds. Reaching this ceiling means the auction can't terminate in a
+/// reasonable time, so the scheduler cancels it rather than settling: see
+/// `process_locked_auction`. Users should retry with a larger increment.
+pub const MAX_AUCTION_ROUNDS: i32 = 10_000;
+
+/// Why an [`AuctionParams`] is invalid.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuctionParamsError {
+    /// The round duration is below [`MIN_ROUND_DURATION_SECS`].
+    RoundDurationTooShort,
+    /// The bid increment is zero or negative. A simultaneous ascending auction
+    /// terminates when each space's price rises past every bidder's value, so a
+    /// non-positive increment never raises the price and the auction would
+    /// never conclude (see the round cap in the scheduler for the backstop).
+    BidIncrementNotPositive,
+    /// The eligibility progression is invalid.
+    EligibilityProgression(EligibilityProgressionError),
+}
+
+impl AuctionParamsError {
+    pub fn error_message(&self) -> String {
+        match self {
+            Self::RoundDurationTooShort => format!(
+                "Round duration must be at least {MIN_ROUND_DURATION_SECS} \
+                 seconds"
+            ),
+            Self::BidIncrementNotPositive => {
+                "Bid increment must be greater than zero".to_string()
+            }
+            Self::EligibilityProgression(e) => e.error_message(),
+        }
+    }
+}
+
+impl AuctionParams {
+    /// Validate all auction parameters. Auction creation, site creation, and
+    /// site updates all route through this single validator, so every
+    /// constraint the scheduler relies on belongs here.
+    pub fn validate(&self) -> Result<(), AuctionParamsError> {
+        // A negative span is shorter than any minimum regardless of its units,
+        // and `total` below can't resolve a negative calendar-unit span to
+        // check it, so reject the negative case up front.
+        if self.round_duration.is_negative() {
+            return Err(AuctionParamsError::RoundDurationTooShort);
+        }
+
+        // `total` resolves a span to seconds only when its largest unit is
+        // hours or smaller; days and up need a calendar reference. A
+        // non-negative span with calendar units is necessarily far longer than
+        // the minimum, so treat the resolvable case as the only remaining one
+        // that can be too short.
+        if let Ok(secs) = self.round_duration.total(jiff::Unit::Second)
+            && secs < MIN_ROUND_DURATION_SECS as f64
+        {
+            return Err(AuctionParamsError::RoundDurationTooShort);
+        }
+
+        if self.bid_increment.0 <= Decimal::ZERO {
+            return Err(AuctionParamsError::BidIncrementNotPositive);
+        }
+
+        self.activity_rule_params
+            .validate()
+            .map_err(AuctionParamsError::EligibilityProgression)?;
+
+        Ok(())
+    }
+}
+
 /// Contents of the `activity_rule_params` JSONB column of `auction_params`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivityRuleParams {
@@ -1080,6 +1161,114 @@ mod tests {
                 index: 0,
                 round: -1,
             })
+        );
+    }
+
+    fn auction_params(round_duration: Span) -> AuctionParams {
+        auction_params_with_increment(round_duration, Decimal::ONE)
+    }
+
+    fn auction_params_with_increment(
+        round_duration: Span,
+        increment: Decimal,
+    ) -> AuctionParams {
+        AuctionParams {
+            round_duration,
+            bid_increment: BidIncrement(increment),
+            activity_rule_params: params(vec![]),
+        }
+    }
+
+    #[test]
+    fn round_duration_at_minimum_is_valid() {
+        let p = auction_params(Span::new().seconds(MIN_ROUND_DURATION_SECS));
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn round_duration_below_minimum_is_rejected() {
+        let p =
+            auction_params(Span::new().seconds(MIN_ROUND_DURATION_SECS - 1));
+        assert_eq!(
+            p.validate(),
+            Err(AuctionParamsError::RoundDurationTooShort)
+        );
+    }
+
+    #[test]
+    fn zero_round_duration_is_rejected() {
+        assert_eq!(
+            auction_params(Span::new()).validate(),
+            Err(AuctionParamsError::RoundDurationTooShort)
+        );
+    }
+
+    #[test]
+    fn calendar_unit_round_duration_is_valid() {
+        // A span measured in days can't resolve to seconds without a calendar
+        // reference, but it is necessarily longer than the minimum, so it must
+        // pass rather than be treated as zero.
+        assert!(auction_params(Span::new().days(1)).validate().is_ok());
+    }
+
+    #[test]
+    fn negative_calendar_unit_round_duration_is_rejected() {
+        // A negative calendar-unit span can't resolve to seconds, so the sign
+        // check rather than `total` must catch it.
+        assert_eq!(
+            auction_params(Span::new().days(-1)).validate(),
+            Err(AuctionParamsError::RoundDurationTooShort)
+        );
+    }
+
+    #[test]
+    fn positive_bid_increment_is_valid() {
+        let p = auction_params_with_increment(
+            Span::new().minutes(5),
+            Decimal::new(1, 2), // 0.01
+        );
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn zero_bid_increment_is_rejected() {
+        let p = auction_params_with_increment(
+            Span::new().minutes(5),
+            Decimal::ZERO,
+        );
+        assert_eq!(
+            p.validate(),
+            Err(AuctionParamsError::BidIncrementNotPositive)
+        );
+    }
+
+    #[test]
+    fn negative_bid_increment_is_rejected() {
+        let p = auction_params_with_increment(
+            Span::new().minutes(5),
+            Decimal::new(-1, 0),
+        );
+        assert_eq!(
+            p.validate(),
+            Err(AuctionParamsError::BidIncrementNotPositive)
+        );
+    }
+
+    #[test]
+    fn auction_params_validate_surfaces_progression_errors() {
+        let p = AuctionParams {
+            round_duration: Span::new().minutes(5),
+            bid_increment: BidIncrement(Decimal::ONE),
+            activity_rule_params: params(vec![(-1, 0.5)]),
+        };
+        assert_eq!(
+            p.validate(),
+            Err(AuctionParamsError::EligibilityProgression(
+                EligibilityProgressionError::NegativeRound {
+                    index: 0,
+                    round: -1,
+                }
+            ))
         );
     }
 }

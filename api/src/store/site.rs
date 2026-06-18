@@ -147,13 +147,14 @@ pub(super) async fn create_auction_params(
     tx: &mut Transaction<'_, Postgres>,
     time_source: &TimeSource,
 ) -> Result<AuctionParamsId, StoreError> {
-    // The scheduler binary-searches the eligibility progression by round
-    // number, so an out-of-order list would silently resolve wrong thresholds.
-    // Validate here, the single funnel for auction creation, site creation,
-    // and site updates.
-    params.activity_rule_params.validate().map_err(|e| {
-        StoreError::InvalidEligibilityProgression(e.error_message())
-    })?;
+    // Auction creation, site creation, and site updates all route through here.
+    // This covers both the eligibility progression (the scheduler
+    // binary-searches it by round number, so an out-of-order list would
+    // silently resolve wrong thresholds) and the round duration lower bound
+    // relative to the scheduler tick.
+    params
+        .validate()
+        .map_err(|e| StoreError::InvalidAuctionParams(e.error_message()))?;
 
     Ok(sqlx::query_as::<_, AuctionParamsId>(
         "INSERT INTO auction_params (

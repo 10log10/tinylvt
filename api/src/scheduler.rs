@@ -282,6 +282,17 @@ async fn process_locked_auction(
             tx.commit().await?;
             return Ok(());
         }
+
+        // The next round would be `round_num + 1`. If creating it would reach
+        // the hard ceiling, the auction can't terminate in a reasonable time
+        // (e.g. a bid increment too small relative to bidders' values). Cancel
+        // rather than settle: the allocation isn't valid since bidding never
+        // naturally ended, and users should retry with a larger increment.
+        if previous_round.round_num + 1 >= payloads::MAX_AUCTION_ROUNDS {
+            cancel_runaway_auction(auction, &mut tx, time_source).await?;
+            tx.commit().await?;
+            return Ok(());
+        }
     }
 
     // Create next round
@@ -305,6 +316,46 @@ async fn process_locked_auction(
     }
 
     tx.commit().await?;
+    Ok(())
+}
+
+/// Cancel an auction that has hit [`payloads::MAX_AUCTION_ROUNDS`]. Mirrors
+/// `store::auction::cancel_auction`'s terminal state (`end_at` set,
+/// `was_canceled = TRUE`, `AuctionEnded` emitted) but runs inside the
+/// scheduler's existing transaction and creates no settlement entry, since a
+/// canceled auction has no valid allocation.
+async fn cancel_runaway_auction(
+    auction: &store::Auction,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    let now = time_source.now();
+    sqlx::query(
+        "UPDATE auctions
+        SET end_at = $1, was_canceled = TRUE, updated_at = $1
+        WHERE id = $2",
+    )
+    .bind(now.to_sqlx())
+    .bind(auction.id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to cancel runaway auction")?;
+
+    pubsub::emit(
+        tx,
+        &payloads::AuctionEvent::AuctionEnded {
+            auction_id: auction.id,
+        },
+    )
+    .await?;
+
+    tracing::warn!(
+        auction_id = ?auction.id,
+        max_rounds = payloads::MAX_AUCTION_ROUNDS,
+        "auction reached the round cap and was canceled; bid increment is \
+         likely too small relative to bidders' values",
+    );
+
     Ok(())
 }
 

@@ -562,8 +562,8 @@ pub enum StoreError {
     AuctionStartInPast,
     #[error("Possession start must be before possession end")]
     InvalidPossessionPeriod,
-    #[error("Invalid eligibility progression: {0}")]
-    InvalidEligibilityProgression(String),
+    #[error("Invalid auction parameters: {0}")]
+    InvalidAuctionParams(String),
     #[error("Round space result not found")]
     RoundSpaceResultNotFound,
     #[error("Bid not found")]

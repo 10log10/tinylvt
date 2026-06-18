@@ -42,12 +42,31 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
     // editor is fully controlled and only commits on change events (not on
     // input), so reading `props.auction_params` reflects the latest committed
     // edit without per-keystroke noise.
-    let progression_error = props
-        .auction_params
-        .activity_rule_params
-        .validate()
-        .err()
-        .map(|e| e.error_message());
+    // Validate the whole params object once, then route each error variant to
+    // the field it concerns so the message renders next to the input the user
+    // would fix. AuctionParams::validate is the single source of truth (the
+    // store calls the same validator); the editor only decides where to show
+    // what it returns.
+    use payloads::AuctionParamsError as ApError;
+    let params_error = props.auction_params.validate().err();
+    let error_message = |matches: bool| {
+        params_error
+            .as_ref()
+            .filter(|_| matches)
+            .map(|e| e.error_message())
+    };
+    let round_duration_error = error_message(matches!(
+        params_error,
+        Some(ApError::RoundDurationTooShort)
+    ));
+    let bid_increment_error = error_message(matches!(
+        params_error,
+        Some(ApError::BidIncrementNotPositive)
+    ));
+    let progression_error = error_message(matches!(
+        params_error,
+        Some(ApError::EligibilityProgression(_))
+    ));
 
     let on_round_duration_minutes_change = {
         let on_change = props.on_change.clone();
@@ -162,6 +181,16 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
                     <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                         {"Duration of each bidding round (e.g., 5 minutes 0 seconds, 0 minutes 30 seconds)"}
                     </p>
+                    {if let Some(message) = round_duration_error {
+                        html! {
+                            <p class="text-xs text-red-600 dark:text-red-400 \
+                                      mt-1">
+                                {message}
+                            </p>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
                 <div>
@@ -186,6 +215,16 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
                     <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                         {"Minimum bid increment (e.g., 1.00, 0.25, 5.50)"}
                     </p>
+                    {if let Some(message) = bid_increment_error {
+                        html! {
+                            <p class="text-xs text-red-600 dark:text-red-400 \
+                                      mt-1">
+                                {message}
+                            </p>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
                 <div>
