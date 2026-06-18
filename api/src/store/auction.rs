@@ -22,12 +22,44 @@ async fn calculate_total_eligibility_points(
     Ok(spaces.iter().map(|space| space.eligibility_points).sum())
 }
 
+/// Resolve a user's eligibility for a round into an `Eligibility`, given the
+/// *prior* round's threshold (which governs this round's bids).
+///
+/// - Prior threshold 0.0 (or no prior round, i.e. round 0) → `Unlimited`,
+///   short-circuited without querying the eligibility row.
+/// - Otherwise → `Finite` of the user's eligibility row, treating a missing row
+///   as 0.0 (no eligibility; can only bid zero-point spaces).
+async fn user_eligibility<'e, E>(
+    executor: E,
+    round_id: &AuctionRoundId,
+    user_id: &UserId,
+    prior_threshold: Option<f64>,
+) -> Result<payloads::Eligibility, StoreError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    match prior_threshold {
+        None | Some(0.0) => Ok(payloads::Eligibility::Unlimited),
+        Some(_) => {
+            let row = sqlx::query_scalar::<_, f64>(
+                "SELECT eligibility FROM user_eligibilities
+                WHERE round_id = $1 AND user_id = $2",
+            )
+            .bind(round_id)
+            .bind(user_id)
+            .fetch_optional(executor)
+            .await?;
+            Ok(payloads::Eligibility::Finite(row.unwrap_or(0.0)))
+        }
+    }
+}
+
 /// Get a user's eligibility for a specific auction round
 pub async fn get_eligibility(
     round_id: &AuctionRoundId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Option<f64>, StoreError> {
+) -> Result<payloads::Eligibility, StoreError> {
     // Verify the round exists and get auction info
     let round = sqlx::query_as::<_, AuctionRound>(
         "SELECT * FROM auction_rounds WHERE id = $1",
@@ -50,25 +82,27 @@ pub async fn get_eligibility(
     let community_id = get_site_community_id(&auction.site_id, pool).await?;
     let _ = get_validated_member(user_id, &community_id, pool).await?;
 
-    // Get user's eligibility for this round
-    let eligibility = sqlx::query_scalar::<_, f64>(
-        "SELECT eligibility FROM user_eligibilities 
-        WHERE round_id = $1 AND user_id = $2",
+    // The prior round's threshold governs this round's bids. Round 0 has no
+    // prior round, so its eligibility is unconstrained.
+    let prior_threshold = sqlx::query_scalar::<_, f64>(
+        "SELECT eligibility_threshold FROM auction_rounds
+        WHERE auction_id = $1 AND round_num = $2",
     )
-    .bind(round_id)
-    .bind(user_id)
+    .bind(round.auction_id)
+    .bind(round.round_num - 1)
     .fetch_optional(pool)
     .await?;
 
-    Ok(eligibility)
+    user_eligibility(pool, round_id, user_id, prior_threshold).await
 }
 
-/// List a user's eligibility for all rounds after round 0 in an auction.
+/// List a user's eligibility for every round in an auction, in round order.
+/// The returned vec aligns 1:1 with the rounds: index 0 is round 0.
 pub async fn list_eligibility(
     auction_id: &AuctionId,
     user_id: &UserId,
     pool: &PgPool,
-) -> Result<Vec<Option<f64>>, StoreError> {
+) -> Result<Vec<payloads::Eligibility>, StoreError> {
     // Validate user has access to this auction's community
     let auction =
         sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
@@ -81,27 +115,31 @@ pub async fn list_eligibility(
 
     // Get all rounds for this auction in order
     let rounds = sqlx::query_as::<_, AuctionRound>(
-        "SELECT * FROM auction_rounds 
-        WHERE auction_id = $1 
+        "SELECT * FROM auction_rounds
+        WHERE auction_id = $1
         ORDER BY round_num",
     )
     .bind(auction_id)
     .fetch_all(pool)
     .await?;
 
-    // Get eligibility for each round
     let mut eligibilities = Vec::with_capacity(rounds.len());
-    for round in &rounds[1..] {
-        let eligibility = sqlx::query_scalar::<_, f64>(
-            "SELECT eligibility FROM user_eligibilities 
-            WHERE round_id = $1 AND user_id = $2",
-        )
-        .bind(round.id)
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
 
-        eligibilities.push(eligibility);
+    // Round 0 has no prior round, so it is always unconstrained.
+    if !rounds.is_empty() {
+        eligibilities.push(payloads::Eligibility::Unlimited);
+    }
+
+    // Each subsequent round is interpreted against its predecessor's
+    // threshold. The window iterates in pairs so `pair[0]` is the prior
+    // round and `pair[1]` is the round being interpreted.
+    for pair in rounds.windows(2) {
+        let prior_threshold = pair[0].eligibility_threshold;
+        let round = &pair[1];
+        eligibilities.push(
+            user_eligibility(pool, &round.id, user_id, Some(prior_threshold))
+                .await?,
+        );
     }
 
     Ok(eligibilities)
@@ -680,7 +718,6 @@ pub async fn create_bid_tx(
         return Err(StoreError::RoundEnded);
     }
 
-    // Check if user is already the standing high bidder from the previous round
     if round.round_num > 0 {
         let previous_round = sqlx::query_as::<_, AuctionRound>(
             "SELECT * FROM auction_rounds
@@ -691,6 +728,8 @@ pub async fn create_bid_tx(
         .fetch_one(&mut **tx)
         .await?;
 
+        // Check if user is already the standing high bidder from the previous
+        // round
         let is_winning = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (
                 SELECT 1 FROM round_space_results
@@ -708,53 +747,55 @@ pub async fn create_bid_tx(
         if is_winning {
             return Err(StoreError::AlreadyWinningSpace);
         }
-    }
 
-    // If not first round, check eligibility
-    if round.round_num > 0 {
-        // Get user's eligibility for this round
-        let eligibility = sqlx::query_scalar::<_, f64>(
-            "SELECT eligibility FROM user_eligibilities
-            WHERE round_id = $1 AND user_id = $2",
+        // Resolve the user's eligibility for this round the same way the read
+        // path does (the prior round's threshold governs this round's bids).
+        // Unlimited eligibility (prior threshold 0.0) needs no check, and the
+        // helper skips the row query in that case.
+        let eligibility = user_eligibility(
+            &mut **tx,
+            round_id,
+            user_id,
+            Some(previous_round.eligibility_threshold),
         )
-        .bind(round_id)
-        .bind(user_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or(StoreError::NoEligibility)?;
-
-        // Get all spaces this user is currently bidding on or winning in this
-        // round
-        let active_spaces = sqlx::query_scalar::<_, SpaceId>(
-            "SELECT space_id FROM (
-                SELECT space_id FROM bids
-                WHERE round_id = $1 AND user_id = $2
-                UNION
-                SELECT space_id FROM round_space_results rsr
-                JOIN auction_rounds ar ON rsr.round_id = ar.id
-                WHERE ar.auction_id = $3
-                AND ar.round_num = $4
-                AND winning_user_id = $2
-            ) spaces",
-        )
-        .bind(round_id)
-        .bind(user_id)
-        .bind(round.auction_id)
-        .bind(round.round_num - 1)
-        .fetch_all(&mut **tx)
         .await?;
 
-        // Calculate total eligibility points including the new space
-        let mut total_points = space.eligibility_points;
-        total_points +=
-            calculate_total_eligibility_points(&active_spaces, pool).await?;
+        if let payloads::Eligibility::Finite(budget) = eligibility {
+            // Get all spaces this user is currently bidding on or winning in
+            // this round
+            let active_spaces = sqlx::query_scalar::<_, SpaceId>(
+                "SELECT space_id FROM (
+                    SELECT space_id FROM bids
+                    WHERE round_id = $1 AND user_id = $2
+                    UNION
+                    SELECT space_id FROM round_space_results rsr
+                    JOIN auction_rounds ar ON rsr.round_id = ar.id
+                    WHERE ar.auction_id = $3
+                    AND ar.round_num = $4
+                    AND winning_user_id = $2
+                ) spaces",
+            )
+            .bind(round_id)
+            .bind(user_id)
+            .bind(round.auction_id)
+            .bind(round.round_num - 1)
+            .fetch_all(&mut **tx)
+            .await?;
 
-        // Check if total would exceed eligibility
-        if total_points > eligibility {
-            return Err(StoreError::ExceedsEligibility {
-                available: eligibility,
-                required: total_points,
-            });
+            // The new bid's total activity is this space plus everything the
+            // user is already bidding on or winning. A zero-point space keeps
+            // the total within a zero budget; positive points do not.
+            let mut total_points = space.eligibility_points;
+            total_points +=
+                calculate_total_eligibility_points(&active_spaces, pool)
+                    .await?;
+
+            if total_points > budget {
+                return Err(StoreError::ExceedsEligibility {
+                    available: budget,
+                    required: total_points,
+                });
+            }
         }
     }
 

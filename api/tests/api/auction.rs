@@ -6,7 +6,7 @@ use payloads::requests;
 use reqwest::StatusCode;
 use test_helpers::{self, spawn_app};
 
-use test_helpers::assert_status_code;
+use test_helpers::{assert_bad_request_contains, assert_status_code};
 
 #[tokio::test]
 async fn test_mock_time() -> anyhow::Result<()> {
@@ -201,6 +201,50 @@ async fn test_create_auction_time_validation() -> anyhow::Result<()> {
         app.client.create_auction(&auction_details).await,
         StatusCode::BAD_REQUEST,
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_auction_eligibility_validation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // A threshold above 100% is rejected.
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(0, 1.5)];
+    assert_bad_request_contains(
+        app.client.create_auction(&auction_details).await,
+        "between 0% and 100%",
+    );
+
+    // Round numbers must be strictly ascending (duplicates included), since
+    // the scheduler binary-searches the progression.
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(5, 0.5), (3, 0.75)];
+    assert_bad_request_contains(
+        app.client.create_auction(&auction_details).await,
+        "ascending",
+    );
+
+    // A round 0 breakpoint is valid: it sets eligibility going into round 1
+    // without constraining round 0's own bids.
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(0, 0.5), (3, 0.75)];
+    app.client.create_auction(&auction_details).await?;
 
     Ok(())
 }
@@ -802,6 +846,305 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
     Ok(())
 }
 
+// A 0% eligibility progression from the outset should effectively turn off
+// the eligibility constraint: bids that would otherwise exceed a nonzero
+// threshold are all accepted, and no eligibility rows are produced (so no
+// non-finite values reach the database or the API).
+#[tokio::test]
+async fn test_eligibility_disabled_at_zero() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // space_a is 10 points, space_b is 15 points. Under the default 50%
+    // threshold, a 10-point bidder could not also take the 15-point space
+    // (10 + 15 = 25 > 10 / 0.5 = 20). With a 0% threshold this is allowed.
+    let space_a = app.create_test_space(&site.site_id).await?;
+    let space_b = app
+        .client
+        .create_space(&payloads::Space {
+            site_id: site.site_id,
+            name: "test space b".into(),
+            description: None,
+            eligibility_points: 15.0,
+            is_available: true,
+            site_image_id: None,
+            reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
+        })
+        .await?;
+    let space_b = app.client.get_space(&space_b).await?;
+
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    // 0% eligibility required from the outset.
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(0, 0.0)];
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_0 = &rounds[0];
+
+    // Alice bids only on the 10-point space in round 0.
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_0.round_id)
+        .await?;
+
+    app.time_source
+        .advance(auction_details.auction_params.round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_1 = &rounds[1];
+
+    // With eligibility disabled, Alice can take the 15-point space in round
+    // 1 even though her round-0 activity was only 10 points. This bid would
+    // be rejected under a nonzero threshold.
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_b.space_id, &round_1.round_id)
+        .await?;
+
+    // The prior round's threshold was 0%, so round 1 is unconstrained. The
+    // API reports this as Unlimited (no row was written, so no division
+    // produced a non-finite value to store).
+    let eligibility = app.client.get_eligibility(&round_1.round_id).await?;
+    assert_eq!(
+        eligibility,
+        payloads::Eligibility::Unlimited,
+        "expected Unlimited eligibility when prior threshold is 0%"
+    );
+
+    Ok(())
+}
+
+// When the prior round imposed a nonzero threshold, a user who sat out that
+// round has no eligibility row, so their eligibility is a finite 0 (a
+// Finite(0.0) budget): they cannot bid on a positive-point space, but they
+// can still bid on a zero-point space (bidding it adds nothing to their
+// activity).
+#[tokio::test]
+async fn test_eligibility_required_when_nonzero() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?; // 10 points
+    // A zero-point space that a zero-budget (Finite(0.0)) user is still
+    // allowed to bid.
+    let free_space = app
+        .client
+        .create_space(&payloads::Space {
+            site_id: site.site_id,
+            name: "free space".into(),
+            description: None,
+            eligibility_points: 0.0,
+            is_available: true,
+            site_image_id: None,
+            reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
+        })
+        .await?;
+    let free_space = app.client.get_space(&free_space).await?;
+
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    // Nonzero threshold from the outset (the default already is, but make it
+    // explicit for this test's intent).
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(0, 0.5)];
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_0 = &rounds[0];
+
+    // Alice bids in round 0 so the round concludes with activity; Bob sits
+    // out entirely.
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space.space_id, &round_0.round_id)
+        .await?;
+
+    app.time_source
+        .advance(auction_details.auction_params.round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_1 = &rounds[1];
+
+    // Bob never participated in round 0, so he has no eligibility row for
+    // round 1. Because the prior threshold was nonzero, his eligibility is a
+    // finite 0 (not Unlimited).
+    app.login_bob().await?;
+    assert_eq!(
+        app.client.get_eligibility(&round_1.round_id).await?,
+        payloads::Eligibility::Finite(0.0),
+        "a sit-out bidder should have a finite 0 eligibility, not Unlimited"
+    );
+
+    // He cannot bid on the 10-point space: with eligibility 0, the 10 points
+    // exceed it.
+    assert_bad_request_contains(
+        app.client
+            .create_bid(&space.space_id, &round_1.round_id)
+            .await,
+        "Exceeds eligibility",
+    );
+
+    // But he can bid on the zero-point space, since it adds nothing to his
+    // activity (0 > 0 is false).
+    app.client
+        .create_bid(&free_space.space_id, &round_1.round_id)
+        .await?;
+
+    Ok(())
+}
+
+// A progression that starts at 0% and switches to a nonzero threshold partway
+// through should leave early rounds unconstrained, then activate the
+// constraint once the prior round's threshold becomes nonzero.
+#[tokio::test]
+async fn test_eligibility_progression_activates_midway() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let space_a = app.create_test_space(&site.site_id).await?; // 10 points
+    let space_b = app
+        .client
+        .create_space(&payloads::Space {
+            site_id: site.site_id,
+            name: "test space b".into(),
+            description: None,
+            eligibility_points: 15.0,
+            is_available: true,
+            site_image_id: None,
+            reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
+        })
+        .await?;
+    let space_b = app.client.get_space(&space_b).await?;
+
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    // Rounds 0 and 1 are unconstrained (threshold 0.0); round 2 onward uses a
+    // 50% threshold. Since a round's threshold governs the *following*
+    // round's bids, the constraint first applies to round-3 bids.
+    auction_details
+        .auction_params
+        .activity_rule_params
+        .eligibility_progression = vec![(0, 0.0), (2, 0.5)];
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    let round_duration = auction_details.auction_params.round_duration;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // Alice and Bob alternate outbidding each other on the 10-point space_a so
+    // that every round has a new bid, keeping the auction from concluding for
+    // lack of demand. Whoever isn't the standing winner bids each round.
+
+    // Round 0: Alice bids and becomes the standing winner.
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &rounds[0].round_id)
+        .await?;
+
+    app.time_source.advance(round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // Round 1 (prior threshold 0.0 -> unconstrained): Unlimited eligibility,
+    // and Bob can outbid freely.
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(
+        app.client.get_eligibility(&rounds[1].round_id).await?,
+        payloads::Eligibility::Unlimited,
+        "round 1 should be Unlimited (prior threshold 0.0)"
+    );
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space_a.space_id, &rounds[1].round_id)
+        .await?;
+
+    app.time_source.advance(round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // Round 2 (prior threshold 0.0 -> still unconstrained): still Unlimited.
+    // Alice retakes the lead.
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    assert_eq!(
+        app.client.get_eligibility(&rounds[2].round_id).await?,
+        payloads::Eligibility::Unlimited,
+        "round 2 should still be Unlimited (prior threshold 0.0)"
+    );
+    app.login_alice().await?;
+    app.client
+        .create_bid(&space_a.space_id, &rounds[2].round_id)
+        .await?;
+
+    app.time_source.advance(round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // Round 3: round 2's threshold was 50%, so the constraint now applies.
+    // Both Alice and Bob have 10 points of activity going into round 2 (Alice
+    // bid space_a in round 2; Bob holds the standing win from round 1), so
+    // each gets an eligibility of 10 / 0.5 = 20 for round 3. This also
+    // confirms the value is finite (not the inf/NaN that x/0.0 would produce).
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_3 = &rounds[3];
+
+    app.login_alice().await?;
+    assert_eq!(
+        app.client.get_eligibility(&round_3.round_id).await?,
+        payloads::Eligibility::Finite(20.0),
+        "Alice's round-3 eligibility should be 10 / 0.5 = 20"
+    );
+    app.login_bob().await?;
+    assert_eq!(
+        app.client.get_eligibility(&round_3.round_id).await?,
+        payloads::Eligibility::Finite(20.0),
+        "Bob's round-3 eligibility should be 10 / 0.5 = 20"
+    );
+
+    // Alice is the standing high bidder of space_a from round 2, so that
+    // 10-point standing win already counts toward her activity. Adding the
+    // 15-point space_b would total 25 > 20, so she cannot bid on space_b.
+    app.login_alice().await?;
+    assert_bad_request_contains(
+        app.client
+            .create_bid(&space_b.space_id, &round_3.round_id)
+            .await,
+        "Exceeds eligibility",
+    );
+
+    // Bob holds no standing win in round 3, so only his round-3 bids count. He
+    // can take either space alone (10 <= 20, 15 <= 20), but not both: after
+    // bidding space_a, adding space_b totals 10 + 15 = 25 > 20.
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space_a.space_id, &round_3.round_id)
+        .await?;
+    assert_bad_request_contains(
+        app.client
+            .create_bid(&space_b.space_id, &round_3.round_id)
+            .await,
+        "Exceeds eligibility",
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_eligibility_routes() -> anyhow::Result<()> {
     let app = spawn_app().await;
@@ -837,22 +1180,34 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
     assert_eq!(rounds.len(), 2);
     let round1 = &rounds[1];
 
-    // Test get_eligibility for round 1
+    // Test get_eligibility for round 1. The default progression's round-0
+    // threshold is 50%, and the user bid a 10-point space, so their round-1
+    // eligibility is Finite(10 / 0.5 = 20).
     let eligibility = app.client.get_eligibility(&round1.round_id).await?;
     assert!(
-        eligibility.unwrap() > 0.0,
-        "Expected non-zero eligibility for round 1"
+        matches!(
+            eligibility,
+            payloads::Eligibility::Finite(e) if e > 0.0
+        ),
+        "expected a positive Finite eligibility for round 1, got \
+         {eligibility:?}"
     );
 
-    // Test list_eligibility for all rounds
+    // Test list_eligibility for all rounds. It aligns 1:1 with the rounds:
+    // index 0 is round 0 (always Unlimited), index 1 is round 1.
     let eligibilities = app.client.list_eligibility(&auction_id).await?;
     assert_eq!(
         eligibilities.len(),
-        1,
-        "Expected eligibility values for both rounds"
+        2,
+        "Expected an eligibility entry per round"
     );
     assert_eq!(
-        eligibilities[0], eligibility,
+        eligibilities[0],
+        payloads::Eligibility::Unlimited,
+        "Round 0 should be Unlimited"
+    );
+    assert_eq!(
+        eligibilities[1], eligibility,
         "Expected matching eligibility for round 1"
     );
 

@@ -183,6 +183,70 @@ pub struct ActivityRuleParams {
     pub eligibility_progression: Vec<(i32, f64)>,
 }
 
+/// Why an eligibility progression is invalid. Each variant names the offending
+/// breakpoint so the UI can point at the specific entry the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EligibilityProgressionError {
+    /// A threshold fell outside `[0.0, 1.0]`. `round` is the breakpoint's round
+    /// number; `index` is its position in the list.
+    ThresholdOutOfRange { index: usize, round: i32 },
+    /// Round numbers must be strictly ascending. `index` is the position of the
+    /// entry that is not greater than its predecessor (so the offending pair is
+    /// `index - 1` and `index`).
+    RoundsNotAscending { index: usize },
+    /// A round number was negative. Round 0 is allowed (it sets eligibility
+    /// going into round 1 without constraining round 0 bids), but negatives
+    /// have no meaning.
+    NegativeRound { index: usize, round: i32 },
+}
+
+impl EligibilityProgressionError {
+    pub fn error_message(&self) -> String {
+        match self {
+            Self::ThresholdOutOfRange { round, .. } => format!(
+                "Threshold for round {round} must be between 0% and 100%"
+            ),
+            Self::RoundsNotAscending { .. } => {
+                "Round numbers must be in strictly ascending order".to_string()
+            }
+            Self::NegativeRound { round, .. } => {
+                format!("Round number {round} cannot be negative")
+            }
+        }
+    }
+}
+
+impl ActivityRuleParams {
+    /// Validate the eligibility progression. The scheduler binary-searches this
+    /// list by round number (see `get_eligibility_for_round_num`), so the
+    /// ascending invariant is a correctness requirement, not just hygiene.
+    ///
+    /// Returns the first error encountered, scanning in list order.
+    pub fn validate(&self) -> Result<(), EligibilityProgressionError> {
+        let progression = &self.eligibility_progression;
+        for (index, &(round, threshold)) in progression.iter().enumerate() {
+            if round < 0 {
+                return Err(EligibilityProgressionError::NegativeRound {
+                    index,
+                    round,
+                });
+            }
+            if !(0.0..=1.0).contains(&threshold) {
+                return Err(EligibilityProgressionError::ThresholdOutOfRange {
+                    index,
+                    round,
+                });
+            }
+            if index > 0 && round <= progression[index - 1].0 {
+                return Err(EligibilityProgressionError::RoundsNotAscending {
+                    index,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenHours {
     pub days_of_week: Vec<OpenHoursWeekday>,
@@ -333,6 +397,38 @@ pub struct AuctionRound {
     pub start_at: Timestamp,
     pub end_at: Timestamp,
     pub eligibility_threshold: f64,
+}
+
+/// A user's interpreted eligibility for a round, ready for display and
+/// gating without the caller needing to know the prior round's threshold.
+///
+/// A round's `eligibility_threshold` governs the *following* round's bids, so
+/// a user's eligibility for round N is determined by round N-1's threshold
+/// together with whether an eligibility row exists for them. The API
+/// resolves that into one of these variants (see `store::get_eligibility`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Eligibility {
+    /// Unconstrained bidding: round 0, or the prior round's threshold was
+    /// 0%. The user can bid on any combination of spaces.
+    Unlimited,
+    /// A finite eligibility budget: the user's total activity (points for
+    /// spaces they bid on or are winning) may not exceed this value. A budget
+    /// of 0.0 means the user has no eligibility — either they didn't
+    /// participate in the prior (constrained) round, or their activity was
+    /// worth zero points — and can only bid on spaces worth zero points.
+    Finite(f64),
+}
+
+impl Eligibility {
+    /// Whether the user may hold `total_activity` points of activity (the
+    /// sum of eligibility points across the spaces they would be bidding on
+    /// or winning). Mirrors the backend bid check in `create_bid`.
+    pub fn permits(&self, total_activity: f64) -> bool {
+        match self {
+            Eligibility::Unlimited => true,
+            Eligibility::Finite(budget) => total_activity <= *budget,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -911,3 +1007,79 @@ pub struct SiteImageId(pub Uuid);
 pub mod api_client;
 
 pub use api_client::{APIClient, ClientError, ok_body, ok_empty};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(progression: Vec<(i32, f64)>) -> ActivityRuleParams {
+        ActivityRuleParams {
+            eligibility_progression: progression,
+        }
+    }
+
+    #[test]
+    fn empty_progression_is_valid() {
+        assert!(params(vec![]).validate().is_ok());
+    }
+
+    #[test]
+    fn round_zero_is_allowed() {
+        // Round 0 sets eligibility going into round 1
+        assert!(params(vec![(0, 0.5)]).validate().is_ok());
+    }
+
+    #[test]
+    fn boundary_thresholds_are_valid() {
+        assert!(params(vec![(1, 0.0), (2, 1.0)]).validate().is_ok());
+    }
+
+    #[test]
+    fn threshold_above_one_is_rejected() {
+        assert_eq!(
+            params(vec![(1, 0.5), (2, 1.5)]).validate(),
+            Err(EligibilityProgressionError::ThresholdOutOfRange {
+                index: 1,
+                round: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn negative_threshold_is_rejected() {
+        assert_eq!(
+            params(vec![(1, -0.1)]).validate(),
+            Err(EligibilityProgressionError::ThresholdOutOfRange {
+                index: 0,
+                round: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn non_ascending_rounds_are_rejected() {
+        assert_eq!(
+            params(vec![(5, 0.5), (3, 0.75)]).validate(),
+            Err(EligibilityProgressionError::RoundsNotAscending { index: 1 })
+        );
+    }
+
+    #[test]
+    fn duplicate_rounds_are_rejected() {
+        assert_eq!(
+            params(vec![(5, 0.5), (5, 0.75)]).validate(),
+            Err(EligibilityProgressionError::RoundsNotAscending { index: 1 })
+        );
+    }
+
+    #[test]
+    fn negative_round_is_rejected() {
+        assert_eq!(
+            params(vec![(-1, 0.5)]).validate(),
+            Err(EligibilityProgressionError::NegativeRound {
+                index: 0,
+                round: -1,
+            })
+        );
+    }
+}

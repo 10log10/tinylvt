@@ -44,6 +44,20 @@ pub(super) async fn get_validated_space(
     Ok((space, actor))
 }
 
+/// Validate a space's eligibility points. The DB has a `>= 0.0` CHECK, but
+/// Postgres treats `NaN` and `+Infinity` as `>= 0.0`, so a non-finite value
+/// would slip past it and then poison every eligibility sum it participates
+/// in. Reject non-finite and negative values here with a clean 400 instead.
+fn validate_eligibility_points(
+    details: &payloads::Space,
+) -> Result<(), StoreError> {
+    let points = details.eligibility_points;
+    if !points.is_finite() || points < 0.0 {
+        return Err(StoreError::InvalidEligibilityPoints);
+    }
+    Ok(())
+}
+
 /// Internal transaction-aware space creation function.
 /// Caller is responsible for managing the transaction and validating
 /// permissions.
@@ -69,6 +83,8 @@ async fn create_space_tx(
             max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
         });
     }
+
+    validate_eligibility_points(details)?;
 
     let space = sqlx::query_as::<_, Space>(
         "INSERT INTO spaces (
@@ -208,6 +224,10 @@ async fn update_space_tx(
             max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
         });
     }
+
+    // Validate up front so an invalid value is rejected before the
+    // copy-on-write path soft-deletes the old space.
+    validate_eligibility_points(details)?;
 
     let (old_space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)

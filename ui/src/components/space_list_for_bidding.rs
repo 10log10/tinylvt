@@ -60,12 +60,13 @@ pub struct Props {
     pub auction_ended: bool,
     #[prop_or_default]
     pub auction_started: bool,
-    /// User's eligibility for the current round. `None` if no prior
-    /// eligibility (round 0) or if the parent didn't pass it (e.g.,
-    /// auction not yet started). The parent gates the list on this fetch
-    /// resolving, so it's a plain Option here.
-    #[prop_or_default]
-    pub user_eligibility: Option<f64>,
+    /// User's eligibility for the current round, already interpreted by the
+    /// API against the prior round's threshold. The parent gates the list on
+    /// this fetch resolving, so it's a plain value here. Defaults to
+    /// `Unlimited` when no auction is running (the parent passes the real
+    /// value once it has one).
+    #[prop_or(payloads::Eligibility::Unlimited)]
+    pub user_eligibility: payloads::Eligibility,
     /// Current activity points. The parent gates on this resolving, so
     /// it's a plain f64. Defaults to 0 when no auction is running.
     #[prop_or_default]
@@ -289,21 +290,21 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                             .map(|w| w.user_id == props.current_user.user_id)
                             .unwrap_or(false);
 
-                        // Eligibility check. `user_eligibility` is None
-                        // for round 0 (no prior eligibility yet), in
-                        // which case we conservatively allow bidding —
-                        // the API enforces the actual limit.
-                        let would_exceed_eligibility = match props
-                            .user_eligibility
+                        // Eligibility check. Bidding a space the user
+                        // already bid on or is winning adds nothing to their
+                        // activity, so those never exceed. Otherwise, adding
+                        // this space's points must stay within their
+                        // eligibility (Unlimited always passes; a Finite(0.0)
+                        // budget only permits zero-point spaces). The API
+                        // enforces the real limit; this just gates the button.
+                        let would_exceed_eligibility = if user_has_bid
+                            || is_high_bidder
                         {
-                            Some(eligibility)
-                                if !user_has_bid && !is_high_bidder =>
-                            {
-                                let new_activity = props.current_activity
-                                    + space.space_details.eligibility_points;
-                                new_activity > eligibility
-                            }
-                            _ => false,
+                            false
+                        } else {
+                            let new_activity = props.current_activity
+                                + space.space_details.eligibility_points;
+                            !props.user_eligibility.permits(new_activity)
                         };
 
                         let on_value_enter = {

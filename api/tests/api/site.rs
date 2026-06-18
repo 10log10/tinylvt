@@ -291,6 +291,56 @@ async fn space_name_must_be_unique() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn space_eligibility_points_must_be_finite_non_negative()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let space_with_points = |points: f64| payloads::Space {
+        site_id: site.site_id,
+        name: "test space".to_string(),
+        description: None,
+        eligibility_points: points,
+        is_available: true,
+        site_image_id: None,
+        reserve_price: ReservePrice(Decimal::ZERO),
+    };
+
+    // A negative value reaches the store and is rejected by our validation
+    // (matched on the eligibility message, so the assertion can't pass for an
+    // unrelated reason like a name collision). The DB CHECK would also reject
+    // it, but as an opaque 500; our guard turns it into a clean 400.
+    let result = app.client.create_space(&space_with_points(-1.0)).await;
+    test_helpers::assert_bad_request_contains(result, "Eligibility points");
+
+    // NaN and +inf can't reach the store at all: JSON has no representation
+    // for them, so serde serializes them as `null` and the server rejects the
+    // request at the f64 deserialize boundary. This is why the store's
+    // is_finite guard is defense-in-depth rather than the primary gate. Assert
+    // only the status here, since the message is a serde error, not ours.
+    for points in [f64::NAN, f64::INFINITY] {
+        let result = app.client.create_space(&space_with_points(points)).await;
+        test_helpers::assert_status_code(
+            result,
+            reqwest::StatusCode::BAD_REQUEST,
+        );
+    }
+
+    // A valid space can be created, then a negative update is rejected too.
+    let space_id = app.client.create_space(&space_with_points(5.0)).await?;
+    let update = payloads::requests::UpdateSpace {
+        space_id,
+        space_details: space_with_points(-1.0),
+    };
+    let result = app.client.update_space(&update).await;
+    test_helpers::assert_bad_request_contains(result, "Eligibility points");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn space_restore_detects_name_conflict() -> anyhow::Result<()> {
     let app = spawn_app().await;
     app.create_alice_user().await?;

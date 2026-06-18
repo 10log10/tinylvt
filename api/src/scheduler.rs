@@ -666,6 +666,15 @@ pub async fn update_user_eligibilities(
     new_round_id: &payloads::AuctionRoundId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
+    // A 0.0 threshold means the next round is unconstrained: bids in it are
+    // checked against the prior round's threshold (see create_bid), which finds
+    // 0.0 and skips the eligibility row entirely. So there's nothing to derive
+    // or store here, and dividing by the threshold would produce a non-finite
+    // value (+inf, or NaN with no activity).
+    if previous_round.eligibility_threshold == 0.0 {
+        return Ok(());
+    }
+
     // Get all spaces for this auction's site to calculate eligibility points
     let spaces = sqlx::query_as::<_, store::Space>(
         "SELECT * FROM spaces WHERE site_id = $1 AND is_available = true AND deleted_at IS NULL",
@@ -781,24 +790,18 @@ fn get_eligibility_for_round_num(
     round_num: i32,
     progression: &[(i32, f64)],
 ) -> f64 {
-    if progression.is_empty() {
-        return 0.0;
+    // binary_search_by returns either the index of an exact match, or the
+    // insert location where round_num would go. The eligibility progression
+    // defines the threshold for a breakpoint's round onwards, so on a miss we
+    // want the breakpoint just before the insert location (idx - 1).
+    match progression.binary_search_by(|(round, _)| round.cmp(&round_num)) {
+        Ok(idx) => progression[idx].1,
+        // Before the first breakpoint (insert location 0): no breakpoint
+        // applies yet, so eligibility is unconstrained (0.0). This also
+        // covers an empty progression, whose only insert location is 0.
+        Err(0) => 0.0,
+        Err(idx) => progression[idx - 1].1,
     }
-    if progression.len() == 1 && progression[0].0 > round_num {
-        return 0.0;
-    }
-    // binary_search_by returns either the target index if found, or the insert
-    // location where the seek value would go, which is one more than the place
-    // we want to lookup the points value for the current seek. This is because
-    // the eligibility progression defines the point values for the given
-    // round number onwards.
-    let idx = match progression
-        .binary_search_by(|(round, _)| round.cmp(&round_num))
-    {
-        Ok(idx) => idx,
-        Err(idx) => idx - 1,
-    };
-    progression[idx].1
 }
 
 /// Process proxy bidding for all active rounds sequentially.
@@ -1275,7 +1278,6 @@ async fn process_user_proxy_bidding(
                 tracing::info!("Successfully placed bid on {:?}", space_id);
             }
             Err(store::StoreError::ExceedsEligibility { .. })
-            | Err(store::StoreError::NoEligibility)
             | Err(store::StoreError::AlreadyWinningSpace) => {
                 // Expected errors - try next space
                 tracing::info!(
@@ -1338,5 +1340,12 @@ mod tests {
         assert_eq!(f(0, &[]), 0.0);
         assert_eq!(f(0, &[(5, 0.5)]), 0.0);
         assert_eq!(f(5, &[(5, 0.5)]), 0.5);
+        // Multiple breakpoints all in the future: rounds before the first
+        // breakpoint are unconstrained, not a panic from index underflow.
+        assert_eq!(f(2, &[(5, 0.5), (10, 0.75)]), 0.0);
+        assert_eq!(f(0, &[(5, 0.5), (10, 0.75)]), 0.0);
+        assert_eq!(f(5, &[(5, 0.5), (10, 0.75)]), 0.5);
+        assert_eq!(f(7, &[(5, 0.5), (10, 0.75)]), 0.5);
+        assert_eq!(f(10, &[(5, 0.5), (10, 0.75)]), 0.75);
     }
 }

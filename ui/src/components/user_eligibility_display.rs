@@ -1,3 +1,4 @@
+use payloads::Eligibility;
 use yew::prelude::*;
 
 use crate::hooks::{Fetch, render_cell};
@@ -10,10 +11,11 @@ fn format_value(v: f64) -> String {
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
-    /// User's eligibility for the current round. Inner `Option<f64>` is
-    /// `None` when the user has no prior eligibility (e.g., round 0); the
-    /// outer `Fetch` distinguishes that from the loading window.
-    pub eligibility_points: Fetch<Option<f64>>,
+    /// User's eligibility for the current round.
+    pub eligibility: Fetch<Eligibility>,
+    /// The current round's threshold, used for the forward-looking "to
+    /// maintain" and "next round" projections (which depend on the round the
+    /// user is bidding in now, not the prior one).
     pub eligibility_threshold: f64,
     /// Current activity (sum of eligibility points across spaces the user
     /// is bidding on or winning). Loading until spaces, prices, and bids
@@ -26,31 +28,32 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
     let show_explanation = use_state(|| false);
     let eligibility_threshold = props.eligibility_threshold;
 
-    // Pre-derive cells whose value depends on eligibility_points. Each is
-    // `Fetch<Option<f64>>`: `Fetched(None)` means "no prior eligibility,
-    // show '--'", `Fetched(Some(x))` shows the value, `NotFetched` /
-    // loading shows a skeleton.
-    let min_required_activity: Fetch<Option<f64>> = props
-        .eligibility_points
-        .map_ref(|ep_opt| ep_opt.map(|ep| ep * eligibility_threshold));
+    // The minimum activity needed to hold eligibility steady into the next
+    // round: this round's eligibility times the threshold. `Fetch<Option<f64>>`
+    // where `Fetched(None)` (the user is Unlimited) shows "--" — there is
+    // nothing to maintain when bidding is unconstrained.
+    let min_required_activity: Fetch<Option<f64>> =
+        props.eligibility.map_ref(|eligibility| match eligibility {
+            Eligibility::Unlimited => None,
+            Eligibility::Finite(value) => Some(value * eligibility_threshold),
+        });
 
-    // Next-round eligibility needs both current_activity and
-    // eligibility_points. Combine via `zip_ref` so the cell renders a
-    // skeleton until both are fetched.
-    //   - If we have prior eligibility: min(current, activity / threshold)
-    //   - If no prior eligibility (round 0): just activity / threshold
+    // Next-round eligibility needs both current_activity and this round's
+    // eligibility. Combine via `zip_ref` so the cell renders a skeleton until
+    // both are fetched. Eligibility can never increase, so a finite value
+    // caps the projection; Unlimited (round 0 / 0% threshold) does not.
     let next_round_eligibility: Fetch<f64> = props
         .current_activity
-        .zip_ref(&props.eligibility_points)
-        .map(|(ca, ep_opt)| {
+        .zip_ref(&props.eligibility)
+        .map(|(ca, eligibility)| {
             let calculated = if eligibility_threshold > 0.0 {
                 ca / eligibility_threshold
             } else {
                 0.0
             };
-            match ep_opt {
-                Some(ep) => calculated.min(*ep),
-                None => calculated,
+            match eligibility {
+                Eligibility::Unlimited => calculated,
+                Eligibility::Finite(value) => calculated.min(*value),
             }
         });
 
@@ -76,12 +79,16 @@ pub fn UserEligibilityDisplay(props: &Props) -> Html {
                                     dark:text-neutral-400 mb-1">
                             {"Current Eligibility"}
                         </div>
-                        {render_cell(&props.eligibility_points, |ep_opt| html! {
+                        {render_cell(&props.eligibility, |eligibility| html! {
                             <div class="text-2xl font-bold text-neutral-900 \
                                         dark:text-white">
-                                {match ep_opt {
-                                    Some(ep) => format_value(*ep),
-                                    None => "--".to_string(),
+                                {match eligibility {
+                                    Eligibility::Unlimited => {
+                                        "No limit".to_string()
+                                    }
+                                    Eligibility::Finite(value) => {
+                                        format_value(*value)
+                                    }
                                 }}
                             </div>
                         })}

@@ -562,6 +562,8 @@ pub enum StoreError {
     AuctionStartInPast,
     #[error("Possession start must be before possession end")]
     InvalidPossessionPeriod,
+    #[error("Invalid eligibility progression: {0}")]
+    InvalidEligibilityProgression(String),
     #[error("Round space result not found")]
     RoundSpaceResultNotFound,
     #[error("Bid not found")]
@@ -606,6 +608,8 @@ pub enum StoreError {
         "Space name too long. Maximum is {max} characters, received {size}"
     )]
     SpaceNameTooLong { size: usize, max: usize },
+    #[error("Eligibility points must be a finite, non-negative number")]
+    InvalidEligibilityPoints,
     #[error(
         "Journal note too long. Maximum is {max} characters, received {size}"
     )]
@@ -618,8 +622,6 @@ pub enum StoreError {
     OpenHoursNotFound,
     #[error("Auction params not found")]
     AuctionParamsNotFound,
-    #[error("No eligibility found for the user")]
-    NoEligibility,
     #[error(
         "Exceeds eligibility. Available: {available}, Required: {required}"
     )]

@@ -35,6 +35,20 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
     let round_duration_minutes = rounded_duration.get_minutes() as u32;
     let round_duration_seconds = rounded_duration.get_seconds() as u32;
 
+    // Per-field onchange handlers already clamp each round number and
+    // eligibility percent in isolation, but they can't catch the cross-entry
+    // invariant the scheduler relies on: round numbers must be strictly
+    // ascending. Surface that here so the user sees it as they edit. The
+    // editor is fully controlled and only commits on change events (not on
+    // input), so reading `props.auction_params` reflects the latest committed
+    // edit without per-keystroke noise.
+    let progression_error = props
+        .auction_params
+        .activity_rule_params
+        .validate()
+        .err()
+        .map(|e| e.error_message());
+
     let on_round_duration_minutes_change = {
         let on_change = props.on_change.clone();
         let auction_params = props.auction_params.clone();
@@ -311,6 +325,16 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
                         >
                             {"+ Add Breakpoint"}
                         </button>
+                        {if let Some(message) = progression_error {
+                            html! {
+                                <p class="text-xs text-red-600 dark:text-red-400 \
+                                          mt-3">
+                                    {message}
+                                </p>
+                            }
+                        } else {
+                            html! {}
+                        }}
                         <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-3">
                             {"Activity rules determine the minimum participation required to stay eligible in each round"}
                         </p>

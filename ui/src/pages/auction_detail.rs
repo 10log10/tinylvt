@@ -511,7 +511,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
             // User eligibility
             <UserEligibilityDisplay
-                eligibility_points={eligibility.clone()}
+                eligibility={eligibility.clone()}
                 eligibility_threshold={
                     props.last_round.round_details.eligibility_threshold
                 }
