@@ -60,8 +60,11 @@ async fn get_stored_credentials(
     username: &str,
     pool: &PgPool,
 ) -> Result<Option<(payloads::UserId, SecretBox<String>)>, anyhow::Error> {
+    // Match on the normalized (lowercased) username so login is
+    // case-insensitive: a user who registered `Alice` can log in as `alice`.
     let user = sqlx::query_as::<_, store::User>(
-        r#"SELECT * FROM users WHERE username = $1 AND deleted_at IS NULL;"#,
+        r#"SELECT * FROM users
+        WHERE username_normalized = lower($1) AND deleted_at IS NULL;"#,
     )
     .bind(username)
     .fetch_optional(pool)

@@ -110,6 +110,7 @@ pub struct User {
     pub id: UserId,
     pub username: String,
     pub email: String,
+    pub email_normalized: String,
     pub password_hash: String,
     pub display_name: Option<String>,
     pub email_verified: bool,
@@ -161,6 +162,7 @@ pub struct CommunityInvite {
     pub id: InviteId,
     pub community_id: CommunityId,
     pub email: Option<String>,
+    pub email_normalized: Option<String>,
     pub single_use: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
@@ -494,8 +496,12 @@ pub struct AuditLog {
 pub enum StoreError {
     #[error("Invalid username: {0}")]
     InvalidUsername(String),
+    #[error("That username is already taken")]
+    UsernameTaken,
     #[error("Invalid email: {0}")]
     InvalidEmail(String),
+    #[error("An account with that email already exists")]
+    EmailTaken,
     #[error("Invalid password: {0}")]
     InvalidPassword(String),
     #[error("Email not yet verified")]
@@ -720,6 +726,25 @@ fn map_space_name_unique_error(e: sqlx::Error, space_name: &str) -> StoreError {
             return StoreError::SpaceNameNotUnique {
                 name: space_name.to_string(),
             };
+        }
+    }
+    e.into()
+}
+
+/// Convert a unique constraint violation on the user identifier indexes into a
+/// specific, user-facing error. Returns the original error for any other
+/// violation.
+fn map_user_identifier_unique_error(e: sqlx::Error) -> StoreError {
+    if let sqlx::Error::Database(db_err) = &e
+        && db_err.is_unique_violation()
+        && let Some(constraint) = db_err.constraint()
+    {
+        match constraint {
+            "users_username_normalized_key" => {
+                return StoreError::UsernameTaken;
+            }
+            "users_email_normalized_key" => return StoreError::EmailTaken,
+            _ => {}
         }
     }
     e.into()

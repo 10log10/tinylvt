@@ -278,8 +278,10 @@ pub async fn accept_invite(
     let Some(invite) = invite else {
         return Err(StoreError::CommunityInviteNotFound);
     };
-    if let Some(ref invite_email) = invite.email
-        && *invite_email != user.email
+    // Compare the database-normalized forms so the match is case-insensitive
+    // and uses the exact value Postgres computed for the unique index.
+    if let Some(ref invite_email_normalized) = invite.email_normalized
+        && *invite_email_normalized != user.email_normalized
     {
         return Err(StoreError::MismatchedInviteEmail);
     }
@@ -443,7 +445,7 @@ pub async fn get_received_invites(
             b.name as community_name
         FROM community_invites a
         JOIN communities b ON a.community_id = b.id
-        WHERE a.email = $1",
+        WHERE a.email_normalized = lower($1)",
     )
     .bind(user.email)
     .fetch_all(pool)
@@ -797,10 +799,10 @@ pub async fn update_is_active_from_schedule(
     let community_members_in_schedule = sqlx::query_as::<_, MemberInSchedule>(
         "SELECT DISTINCT
             a.community_id,
-            a.email,
+            a.email_normalized as email,
             u.id as user_id
         FROM community_membership_schedule a
-        JOIN users u ON a.email = u.email;",
+        JOIN users u ON a.email_normalized = u.email_normalized;",
     )
     .fetch_all(pool)
     .await?;
@@ -818,7 +820,7 @@ pub async fn update_is_active_from_schedule(
                 SELECT 1
                 FROM community_membership_schedule a
                 WHERE
-                    a.email = $1
+                    a.email_normalized = $1
                     AND a.community_id = $2
                     AND a.start_at <= $3
                     AND a.end_at > $3

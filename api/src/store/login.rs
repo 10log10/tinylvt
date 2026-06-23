@@ -41,7 +41,8 @@ pub async fn create_user(
     .bind(password_hash)
     .bind(time_source.now().to_sqlx())
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(map_user_identifier_unique_error)?;
     Ok(user)
 }
 
@@ -184,7 +185,15 @@ pub async fn delete_user(
                 .execute(&mut *tx)
                 .await?;
 
-            // Anonymize PII and mark as unverified to block community actions
+            // Anonymize PII and mark as unverified to block community actions.
+            //
+            // These anonymized identifiers must not be registerable by a new
+            // account, or a live row could share an identifier with this
+            // soft-deleted row (the partial unique indexes exclude soft-deleted
+            // rows, so they would not catch it). The reserved `@deleted.local`
+            // domain is rejected by `validate_email`, and the anonymized
+            // username contains `-`, which `validate_username` rejects. Keep
+            // both invariants if changing this format.
             let user = sqlx::query_as::<_, User>(
                 r#"
                 UPDATE users SET
@@ -339,8 +348,11 @@ pub async fn get_user_by_email(
     email: &str,
     pool: &PgPool,
 ) -> Result<User, StoreError> {
+    // Match on the normalized (lowercased) email so a user can reset their
+    // password regardless of the casing they type.
     sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL",
+        "SELECT * FROM users
+        WHERE email_normalized = lower($1) AND deleted_at IS NULL",
     )
     .bind(email)
     .fetch_optional(pool)

@@ -4,7 +4,9 @@ use reqwest::StatusCode;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{
+    assert_bad_request_contains, assert_status_code, spawn_app,
+};
 
 #[tokio::test]
 async fn login_refused() -> anyhow::Result<()> {
@@ -41,6 +43,80 @@ async fn create_account() -> anyhow::Result<()> {
     app.create_alice_user().await?;
 
     // check for valid session
+    let is_logged_in = app.client.login_check().await?;
+    assert!(is_logged_in);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn username_email_collisions_are_case_insensitive() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+
+    let first = requests::CreateAccount {
+        username: "alice".into(),
+        email: "alice@example.com".into(),
+        password: "a-password".into(),
+    };
+    app.client.create_account(&first).await?;
+
+    // A username differing only in case collides.
+    let username_clash = requests::CreateAccount {
+        username: "Alice".into(),
+        email: "different@example.com".into(),
+        password: "a-password".into(),
+    };
+    let result = app.client.create_account(&username_clash).await;
+    assert_bad_request_contains(result, "username is already taken");
+
+    // An email differing only in case collides.
+    let email_clash = requests::CreateAccount {
+        username: "bob".into(),
+        email: "Alice@Example.com".into(),
+        password: "a-password".into(),
+    };
+    let result = app.client.create_account(&email_clash).await;
+    assert_bad_request_contains(result, "email already exists");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reserved_deleted_domain_rejected() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    // The reserved domain used to anonymize soft-deleted users cannot be
+    // registered, even with case variation in the domain.
+    let body = requests::CreateAccount {
+        username: "someone".into(),
+        email: "deleted-anything@Deleted.Local".into(),
+        password: "a-password".into(),
+    };
+    let result = app.client.create_account(&body).await;
+    assert_bad_request_contains(result, "Invalid email");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn login_is_case_insensitive_on_username() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    // Register with a lowercase username, then log in with mixed case.
+    let body = requests::CreateAccount {
+        username: "alice".into(),
+        email: "alice@example.com".into(),
+        password: "a-password".into(),
+    };
+    app.client.create_account(&body).await?;
+
+    let login = requests::LoginCredentials {
+        username: "ALICE".into(),
+        password: "a-password".into(),
+    };
+    app.client.login(&login).await?;
+
     let is_logged_in = app.client.login_check().await?;
     assert!(is_logged_in);
 

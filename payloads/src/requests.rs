@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 
 pub const EMAIL_MAX_LEN: usize = 255;
 pub const USERNAME_MIN_LEN: usize = 3;
+/// Reserved domain used to anonymize the email of a soft-deleted user (as
+/// `deleted-<id>@deleted.local`). Registration rejects addresses in this domain
+/// so a new account can never collide with a soft-deleted row's identifier,
+/// which the partial unique indexes would not otherwise catch (they exclude
+/// soft-deleted rows).
+pub const RESERVED_EMAIL_DOMAIN: &str = "deleted.local";
 pub const USERNAME_MAX_LEN: usize = 30;
 pub const DISPLAY_NAME_MAX_LEN: usize = 255;
 pub const PASSWORD_MIN_LEN: usize = 8;
@@ -65,6 +71,7 @@ pub enum EmailValidation {
     Valid,
     TooLong,
     InvalidFormat,
+    ReservedDomain,
 }
 
 impl EmailValidation {
@@ -77,6 +84,7 @@ impl EmailValidation {
             Self::Valid => None,
             Self::TooLong => Some("Email must be at most 255 characters"),
             Self::InvalidFormat => Some("Invalid email format"),
+            Self::ReservedDomain => Some("Invalid email format"),
         }
     }
 }
@@ -99,6 +107,12 @@ pub fn validate_email(email: &str) -> EmailValidation {
     let (local, domain) = (parts[0], parts[1]);
     if local.is_empty() || domain.is_empty() || !domain.contains('.') {
         return EmailValidation::InvalidFormat;
+    }
+
+    // Reject the reserved domain used to anonymize soft-deleted users, so a new
+    // account cannot register an identifier matching a soft-deleted row.
+    if domain.eq_ignore_ascii_case(RESERVED_EMAIL_DOMAIN) {
+        return EmailValidation::ReservedDomain;
     }
 
     EmailValidation::Valid

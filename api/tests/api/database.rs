@@ -78,10 +78,10 @@ async fn test_populate() -> Result<(), StoreError> {
     println!("1");
     let _users = populate_users(conn, &community.id, &app.time_source).await?;
     println!("2");
-    // check that we get a unique constaint error if attempting to populate the
-    // same usernames
+    // check that we get a unique constraint error if attempting to populate
+    // the same usernames
     let result = populate_users(conn, &community.id, &app.time_source).await;
-    assert!(matches!(result, Err(StoreError::NotUnique(_))));
+    assert!(matches!(result, Err(StoreError::UsernameTaken)));
     let open_hours = populate_open_hours(conn).await?;
     let auction_params =
         populate_auction_params(conn, &app.time_source).await?;
