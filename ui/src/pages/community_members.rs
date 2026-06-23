@@ -3,9 +3,9 @@ use yew::prelude::*;
 
 use crate::Route;
 use crate::components::{
-    ActiveStatusToggle, ActiveTab, ChangeRoleModal, CommunityPageWrapper,
-    CommunityTabHeader, EditCreditLimitModal, MenuItem, OverflowMenu,
-    RemoveMemberModal,
+    ActiveStatusToggle, ActiveTab, BulkActivateModal, ChangeRoleModal,
+    CommunityPageWrapper, CommunityTabHeader, EditCreditLimitModal, MenuItem,
+    OverflowMenu, RemoveMemberModal,
     user_identity_display::{render_user_avatar, render_user_name},
 };
 use crate::hooks::{render_section, use_members, use_push_route};
@@ -50,12 +50,37 @@ fn MembersContent(props: &MembersContentProps) -> Html {
     let push_route = use_push_route();
     let can_invite = props.community.user_role.is_ge_moderator();
     let community_id = props.community.id;
+    let show_bulk_activate_modal = use_state(|| false);
+
+    // Bulk activation is gated the same as the per-member active-status
+    // toggle: the editor must have permission, and the active flag must be
+    // meaningful (i.e. the mode distributes across active members).
+    let can_bulk_activate =
+        props.community.user_role.can_change_active_status()
+            && props
+                .community
+                .community
+                .currency
+                .mode_config
+                .mode()
+                .has_active_member_distributions();
 
     let on_invite_click = {
         let push_route = push_route.clone();
         Callback::from(move |_: MouseEvent| {
             push_route.emit(Route::CommunityInvites { id: community_id });
         })
+    };
+
+    let bulk_activate_items = {
+        let show_bulk_activate_modal = show_bulk_activate_modal.clone();
+        vec![MenuItem {
+            label: "Bulk Activate Members".into(),
+            on_click: Callback::from(move |_| {
+                show_bulk_activate_modal.set(true)
+            }),
+            danger: false,
+        }]
     };
 
     render_section(
@@ -69,16 +94,27 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                                    dark:text-neutral-100">
                             {"Community Members"}
                         </h2>
-                        {if is_loading {
-                            html! {
-                                <span class="text-xs text-neutral-500 \
-                                            dark:text-neutral-400 italic">
-                                    {"Refreshing..."}
-                                </span>
-                            }
-                        } else {
-                            html! {}
-                        }}
+                        <div class="flex items-center gap-3">
+                            {if is_loading {
+                                html! {
+                                    <span class="text-xs text-neutral-500 \
+                                                dark:text-neutral-400 italic">
+                                        {"Refreshing..."}
+                                    </span>
+                                }
+                            } else {
+                                html! {}
+                            }}
+                            {if can_bulk_activate {
+                                html! {
+                                    <OverflowMenu
+                                        items={bulk_activate_items.clone()}
+                                    />
+                                }
+                            } else {
+                                html! {}
+                            }}
+                        </div>
                     </div>
 
                     {for errors.iter().map(|err| html! {
@@ -132,6 +168,24 @@ fn MembersContent(props: &MembersContentProps) -> Html {
                                     {"Invite Members"}
                                 </button>
                             </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
+
+                    {if *show_bulk_activate_modal {
+                        let show_bulk_activate_modal =
+                            show_bulk_activate_modal.clone();
+                        let on_update = members_hook.refetch.clone();
+                        let on_close = Callback::from(move |_| {
+                            show_bulk_activate_modal.set(false)
+                        });
+                        html! {
+                            <BulkActivateModal
+                                community_id={community_id}
+                                on_close={on_close}
+                                on_success={on_update}
+                            />
                         }
                     } else {
                         html! {}
@@ -204,13 +258,15 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                 | payloads::CurrencyModeConfig::DeferredPayment(_)
         );
 
-    // Check if user can edit active status
+    // Editing active status is meaningful only when the mode distributes
+    // across active members.
     let can_edit_active_status = community.user_role.can_change_active_status()
-        && matches!(
-            community.community.currency.mode_config,
-            payloads::CurrencyModeConfig::PointsAllocation(_)
-                | payloads::CurrencyModeConfig::DistributedClearing(_)
-        );
+        && community
+            .community
+            .currency
+            .mode_config
+            .mode()
+            .has_active_member_distributions();
 
     // Check if user can remove this member
     let can_remove = community.user_role.can_remove_role(&member.role);

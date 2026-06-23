@@ -763,6 +763,106 @@ pub async fn update_member_active_status(
     Ok(())
 }
 
+/// Set the listed members to active in bulk, identifying them by email or
+/// username. Matching is case-insensitive for both, against the
+/// database-normalized (lowercased) columns. Members not named in the list are
+/// left unchanged, so this is additive and never deactivates anyone.
+///
+/// Emails are resolved to members entirely within the query, so the actor
+/// never learns which identifiers correspond to which members beyond the
+/// match counts returned. The `unmatched` list only contains identifiers the
+/// actor already supplied.
+pub async fn bulk_activate_members(
+    actor: &ValidatedMember,
+    identifiers: &[String],
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<responses::BulkActivateMembersResult, StoreError> {
+    if !actor.0.role.can_change_active_status() {
+        return Err(StoreError::RequiresModeratorPermissions);
+    }
+
+    // Trim and drop empties. Duplicates are left in: activation is idempotent,
+    // and resolving the whole list in one statement (below) lets Postgres'
+    // `lower()` govern both matching and counting, so a member named twice is
+    // still counted once without any Rust-side normalization (which can
+    // disagree with `lower()` on some Unicode).
+    let cleaned: Vec<&str> = identifiers
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    let now = time_source.now().to_sqlx();
+
+    // Resolve all identifiers in one statement so a single source of truth
+    // (Postgres `lower()`, via the generated normalized columns) governs
+    // matching. `resolved` has one row per input occurrence (duplicates
+    // included), in input order, joined to the member(s) it identifies via the
+    // normalized email/username columns, or one NULL row if none. The two LEFT
+    // JOINs preserve unmatched inputs and naturally yield multiple rows in the
+    // rare case one identifier matches two different users (e.g. one user's
+    // username equals another's email). Matched members are activated; the
+    // final SELECT returns each input alongside its resolved member id, and
+    // WITH ORDINALITY pins the output to input order, which the join would not
+    // otherwise guarantee.
+    //
+    // The count and unmatched list are derived in Rust from these rows:
+    // counting distinct member ids, so a member named more than once
+    // collapses to one, while every unmatched input is echoed back verbatim
+    // so a user who typed two spellings of a missing name sees both.
+    let rows = sqlx::query(
+        "WITH resolved AS (
+            SELECT t.identifier, m.user_id
+            FROM unnest($1::text[]) WITH ORDINALITY AS t(identifier, ord)
+            LEFT JOIN users u
+                ON u.deleted_at IS NULL
+                AND (u.email_normalized = lower(t.identifier)
+                    OR u.username_normalized = lower(t.identifier))
+            LEFT JOIN community_members m
+                ON m.user_id = u.id AND m.community_id = $2
+            ORDER BY t.ord
+        ),
+        updated AS (
+            UPDATE community_members m
+            SET is_active = true, updated_at = $3
+            FROM resolved
+            WHERE m.user_id = resolved.user_id AND m.community_id = $2
+            RETURNING m.user_id
+        )
+        SELECT identifier, user_id FROM resolved",
+    )
+    .bind(&cleaned)
+    .bind(actor.0.community_id)
+    .bind(now)
+    .fetch_all(pool)
+    .await?;
+
+    let mut activated = std::collections::HashSet::new();
+    let mut unmatched = Vec::new();
+    for row in rows {
+        match row.try_get::<Option<UserId>, _>("user_id")? {
+            Some(user_id) => {
+                activated.insert(user_id);
+            }
+            None => unmatched.push(row.try_get::<String, _>("identifier")?),
+        }
+    }
+    let activated_count = activated.len();
+
+    tracing::info!(
+        community_id = %actor.0.community_id,
+        activated_count,
+        unmatched_count = unmatched.len(),
+        "Bulk-activated community members"
+    );
+
+    Ok(responses::BulkActivateMembersResult {
+        activated_count,
+        unmatched,
+    })
+}
+
 pub async fn get_membership_schedule(
     actor: &ValidatedMember,
     pool: &PgPool,

@@ -44,6 +44,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::set_membership_schedule)
         .service(community::get_membership_schedule)
         .service(community::update_member_active_status)
+        .service(community::bulk_activate_members)
         .service(community::remove_member)
         .service(community::change_member_role)
         .service(community::leave_community)

@@ -213,6 +213,50 @@ pub async fn update_member_active_status(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Bulk-activate members by email or username (moderator+ only)
+#[post("/bulk_activate_members")]
+pub async fn bulk_activate_members(
+    user: Identity,
+    details: web::Json<requests::BulkActivateMembers>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+
+    if details.identifiers.len() > requests::MAX_BULK_ACTIVATE_IDENTIFIERS {
+        return Err(APIError::BadRequest(anyhow::anyhow!(
+            "Too many identifiers: {} exceeds the limit of {}",
+            details.identifiers.len(),
+            requests::MAX_BULK_ACTIVATE_IDENTIFIERS
+        )));
+    }
+
+    if let Some(too_long) = details
+        .identifiers
+        .iter()
+        .find(|id| id.len() > requests::MAX_BULK_ACTIVATE_IDENTIFIER_LEN)
+    {
+        return Err(APIError::BadRequest(anyhow::anyhow!(
+            "Identifier too long: {} bytes exceeds the limit of {}",
+            too_long.len(),
+            requests::MAX_BULK_ACTIVATE_IDENTIFIER_LEN
+        )));
+    }
+
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    let result = store::bulk_activate_members(
+        &validated_member,
+        &details.identifiers,
+        &pool,
+        &time_source,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// Remove a member from the community (moderator+ only)
 #[post("/remove_member")]
 pub async fn remove_member(

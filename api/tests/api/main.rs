@@ -1,6 +1,7 @@
 mod auction;
 mod auction_sim;
 mod billing;
+mod bulk_activate;
 mod community;
 mod currency;
 mod database;

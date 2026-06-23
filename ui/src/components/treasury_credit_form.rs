@@ -27,17 +27,16 @@ pub struct Props {
 
 #[function_component]
 pub fn TreasuryCreditForm(props: &Props) -> Html {
-    // Determine default recipient type based on currency mode
-    // Default to AllActiveMembers unless it's prepaid or deferred payment
+    // Default to AllActiveMembers when the mode distributes across active
+    // members; otherwise there is no such group, so default to a single
+    // recipient.
     let currency_mode = props.community.community.currency.mode_config.mode();
-    let default_recipient_type = match currency_mode {
-        CurrencyMode::PrepaidCredits | CurrencyMode::DeferredPayment => {
-            RecipientType::SingleMember
-        }
-        CurrencyMode::PointsAllocation | CurrencyMode::DistributedClearing => {
+    let default_recipient_type =
+        if currency_mode.has_active_member_distributions() {
             RecipientType::AllActiveMembers
-        }
-    };
+        } else {
+            RecipientType::SingleMember
+        };
 
     // Form state
     let recipient_type = use_state(|| default_recipient_type);

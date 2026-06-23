@@ -19,6 +19,19 @@ pub struct UserIdentity {
     pub display_name: Option<String>,
 }
 
+/// Summary of a [`crate::requests::BulkActivateMembers`] operation.
+///
+/// `unmatched` echoes back only identifiers the caller supplied, so it does
+/// not disclose any member's email.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BulkActivateMembersResult {
+    /// Number of members set to active. Includes members that were already
+    /// active but named in the list.
+    pub activated_count: usize,
+    /// Identifiers from the request that matched no member of this community.
+    pub unmatched: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Community {
     pub id: CommunityId,

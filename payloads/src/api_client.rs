@@ -285,6 +285,14 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn bulk_activate_members(
+        &self,
+        details: &requests::BulkActivateMembers,
+    ) -> Result<responses::BulkActivateMembersResult, ClientError> {
+        let response = self.post("bulk_activate_members", &details).await?;
+        ok_body(response).await
+    }
+
     pub async fn remove_member(
         &self,
         details: &requests::RemoveMember,

@@ -339,6 +339,33 @@ pub struct UpdateMemberActiveStatus {
     pub is_active: bool,
 }
 
+/// Bulk-activate members by email or username (moderator+ only).
+///
+/// Each identifier is matched against community members by email or username,
+/// case-insensitively; matching members are set to active. Members not named
+/// in the list are left unchanged, so this is purely additive and never
+/// deactivates anyone. The list is transient and not persisted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BulkActivateMembers {
+    pub community_id: crate::CommunityId,
+    /// Emails or usernames identifying members to activate.
+    pub identifiers: Vec<String>,
+}
+
+/// Maximum number of identifiers accepted in a single
+/// [`BulkActivateMembers`] request. Bounds the work a single statement does;
+/// the route rejects larger requests and the UI surfaces the limit. Counted
+/// before trimming and deduplication, so it caps the raw submitted list.
+pub const MAX_BULK_ACTIVATE_IDENTIFIERS: usize = 1000;
+
+/// Maximum byte length of a single bulk-activate identifier. An email is the
+/// longest valid identifier, and its column is `VARCHAR(255)`, so anything
+/// longer cannot match a member regardless. Bounding it rejects a pathological
+/// single paste cheaply. Measured in bytes, not characters (Unicode code
+/// points), to match [`validate_email`], whose `EMAIL_MAX_LEN` check is also
+/// byte-based.
+pub const MAX_BULK_ACTIVATE_IDENTIFIER_LEN: usize = EMAIL_MAX_LEN;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetMemberCurrencyInfo {
     pub community_id: crate::CommunityId,
