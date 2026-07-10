@@ -540,6 +540,11 @@ pub enum StoreError {
     LeaderMustTransferFirst,
     #[error("Orphaned account not found")]
     OrphanedAccountNotFound,
+    #[error(
+        "Cannot resolve orphaned account with locked balance from \
+         outstanding bids"
+    )]
+    OrphanedAccountHasLockedBalance,
     #[error("No active members to distribute balance to")]
     NoActiveMembersForDistribution,
     #[error("Span too large")]

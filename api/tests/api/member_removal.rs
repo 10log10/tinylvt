@@ -1,3 +1,4 @@
+use api::scheduler;
 use payloads::{AccountOwner, IdempotencyKey, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
@@ -582,6 +583,180 @@ async fn rejoin_after_leaving() -> anyhow::Result<()> {
     let orphaned_after =
         app.client.get_orphaned_accounts(&community_id).await?;
     assert!(orphaned_after.orphaned_accounts.is_empty());
+
+    Ok(())
+}
+
+// ============================================================================
+// Orphaned Balance vs. Locked Funds
+// ============================================================================
+
+/// Set up an active auction in which Bob has placed a winning bid, leave the
+/// community as Bob, and return the community id and the space id. Bob's bid
+/// remains an outstanding commitment (the auction has not settled), so his
+/// orphaned account has a non-zero locked balance.
+///
+/// Uses a space with a non-zero reserve price so that Bob's round-0 win has a
+/// positive value (a zero-reserve single-bidder win would settle at 0 and
+/// clamp to a zero locked balance).
+async fn setup_bob_left_with_locked_bid(
+    app: &test_helpers::TestApp,
+) -> anyhow::Result<(payloads::CommunityId, payloads::SiteId)> {
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Space with a non-zero reserve so a single winning bid locks funds.
+    let space = app
+        .client
+        .create_space(&payloads::Space {
+            site_id: site.site_id,
+            name: "reserved space".into(),
+            description: None,
+            eligibility_points: 10.0,
+            is_available: true,
+            site_image_id: None,
+            reserve_price: payloads::ReservePrice(Decimal::new(1000, 2)),
+        })
+        .await?;
+    let space = app.client.get_space(&space).await?;
+
+    // Give Bob balance to back his bid.
+    let members = app.client.get_members(&community_id).await?;
+    let bob_id = members
+        .iter()
+        .find(|m| m.user.username == "bob")
+        .unwrap()
+        .user
+        .user_id;
+    app.login_alice().await?;
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: payloads::TreasuryRecipient::SingleMember(bob_id),
+            amount_per_recipient: Decimal::new(5000, 2), // 50.00
+            note: Some("Test grant".into()),
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    // Start the auction and open round 0.
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    let auction_id = app.client.create_auction(&auction_details).await?;
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // Bob bids on the reserved space in round 0.
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_0 = &rounds[0];
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space.space_id, &round_0.round_id)
+        .await?;
+
+    // Advance past round 0 so the bid becomes a winning result (locked > 0),
+    // but leave the auction active (further rounds could still displace it).
+    app.time_source
+        .advance(auction_details.auction_params.round_duration);
+    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+
+    // The auction must still be live for the funds to remain locked.
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert!(
+        auction.end_at.is_none(),
+        "auction should still be active for this test"
+    );
+
+    // Bob leaves while his bid is outstanding.
+    app.login_bob().await?;
+    app.client
+        .leave_community(&requests::LeaveCommunity { community_id })
+        .await?;
+
+    Ok((community_id, site.site_id))
+}
+
+/// A coleader cannot resolve an orphaned balance while the departed member's
+/// bid is still locking funds in a live auction.
+#[tokio::test]
+async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let (community_id, _site_id) = setup_bob_left_with_locked_bid(&app).await?;
+
+    app.login_alice().await?;
+    let orphaned = app.client.get_orphaned_accounts(&community_id).await?;
+    let orphaned_account = &orphaned.orphaned_accounts[0];
+
+    // Attempting to resolve the locked balance is rejected.
+    let result = app
+        .client
+        .resolve_orphaned_balance(&requests::ResolveOrphanedBalance {
+            community_id,
+            orphaned_account_id: orphaned_account.account.id,
+            note: None,
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // The balance is untouched, still available to back the winning bid.
+    let orphaned_after =
+        app.client.get_orphaned_accounts(&community_id).await?;
+    assert_eq!(
+        orphaned_after.orphaned_accounts[0].account.balance_cached,
+        orphaned_account.account.balance_cached,
+    );
+
+    Ok(())
+}
+
+/// Once the auction settles, the departed member's funds are no longer
+/// locked and the (now free) remaining balance resolves normally.
+#[tokio::test]
+async fn resolve_allowed_after_auction_settles() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let (community_id, site_id) = setup_bob_left_with_locked_bid(&app).await?;
+
+    // No further bids arrive (Bob left; the manual path rejects non-members
+    // and there is no proxy bidding configured), so advancing time settles
+    // the auction: Bob wins the reserved space and is debited its price.
+    app.login_alice().await?;
+    let auctions = app.client.list_auctions(&site_id).await?;
+    let auction_id = auctions[0].auction_id;
+    for _ in 0..20 {
+        let auction = app.client.get_auction(&auction_id).await?;
+        if auction.end_at.is_some() {
+            break;
+        }
+        let rounds = app.client.list_auction_rounds(&auction_id).await?;
+        let latest = rounds.last().unwrap();
+        app.time_source
+            .set(latest.round_details.end_at + jiff::Span::new().seconds(1));
+        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    }
+    let auction = app.client.get_auction(&auction_id).await?;
+    assert!(auction.end_at.is_some(), "auction should have settled");
+
+    // Bob's balance is now free of locks and resolves to treasury.
+    let orphaned = app.client.get_orphaned_accounts(&community_id).await?;
+    let orphaned_account = &orphaned.orphaned_accounts[0];
+    app.client
+        .resolve_orphaned_balance(&requests::ResolveOrphanedBalance {
+            community_id,
+            orphaned_account_id: orphaned_account.account.id,
+            note: None,
+            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+        })
+        .await?;
+
+    let orphaned_after =
+        app.client.get_orphaned_accounts(&community_id).await?;
+    assert!(
+        orphaned_after.orphaned_accounts.is_empty(),
+        "resolved account should no longer appear"
+    );
 
     Ok(())
 }

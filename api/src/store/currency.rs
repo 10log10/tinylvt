@@ -1704,6 +1704,15 @@ pub async fn resolve_orphaned_balance(
 
     let balance = orphaned_account.balance_cached;
 
+    // Don't resolve locked funds: they back an outstanding bid that settlement
+    // will debit later, so transferring them out now could drive the account
+    // past its credit limit. The coleader can resolve the remainder once the
+    // auction settles.
+    let locked = get_locked_balance_tx(&orphaned_account.id, &mut tx).await?;
+    if locked > Decimal::ZERO {
+        return Err(StoreError::OrphanedAccountHasLockedBalance);
+    }
+
     // If balance is zero, nothing to transfer
     if balance == Decimal::ZERO {
         tx.commit().await?;

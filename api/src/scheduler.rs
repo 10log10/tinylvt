@@ -1077,9 +1077,17 @@ async fn process_proxy_bidding_for_round(
         "Fetching proxy bidding settings for auction {:?}",
         round.auction_id
     );
+    // Only proxy-bid for current members. Settings rows persist after a member
+    // leaves, so without this filter the scheduler tries bids that create_bid
+    // rejects anyway, wasting work and logging an error each tick.
     let proxy_settings = sqlx::query_as::<_, store::UseProxyBidding>(
-        "SELECT * FROM use_proxy_bidding
-        WHERE auction_id = $1",
+        "SELECT upb.* FROM use_proxy_bidding upb
+        JOIN auctions auc ON upb.auction_id = auc.id
+        JOIN sites s ON auc.site_id = s.id
+        JOIN community_members cm
+            ON cm.community_id = s.community_id
+            AND cm.user_id = upb.user_id
+        WHERE upb.auction_id = $1",
     )
     .bind(round.auction_id)
     .fetch_all(pool)
