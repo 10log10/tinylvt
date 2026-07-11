@@ -320,6 +320,15 @@ impl Auction {
             was_canceled: self.was_canceled,
         }
     }
+
+    /// Whether bidding has begun. An auction starts once `start_at` is
+    /// reached; round 0 is created within a scheduler tick shortly after, so
+    /// `start_at <= now` is the authoritative boundary even before the round
+    /// row exists. An unscheduled auction (`start_at` is None) has not
+    /// started.
+    pub fn has_started(&self, now: Timestamp) -> bool {
+        self.start_at.is_some_and(|s| s <= now)
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]

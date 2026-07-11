@@ -368,10 +368,9 @@ pub async fn schedule_auction(
     if auction.end_at.is_some() {
         return Err(StoreError::AuctionAlreadyEnded);
     }
-    // Once the start time has passed the auction is started (round 0 is
-    // created within a scheduler tick), so rescheduling is refused even if
-    // the round doesn't exist quite yet.
-    if auction.start_at.is_some_and(|s| s <= now) {
+    // A started auction can't be rescheduled, even in the brief window
+    // before round 0's row is created.
+    if auction.has_started(now) {
         return Err(StoreError::AuctionAlreadyStarted);
     }
 

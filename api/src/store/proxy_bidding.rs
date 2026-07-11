@@ -162,6 +162,61 @@ pub async fn get_proxy_bidding(
     Ok(settings.map(|s| s.into()))
 }
 
+/// Lists members who have enabled proxy bidding for an auction. Restricted
+/// to coleaders+ so they can nudge interested members who haven't opted in
+/// yet. Returns only members with a `use_proxy_bidding` row (i.e. enabled);
+/// there is intentionally no not-enabled list and no `max_items`, keeping
+/// the disclosure to the coarse "engaged with this auction" signal.
+///
+/// No membership filter is needed: proxy bidding rows are deleted when a
+/// member leaves, so every row here belongs to a current member.
+///
+/// Only available before the auction starts: the list exists to nudge
+/// members into opting in beforehand, and the UI hides it once bidding is
+/// underway, so the endpoint refuses post-start to keep that contract.
+pub async fn list_proxy_bidding_participants(
+    auction_id: &AuctionId,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<Vec<payloads::responses::UserIdentity>, StoreError> {
+    let (auction, actor) = get_validated_auction(
+        auction_id,
+        user_id,
+        PermissionLevel::Coleader,
+        pool,
+    )
+    .await?;
+
+    if auction.has_started(time_source.now()) {
+        return Err(StoreError::AuctionAlreadyStarted);
+    }
+
+    let community_id = actor.0.community_id;
+
+    #[derive(sqlx::FromRow)]
+    struct Participant {
+        user_id: UserId,
+    }
+
+    let participants = sqlx::query_as::<_, Participant>(
+        "SELECT user_id FROM use_proxy_bidding WHERE auction_id = $1
+        ORDER BY created_at ASC",
+    )
+    .bind(auction_id)
+    .fetch_all(pool)
+    .await?;
+
+    with_user_identities(
+        participants,
+        |p| p.user_id,
+        |_, user| Ok(user),
+        &community_id,
+        pool,
+    )
+    .await
+}
+
 pub async fn delete_proxy_bidding(
     auction_id: &AuctionId,
     user_id: &UserId,

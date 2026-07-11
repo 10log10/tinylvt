@@ -162,6 +162,7 @@ pub mod use_member_transactions;
 pub mod use_members;
 pub mod use_orphaned_accounts;
 pub mod use_platform_stats;
+pub mod use_proxy_bidding_participants;
 pub mod use_proxy_bidding_settings;
 pub mod use_push_route;
 pub mod use_require_auth;
@@ -203,6 +204,7 @@ pub use use_member_transactions::use_member_transactions;
 pub use use_members::use_members;
 pub use use_orphaned_accounts::use_orphaned_accounts;
 pub use use_platform_stats::use_platform_stats;
+pub use use_proxy_bidding_participants::use_proxy_bidding_participants;
 pub use use_proxy_bidding_settings::{
     ProxyBiddingSettingsHookReturn, use_proxy_bidding_settings,
 };

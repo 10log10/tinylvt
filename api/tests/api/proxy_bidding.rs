@@ -478,3 +478,147 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Coleaders+ can list which members have enabled proxy bidding for an
+/// auction (to nudge others), but plain members cannot. The response
+/// carries identities only, never `max_items`.
+#[tokio::test]
+async fn test_list_proxy_bidding_participants_permissions() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Auction scheduled to start in the future (the list is a pre-start
+    // nudge tool).
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at =
+        Some(app.time_source.now() + Span::new().hours(1));
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Only Bob (a plain member) enables proxy bidding; Alice (the leader)
+    // does not. The list should contain Bob but not Alice.
+    app.login_bob().await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 3,
+        })
+        .await?;
+
+    // A plain member cannot see the participant list.
+    let member_result = app
+        .client
+        .list_proxy_bidding_participants(&auction_id)
+        .await;
+    assert!(
+        matches!(member_result, Err(payloads::ClientError::APIError(..))),
+        "member should be denied, got {member_result:?}"
+    );
+
+    // The leader can, and sees exactly the members who opted in.
+    app.login_alice().await?;
+    let participants = app
+        .client
+        .list_proxy_bidding_participants(&auction_id)
+        .await?;
+    assert_eq!(participants.len(), 1, "only Bob opted in");
+    assert_eq!(
+        participants[0].username,
+        test_helpers::bob_credentials().username,
+    );
+
+    // Once the auction has started, the list is no longer retrievable.
+    app.time_source.advance(Span::new().hours(2));
+    let after_start = app
+        .client
+        .list_proxy_bidding_participants(&auction_id)
+        .await;
+    assert!(
+        matches!(after_start, Err(payloads::ClientError::APIError(..))),
+        "list should be refused after start, got {after_start:?}"
+    );
+
+    Ok(())
+}
+
+/// A member's proxy bidding settings are deleted when they leave a
+/// community, whether they leave voluntarily or are removed. This keeps a
+/// `use_proxy_bidding` row meaning "a current member is proxy bidding".
+#[tokio::test]
+async fn test_proxy_bidding_deleted_on_community_exit() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Future start so the leader can query the participant list (only
+    // available pre-start).
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at =
+        Some(app.time_source.now() + Span::new().hours(1));
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    // Bob opts into proxy bidding, then leaves voluntarily.
+    app.login_bob().await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+    app.client
+        .leave_community(&requests::LeaveCommunity { community_id })
+        .await?;
+
+    // The leader's participant list is now empty.
+    app.login_alice().await?;
+    let after_leave = app
+        .client
+        .list_proxy_bidding_participants(&auction_id)
+        .await?;
+    assert!(
+        after_leave.is_empty(),
+        "leaving should delete proxy bidding, got {after_leave:?}"
+    );
+
+    // Bob rejoins and re-enables, then the leader removes him. Removal must
+    // also clear the settings.
+    app.invite_bob().await?;
+    app.login_bob().await?;
+    app.accept_invite().await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+
+    let members = app.client.get_members(&community_id).await?;
+    let bob_id = members
+        .iter()
+        .find(|m| m.user.username == test_helpers::bob_credentials().username)
+        .expect("Bob is a member again")
+        .user
+        .user_id;
+
+    app.login_alice().await?;
+    app.client
+        .remove_member(&requests::RemoveMember {
+            community_id,
+            member_user_id: bob_id,
+        })
+        .await?;
+
+    let after_remove = app
+        .client
+        .list_proxy_bidding_participants(&auction_id)
+        .await?;
+    assert!(
+        after_remove.is_empty(),
+        "removal should delete proxy bidding, got {after_remove:?}"
+    );
+
+    Ok(())
+}

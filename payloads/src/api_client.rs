@@ -639,6 +639,18 @@ impl APIClient {
         ok_body(response).await
     }
 
+    /// Lists members who have enabled proxy bidding for an auction.
+    /// Restricted to coleaders+ (403 otherwise).
+    pub async fn list_proxy_bidding_participants(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::UserIdentity>, ClientError> {
+        let response = self
+            .post("list_proxy_bidding_participants", auction_id)
+            .await?;
+        ok_body(response).await
+    }
+
     pub async fn delete_proxy_bidding(
         &self,
         auction_id: &AuctionId,

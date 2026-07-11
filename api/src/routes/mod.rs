@@ -95,6 +95,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(proxy_bidding::list_user_values)
         .service(proxy_bidding::create_or_update_proxy_bidding)
         .service(proxy_bidding::get_proxy_bidding)
+        .service(proxy_bidding::list_proxy_bidding_participants)
         .service(proxy_bidding::delete_proxy_bidding)
         .service(currency::update_credit_limit_override)
         .service(currency::get_member_credit_limit_override)

@@ -75,6 +75,8 @@ proxy will pursue the three with the most surplus relative to your values.
 - Price on Desk A rises to $60: Proxy switches to Desk B (surplus: $20 vs $30)
 - Prices rise above $80 and $60: You drop out (no positive surplus remaining)
 
+**Who can see this.** Community leaders can see whether you've enabled proxy bidding for an auction, so they can remind interested members to set it up before it starts. They never see your space values or how many spaces you're pursuing.
+
 ## Activity Rules
 
 To prevent last-minute bidding that disrupts price discovery, auctions enforce

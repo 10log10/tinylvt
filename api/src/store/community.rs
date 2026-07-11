@@ -591,7 +591,39 @@ pub async fn remove_member(
         return Err(StoreError::CannotRemoveHigherRole);
     }
 
+    delete_proxy_bidding_for_community(
+        &actor.0.community_id,
+        member_user_id,
+        &mut tx,
+    )
+    .await?;
+
     tx.commit().await?;
+    Ok(())
+}
+
+/// Deletes a user's proxy bidding settings for every auction in a
+/// community. Called when the user leaves or is removed, so a
+/// `use_proxy_bidding` row always denotes a current member who is actually
+/// proxy bidding. Runs in the same transaction as the membership deletion
+/// so the two can't diverge.
+async fn delete_proxy_bidding_for_community(
+    community_id: &CommunityId,
+    user_id: &UserId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        "DELETE FROM use_proxy_bidding upb
+         USING auctions auc
+         JOIN sites s ON auc.site_id = s.id
+         WHERE upb.auction_id = auc.id
+           AND s.community_id = $1
+           AND upb.user_id = $2",
+    )
+    .bind(community_id)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -662,6 +694,8 @@ pub async fn leave_community(
         return Err(StoreError::LeaderMustTransferFirst);
     }
 
+    let mut tx = pool.begin().await?;
+
     // Delete the community_members row (but not if leader).
     // Atomic check during deletion prevents races.
     let rows_deleted = sqlx::query(
@@ -670,7 +704,7 @@ pub async fn leave_community(
     )
     .bind(member.0.community_id)
     .bind(member.0.user_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
 
@@ -680,6 +714,14 @@ pub async fn leave_community(
         return Err(StoreError::LeaderMustTransferFirst);
     }
 
+    delete_proxy_bidding_for_community(
+        &member.0.community_id,
+        &member.0.user_id,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 

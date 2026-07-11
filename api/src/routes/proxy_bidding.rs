@@ -82,6 +82,24 @@ pub async fn get_proxy_bidding(
     Ok(HttpResponse::Ok().json(settings))
 }
 
+#[post("/list_proxy_bidding_participants")]
+pub async fn list_proxy_bidding_participants(
+    user: Identity,
+    auction_id: web::Json<AuctionId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, APIError> {
+    let user_id = get_user_id(&user)?;
+    let participants = store::list_proxy_bidding_participants(
+        &auction_id,
+        &user_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(participants))
+}
+
 #[post("/delete_proxy_bidding")]
 pub async fn delete_proxy_bidding(
     user: Identity,

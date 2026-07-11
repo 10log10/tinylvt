@@ -5,8 +5,8 @@ use yew::prelude::*;
 use crate::components::{
     AuctionAdminControls, AuctionContext, AuctionPageWrapper, AuctionTabHeader,
     AuctionToplineInfo, ConnectionStatusIndicator, CountdownTimer,
-    ProxyBiddingControls, RoundIndicator, SpaceListForBidding,
-    UserEligibilityDisplay, auction_tab_header::ActiveTab,
+    ProxyBiddingControls, ProxyBiddingParticipants, RoundIndicator,
+    SpaceListForBidding, UserEligibilityDisplay, auction_tab_header::ActiveTab,
 };
 use crate::hooks::{
     Fetch, ProxyBiddingSettingsHookReturn, UserSpaceValuesHookReturn,
@@ -303,6 +303,11 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
 
             <AuctionAdminControls
                 auction={props.auction.clone()}
+                user_role={props.user_role}
+            />
+
+            <ProxyBiddingParticipants
+                auction_id={props.auction.auction_id}
                 user_role={props.user_role}
             />
 
