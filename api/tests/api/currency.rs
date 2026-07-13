@@ -1710,8 +1710,13 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Creation of prepaid_credits communities is temporarily blocked while
+/// the mode is extended with Stripe-backed payments
+/// (docs/plans/stripe-auction-payments.md). Existing tests that exercise
+/// prepaid_credits behavior set the mode via direct UPDATE, which stays
+/// possible.
 #[tokio::test]
-async fn create_community_prepaid_credits_mode() -> anyhow::Result<()> {
+async fn create_community_prepaid_credits_mode_blocked() -> anyhow::Result<()> {
     let app = spawn_app().await;
     app.create_alice_user().await?;
 
@@ -1731,59 +1736,11 @@ async fn create_community_prepaid_credits_mode() -> anyhow::Result<()> {
             new_members_default_active: true,
         },
     };
-    let community_id = app.client.create_community(&body).await?;
+    let result = app.client.create_community(&body).await;
 
-    // Verify the community was created with correct settings
-    let communities = app.client.get_communities().await?;
-    let community = communities.iter().find(|c| c.id == community_id).unwrap();
-
-    if let payloads::CurrencyModeConfig::PrepaidCredits(cfg) =
-        &community.currency.mode_config
-    {
-        assert!(!cfg.debts_callable);
-    } else {
-        panic!("Expected PrepaidCredits config");
-    }
-
-    // In prepaid mode, credit_limit is always 0, so members can't go negative
-    // Verify member starts with zero balance and zero credit
-    let info = app
-        .client
-        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
-            community_id,
-            member_user_id: None,
-        })
-        .await?;
-    assert_eq!(info.balance, Decimal::ZERO);
-    assert_eq!(info.credit_limit, Some(Decimal::ZERO));
-    assert_eq!(info.available_credit, Some(Decimal::ZERO));
-
-    // Alice purchases credits (treasury credits her account)
-    let members = app.client.get_members(&community_id).await?;
-    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
-
-    app.client
-        .treasury_credit_operation(&requests::TreasuryCreditOperation {
-            community_id,
-            recipient: payloads::TreasuryRecipient::SingleMember(
-                alice.user.user_id,
-            ),
-            amount_per_recipient: Decimal::new(100, 0),
-            note: Some("Credit purchase".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
-        })
-        .await?;
-
-    // Verify Alice now has balance
-    let info = app
-        .client
-        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
-            community_id,
-            member_user_id: None,
-        })
-        .await?;
-    assert_eq!(info.balance, Decimal::new(100, 0));
-    assert_eq!(info.available_credit, Some(Decimal::new(100, 0)));
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("under construction"));
 
     Ok(())
 }

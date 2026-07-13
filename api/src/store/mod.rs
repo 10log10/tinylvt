@@ -691,6 +691,8 @@ pub enum StoreError {
     InvalidCurrencyConfiguration,
     #[error("Currency mode cannot be changed after community creation")]
     CurrencyModeImmutable,
+    #[error("This mode is under construction")]
+    CurrencyModeUnderConstruction,
     #[error("Invalid currency name (max 50 characters)")]
     InvalidCurrencyName,
     #[error("Invalid currency symbol (max 5 characters)")]

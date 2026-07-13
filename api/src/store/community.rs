@@ -39,6 +39,12 @@ pub async fn create_community(
                 return Err(StoreError::InvalidCurrencyConfiguration);
             }
         }
+        // Temporarily blocked while the mode is extended with Stripe-backed
+        // payments (docs/plans/stripe-auction-payments.md), so the schema
+        // can change freely with no live communities in this mode.
+        payloads::CurrencyModeConfig::PrepaidCredits(_) => {
+            return Err(StoreError::CurrencyModeUnderConstruction);
+        }
         _ => {}
     }
 
