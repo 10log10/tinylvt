@@ -968,7 +968,18 @@ pub async fn spawn_app() -> TestApp {
 
 /// Create a new database specific for the test and migrate it, returning a
 /// connection and the name of the new database.
-async fn setup_database() -> Result<(PgPool, String), Error> {
+pub async fn setup_database() -> Result<(PgPool, String), Error> {
+    let (conn, new_db) = setup_empty_database().await?;
+    MIGRATOR.run(&conn).await?;
+    Ok((conn, new_db))
+}
+
+/// Create a new empty database with no migrations applied, returning a
+/// connection and the name of the new database.
+///
+/// The UUID name keeps it covered by `drop_stale_test_databases`, so callers
+/// don't need to drop it themselves.
+pub async fn setup_empty_database() -> Result<(PgPool, String), Error> {
     let db_url_base = get_database_url_base();
     let default_conn = PgPoolOptions::new()
         .idle_timeout(Duration::from_secs(1))
@@ -992,7 +1003,6 @@ async fn setup_database() -> Result<(PgPool, String), Error> {
         .idle_timeout(Duration::from_secs(1))
         .connect(&format!("{db_url_base}/{new_db}"))
         .await?;
-    MIGRATOR.run(&conn).await?;
     Ok((conn, new_db))
 }
 

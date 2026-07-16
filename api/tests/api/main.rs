@@ -11,6 +11,7 @@ mod member_removal;
 mod proxy_bidding;
 mod pubsub;
 mod reserve_pricing;
+mod schema_reference;
 mod security_headers;
 mod site;
 
