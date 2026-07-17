@@ -315,6 +315,22 @@ pub(crate) fn auction_processing_lock_key(id_expr: &str) -> String {
     format!("hashtextextended('auction_processing:' || {id_expr}::text, 0)")
 }
 
+/// SQL expression computing the advisory lock key serializing one user's
+/// bidding state in one auction (the `auction_user` pair-lock namespace).
+/// Held by proxy work-item claims; disjoint from the auction-processing
+/// namespace — no code path holds both an auction-processing lock and a
+/// pair lock. `auction_expr`/`user_expr` are SQL expressions yielding the
+/// respective ids.
+pub(crate) fn auction_user_lock_key(
+    auction_expr: &str,
+    user_expr: &str,
+) -> String {
+    format!(
+        "hashtextextended('auction_user:' || {auction_expr}::text \
+         || ':' || {user_expr}::text, 0)"
+    )
+}
+
 /// Take the same transaction-scoped advisory lock the scheduler holds while
 /// processing an auction (see `scheduler::lock_next_auction_needing_update`),
 /// blocking until it's available, then re-read the auction so state checks

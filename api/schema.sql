@@ -486,10 +486,6 @@ CREATE TABLE auction_rounds (
     end_at TIMESTAMPTZ NOT NULL,
     -- Fraction of the bidder's eligibility that must be met, e.g. 80%
     eligibility_threshold DOUBLE PRECISION NOT NULL,
-    -- Proxy bidding state tracking for scheduler
-    proxy_bidding_last_processed_at TIMESTAMPTZ,
-    proxy_bidding_failure_count INTEGER NOT NULL DEFAULT 0,
-    proxy_bidding_last_failed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     UNIQUE (auction_id, round_num),
@@ -582,6 +578,11 @@ CREATE TABLE use_proxy_bidding (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
     max_items INTEGER NOT NULL,
+    -- Writer-side dirty flag: set TRUE in the writer's own transaction by
+    -- proxy settings and user-value saves; cleared only by the processor's
+    -- claim transaction. The flag derives re-selection ordering from the
+    -- database's own serialization instead of clock comparisons.
+    needs_processing BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, auction_id)
@@ -590,6 +591,21 @@ CREATE INDEX idx_use_proxy_bidding_user_id ON use_proxy_bidding (user_id);
 CREATE INDEX idx_use_proxy_bidding_auction_id ON use_proxy_bidding (auction_id);
 CREATE INDEX idx_use_proxy_bidding_user_id_auction_id ON use_proxy_bidding
 (user_id, auction_id);
+
+-- Per-(round, user) processing marker. An explicit marker row is needed
+-- because "processed, but no surplus so zero bids" is indistinguishable
+-- from "unprocessed" via bids alone. processed_at is informational;
+-- re-selection is driven by marker existence (per-round baseline), the
+-- needs_processing flag (mid-round change), and failure backoff. A
+-- marker can exist with processed_at NULL when the first attempt fails.
+CREATE TABLE proxy_round_processing (
+    round_id UUID NOT NULL REFERENCES auction_rounds (id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    processed_at TIMESTAMPTZ,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_failed_at TIMESTAMPTZ,
+    PRIMARY KEY (round_id, user_id)
+);
 
 -- Ledger
 

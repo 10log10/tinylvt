@@ -88,8 +88,8 @@ pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
         .await
         .map_err(log_error);
 
-    // Process proxy bidding for active rounds
-    let _ = process_proxy_bidding_for_active_rounds(pool, time_source)
+    // Process due (round, user) proxy bidding work items
+    let _ = process_due_proxy_items(pool, time_source)
         .await
         .map_err(log_error);
 
@@ -229,8 +229,6 @@ async fn lock_next_auction_needing_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> anyhow::Result<Option<store::Auction>> {
-    // Exponential backoff: 5 minutes * 2^failure_count, capped at 5 failures
-    // (which gives max backoff of ~2.5 hours)
     sqlx::query_as::<_, store::Auction>(&format!(
         "WITH candidates AS MATERIALIZED (
             SELECT auctions.* FROM auctions
@@ -247,20 +245,29 @@ async fn lock_next_auction_needing_update(
                 AND (
                     scheduler_failure_count = 0
                     OR scheduler_last_failed_at IS NULL
-                    OR $1 > scheduler_last_failed_at +
-                        INTERVAL '5 minutes'
-                            * POW(2, LEAST(scheduler_failure_count, 5))
+                    OR $1 > scheduler_last_failed_at + {backoff}
                 )
         )
         SELECT * FROM candidates
-        WHERE pg_try_advisory_xact_lock({})
+        WHERE pg_try_advisory_xact_lock({lock_key})
         LIMIT 1",
-        store::auction::auction_processing_lock_key("candidates.id")
+        backoff = backoff_interval_sql("scheduler_failure_count"),
+        lock_key = store::auction::auction_processing_lock_key("candidates.id")
     ))
     .bind(time_source.now().to_sqlx())
     .fetch_optional(&mut **tx)
     .await
     .map_err(Into::into)
+}
+
+/// SQL expression for the retry backoff after `count_col` failures: 1
+/// second after the first failure, doubling to a ~2.3-hour cap. The base
+/// must stay well under the minimum round duration (5 seconds) — a failed
+/// item backing off past the round would sit out the retry that could
+/// still matter, and both auction processing and proxy items are pure-DB
+/// work where transient failures resolve quickly.
+fn backoff_interval_sql(count_col: &str) -> String {
+    format!("INTERVAL '1 second' * POW(2, LEAST({count_col}, 14) - 1)")
 }
 
 /// Re-read the auction under the advisory lock, confirming it still needs
@@ -916,242 +923,276 @@ fn get_eligibility_for_round_num(
     }
 }
 
-/// Process proxy bidding for all active rounds sequentially.
-/// Uses advisory locks to prevent concurrent processing by multiple
-/// scheduler instances.
+/// A due (round, user) proxy work item, as listed by the lock-free selector.
+#[derive(Debug, sqlx::FromRow)]
+struct ProxyWorkItem {
+    round_id: payloads::AuctionRoundId,
+    auction_id: payloads::AuctionId,
+    user_id: payloads::UserId,
+}
+
+/// Process all due (round, user) proxy work items. The selector lists
+/// candidates lock-free; each item is then claimed individually via a
+/// try-lock on its `auction_user` pair key, so a stale or duplicate
+/// candidate list is harmless — losers skip. One user's failure is
+/// recorded on that user's marker alone and never affects other items.
 #[tracing::instrument(skip(pool, time_source))]
-async fn process_proxy_bidding_for_active_rounds(
+async fn process_due_proxy_items(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
-    tracing::debug!("Starting process_proxy_bidding_for_active_rounds");
+    let items = list_due_proxy_items(pool, time_source).await?;
+    if items.is_empty() {
+        return Ok(());
+    }
+    tracing::debug!("Found {} due proxy work items", items.len());
 
-    loop {
-        match process_next_active_round(pool, time_source).await {
-            Ok(true) => continue, // Processed one, try for more
-            Ok(false) => break,   // No more rounds to process
-            Err(e) => {
-                // Break on error - the scheduler's tick interval provides
-                // natural backoff. Individual round failures are recorded
-                // in the database with exponential backoff.
-                tracing::error!(
-                    "Failed to process proxy bidding for round: {:#}",
-                    e
-                );
-                break;
-            }
+    for item in &items {
+        // Per-item failures are recorded on the item's marker (backoff) and
+        // must not stop the pass — that isolation is the point.
+        if let Err(e) = process_proxy_item(item, pool, time_source).await {
+            tracing::error!(
+                "Failed to process proxy item (round {:?}, user {:?}): {:#}",
+                item.round_id,
+                item.user_id,
+                e
+            );
         }
     }
 
-    tracing::debug!("Finished process_proxy_bidding_for_active_rounds");
     Ok(())
 }
 
-/// Lock and process the next active round that needs proxy bidding processing.
-/// Returns Ok(true) if a round was processed, Ok(false) if no rounds available.
-#[tracing::instrument(skip(pool, time_source))]
-async fn process_next_active_round(
+/// List due (round, user) proxy work items, without claiming them. An item
+/// is due when its active round has no marker row (per-round baseline), its
+/// settings row is flagged dirty (mid-round change — this arm ignores
+/// backoff, making a member change during backoff a fresh-input retry), or
+/// its marker records failures and the backoff has expired.
+async fn list_due_proxy_items(
     pool: &PgPool,
     time_source: &TimeSource,
-) -> anyhow::Result<bool> {
-    tracing::debug!("Starting process_next_active_round");
-    // This transaction is ONLY used to hold the advisory lock for coordination.
-    // It prevents re-entry by other scheduler instances.
-    // No other database operations should be attached to this transaction.
-    let mut coordination_tx = pool.begin().await?;
+) -> anyhow::Result<Vec<ProxyWorkItem>> {
+    // In mock-time mode, order deterministically for reproducible tests
+    // (usernames, since ids are nondeterministic).
+    #[cfg(feature = "mock-time")]
+    let order = "ORDER BY ar.start_at, u.username";
+    #[cfg(not(feature = "mock-time"))]
+    let order = "";
 
-    // Find a round that needs processing and acquire advisory lock
-    let round = match lock_next_active_round_needing_processing(
-        &mut coordination_tx,
-        time_source,
-    )
-    .await?
-    {
-        Some(r) => r,
-        None => {
-            tracing::debug!("No rounds available for processing");
-            return Ok(false);
-        }
-    };
-
-    tracing::debug!(
-        "Found round {:?} for processing and acquired advisory lock: last_processed={:?}, failure_count={}",
-        round.id,
-        round.proxy_bidding_last_processed_at,
-        round.proxy_bidding_failure_count
-    );
-
-    let round_id = round.id;
-
-    // Process the round in its own transaction (not the coordination_tx)
-    match process_proxy_bidding_for_round(&round, pool, time_source).await {
-        Ok(()) => {
-            tracing::debug!(
-                "Successfully processed proxy bidding for round {:?}",
-                round_id
-            );
-            // Update last processed timestamp and reset failure tracking
-            sqlx::query(
-                "UPDATE auction_rounds
-                SET proxy_bidding_last_processed_at = $1,
-                    proxy_bidding_failure_count = 0,
-                    proxy_bidding_last_failed_at = NULL
-                WHERE id = $2",
+    sqlx::query_as::<_, ProxyWorkItem>(&format!(
+        "SELECT ar.id AS round_id, ar.auction_id, upb.user_id
+        FROM auction_rounds ar
+        -- a.end_at excludes auctions canceled mid-round (the round row
+        -- still spans now, but bidding into it would be pointless)
+        JOIN auctions a ON ar.auction_id = a.id AND a.end_at IS NULL
+        JOIN use_proxy_bidding upb ON upb.auction_id = ar.auction_id
+        JOIN users u ON upb.user_id = u.id
+        LEFT JOIN proxy_round_processing prp
+            ON prp.round_id = ar.id AND prp.user_id = upb.user_id
+        WHERE $1 >= ar.start_at
+            AND $1 < ar.end_at
+            AND (
+                prp.round_id IS NULL
+                OR upb.needs_processing
+                OR (
+                    prp.failure_count > 0
+                    AND prp.last_failed_at IS NOT NULL
+                    AND $1 > prp.last_failed_at + {backoff}
+                )
             )
-            .bind(time_source.now().to_sqlx())
-            .bind(round_id)
-            .execute(pool)
+        {order}",
+        backoff = backoff_interval_sql("prp.failure_count"),
+    ))
+    .bind(time_source.now().to_sqlx())
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
+/// Claim and process one (round, user) proxy work item. The claim tx
+/// carries the whole operation: pair advisory try-lock first (losing
+/// contenders bounce off the probe and never queue behind the row lock),
+/// then the flag-clearing UPDATE under the settings row lock, dueness
+/// re-verified under the claim, the bidding work inside a savepoint, and
+/// the marker write — one commit makes flag-clear + bids + marker atomic.
+/// A crash discards everything including the flag clear, so the item is
+/// simply re-selected. Concurrent settings writers block on the row lock,
+/// land strictly after the commit, and re-set the flag.
+async fn process_proxy_item(
+    item: &ProxyWorkItem,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    let claimed: bool = sqlx::query_scalar(&format!(
+        "SELECT pg_try_advisory_xact_lock({})",
+        store::auction::auction_user_lock_key("$1", "$2")
+    ))
+    .bind(item.auction_id)
+    .bind(item.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !claimed {
+        // Another claimant owns this (auction, user); it will process or
+        // the item stays due and is re-selected next tick.
+        return Ok(());
+    }
+
+    // Lock and read the settings row (capturing the flag's pre-clear
+    // value), then clear the flag. The clear stays uncommitted until the
+    // final commit; other selectors are suppressed by the advisory lock,
+    // not the flag's visible state.
+    let settings = sqlx::query_as::<_, store::UseProxyBidding>(
+        "SELECT * FROM use_proxy_bidding
+        WHERE user_id = $1 AND auction_id = $2
+        FOR UPDATE",
+    )
+    .bind(item.user_id)
+    .bind(item.auction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(settings) = settings else {
+        // Proxy bidding was disabled after the candidate was listed
+        return Ok(());
+    };
+    if settings.needs_processing {
+        sqlx::query(
+            "UPDATE use_proxy_bidding SET needs_processing = FALSE
+            WHERE user_id = $1 AND auction_id = $2",
+        )
+        .bind(item.user_id)
+        .bind(item.auction_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Re-verify under the claim: the candidate list's snapshot predates the
+    // lock, and a prior claimant may have just processed this item. Fresh
+    // statements here see everything prior lock holders committed.
+    let now = time_source.now();
+    let round = sqlx::query_as::<_, store::AuctionRound>(
+        "SELECT ar.* FROM auction_rounds ar
+        JOIN auctions a ON ar.auction_id = a.id AND a.end_at IS NULL
+        WHERE ar.id = $1 AND $2 >= ar.start_at AND $2 < ar.end_at",
+    )
+    .bind(item.round_id)
+    .bind(now.to_sqlx())
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(round) = round else {
+        // Round ended, or the auction was canceled mid-round; a next
+        // round's baseline arm covers any reprocessing
+        tx.rollback().await?;
+        return Ok(());
+    };
+    let due: bool = sqlx::query_scalar(&format!(
+        "SELECT $3
+            OR NOT EXISTS (
+                SELECT 1 FROM proxy_round_processing
+                WHERE round_id = $1 AND user_id = $2
+            )
+            OR EXISTS (
+                SELECT 1 FROM proxy_round_processing
+                WHERE round_id = $1 AND user_id = $2
+                    AND failure_count > 0
+                    AND last_failed_at IS NOT NULL
+                    AND $4 > last_failed_at + {backoff}
+            )",
+        backoff = backoff_interval_sql("failure_count"),
+    ))
+    .bind(item.round_id)
+    .bind(item.user_id)
+    .bind(settings.needs_processing)
+    .bind(now.to_sqlx())
+    .fetch_one(&mut *tx)
+    .await?;
+    if !due {
+        tx.rollback().await?;
+        return Ok(());
+    }
+
+    // Run the bidding work inside a savepoint so a failure can be recorded
+    // on the marker while the flag stays cleared (a writer-side signal
+    // only) and the claim commits — re-selection then goes through backoff,
+    // or immediately via the flag if the member changes inputs.
+    let work_result = async {
+        let mut work_tx = tx.begin().await?;
+        match run_proxy_item_work(
+            &settings,
+            &round,
+            &mut work_tx,
+            time_source,
+            pool,
+        )
+        .await
+        {
+            Ok(()) => work_tx.commit().await.map_err(Into::into),
+            Err(e) => {
+                work_tx.rollback().await?;
+                Err(e)
+            }
+        }
+    }
+    .await;
+
+    match work_result {
+        Ok(()) => {
+            sqlx::query(
+                "INSERT INTO proxy_round_processing
+                    (round_id, user_id, processed_at, failure_count,
+                     last_failed_at)
+                VALUES ($1, $2, $3, 0, NULL)
+                ON CONFLICT (round_id, user_id) DO UPDATE
+                SET processed_at = EXCLUDED.processed_at,
+                    failure_count = 0,
+                    last_failed_at = NULL",
+            )
+            .bind(item.round_id)
+            .bind(item.user_id)
+            .bind(now.to_sqlx())
+            .execute(&mut *tx)
             .await?;
-
-            tracing::debug!(
-                "Updated round {:?} processing timestamp",
-                round_id
-            );
-
-            // Success - commit the coordination transaction to release the lock
-            coordination_tx.commit().await?;
-            Ok(true)
+            tx.commit().await?;
+            Ok(())
         }
         Err(e) => {
-            tracing::error!(
-                "Error processing proxy bidding for round {:?}: {:#}",
-                round_id,
-                e
-            );
-
-            // Record the failure in a separate transaction before releasing
-            // lock
-            let _ = handle_proxy_bidding_failure(round_id, pool, time_source)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        "Failed to record proxy bidding failure: {:#}",
-                        err
-                    );
-                });
-
-            // Commit the coordination transaction to release the lock
-            // (failure has been recorded in separate transaction above)
-            let _ = coordination_tx.commit().await;
-
+            sqlx::query(
+                "INSERT INTO proxy_round_processing
+                    (round_id, user_id, failure_count, last_failed_at)
+                VALUES ($1, $2, 1, $3)
+                ON CONFLICT (round_id, user_id) DO UPDATE
+                SET failure_count = proxy_round_processing.failure_count + 1,
+                    last_failed_at = EXCLUDED.last_failed_at",
+            )
+            .bind(item.round_id)
+            .bind(item.user_id)
+            .bind(now.to_sqlx())
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
             Err(e)
         }
     }
 }
 
-/// Lock the next active round that needs proxy bidding processing.
-/// Uses FOR UPDATE SKIP LOCKED to prevent blocking and enable concurrent
-/// scheduler instances. Uses exponential backoff to avoid repeatedly processing
-/// failing rounds.
-#[tracing::instrument(skip(tx, time_source))]
-async fn lock_next_active_round_needing_processing(
+#[tracing::instrument(
+    skip_all,
+    fields(
+        user_id = ?settings.user_id,
+        max_items = settings.max_items
+    )
+)]
+async fn run_proxy_item_work(
+    settings: &store::UseProxyBidding,
+    round: &store::AuctionRound,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
-) -> anyhow::Result<Option<store::AuctionRound>> {
-    // Select rounds that:
-    // 1. Are currently active (now >= start_at AND now < end_at)
-    // 2. Have never been processed OR
-    // 3. Have user settings that changed since last processing OR
-    // 4. Failed but backoff period has expired
-
-    sqlx::query_as::<_, store::AuctionRound>(
-        "SELECT ar.* FROM auction_rounds ar
-        WHERE $1 >= ar.start_at
-            AND $1 < ar.end_at
-            AND (
-                -- Never processed
-                (ar.proxy_bidding_last_processed_at IS NULL
-                 AND ar.proxy_bidding_failure_count = 0)
-                -- Or proxy bidding settings updated since last processing
-                OR EXISTS (
-                    SELECT 1 FROM use_proxy_bidding upb
-                    WHERE upb.auction_id = ar.auction_id
-                    AND ar.proxy_bidding_last_processed_at IS NOT NULL
-                    AND upb.updated_at > ar.proxy_bidding_last_processed_at
-                )
-                -- Or any user values for this auction updated since last processing
-                OR EXISTS (
-                    SELECT 1 FROM user_values uv
-                    JOIN spaces s ON uv.space_id = s.id
-                    JOIN sites si ON s.site_id = si.id
-                    JOIN auctions a ON si.id = a.site_id
-                    WHERE a.id = ar.auction_id
-                    AND ar.proxy_bidding_last_processed_at IS NOT NULL
-                    AND uv.updated_at > ar.proxy_bidding_last_processed_at
-                )
-                -- Or failed but backoff period expired
-                OR (
-                    ar.proxy_bidding_failure_count > 0
-                    AND ar.proxy_bidding_last_failed_at IS NOT NULL
-                    AND $1 > ar.proxy_bidding_last_failed_at +
-                        INTERVAL '5 minutes' * POW(2, LEAST(ar.proxy_bidding_failure_count, 5))
-                )
-            )
-            -- Try to take a transaction-scoped advisory lock for this row
-            AND pg_try_advisory_xact_lock(
-                hashtextextended('proxy_bidding:' || ar.id::text, 0)
-            )
-        ORDER BY random()
-        LIMIT 1",
-    )
-    .bind(time_source.now().to_sqlx())
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(Into::into)
-}
-
-/// Record a failure to process proxy bidding for a round.
-#[tracing::instrument(skip(pool, time_source))]
-async fn handle_proxy_bidding_failure(
-    round_id: payloads::AuctionRoundId,
-    pool: &PgPool,
-    time_source: &TimeSource,
+    pool: &PgPool, // for create_bid_tx's validation reads
 ) -> anyhow::Result<()> {
-    sqlx::query(
-        "UPDATE auction_rounds
-        SET proxy_bidding_failure_count = proxy_bidding_failure_count + 1,
-            proxy_bidding_last_failed_at = $1
-        WHERE id = $2",
-    )
-    .bind(time_source.now().to_sqlx())
-    .bind(round_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Process proxy bidding for a single auction round.
-/// Protected by an advisory lock to prevent concurrent processing.
-#[tracing::instrument(skip(pool, time_source))]
-async fn process_proxy_bidding_for_round(
-    round: &store::AuctionRound,
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    tracing::debug!(
-        "Entered process_proxy_bidding_for_round for round {:?}",
-        round.id
-    );
-    // Get all proxy bidding settings for this auction
-    tracing::debug!(
-        "Fetching proxy bidding settings for auction {:?}",
-        round.auction_id
-    );
-    // Proxy bidding rows are deleted when a member leaves a community, so a
-    // row here always denotes a current member; no membership filter needed.
-    let proxy_settings = sqlx::query_as::<_, store::UseProxyBidding>(
-        "SELECT * FROM use_proxy_bidding
-        WHERE auction_id = $1",
-    )
-    .bind(round.auction_id)
-    .fetch_all(pool)
-    .await?;
-
-    tracing::info!("Found {} proxy bidding settings", proxy_settings.len());
-    tracing::debug!("Proxy bidding settings: {:?}", proxy_settings);
-
-    // Get all spaces for this auction
+    // Plan reads: the auction-level inputs for this item. (The settings row
+    // always denotes a current member: proxy bidding rows are deleted when
+    // a member leaves a community.)
     let spaces = sqlx::query_as::<_, store::Space>(
         "SELECT s.* FROM spaces s
         JOIN sites si ON s.site_id = si.id
@@ -1159,20 +1200,16 @@ async fn process_proxy_bidding_for_round(
         WHERE a.id = $1 AND s.is_available = true AND s.deleted_at IS NULL",
     )
     .bind(round.auction_id)
-    .fetch_all(pool)
+    .fetch_all(&mut **tx)
     .await
     .context("failed to get auction spaces")?;
 
-    tracing::info!("Found {} spaces", spaces.len());
-
-    // Index spaces by id so the per-user proxy loop can do cheap reserve
-    // price lookups without re-scanning the list.
-    let spaces_by_id: HashMap<SpaceId, store::Space> =
+    // Index spaces by id for cheap reserve price lookups when computing
+    // surpluses.
+    let spaces: HashMap<SpaceId, store::Space> =
         spaces.into_iter().map(|s| (s.id, s)).collect();
 
-    // Get the most recent completed round results to determine current prices
-    // We look at the round with the highest round_num that is less than the
-    // current round
+    // Prices as of the previous round; does not exist for round 0.
     let prev_round_space_results =
         sqlx::query_as::<_, store::RoundSpaceResult>(
             "SELECT *
@@ -1183,14 +1220,9 @@ async fn process_proxy_bidding_for_round(
         )
         .bind(round.auction_id)
         .bind(round.round_num - 1)
-        .fetch_all(pool)
+        .fetch_all(&mut **tx)
         .await
         .context("failed to get round results")?;
-
-    tracing::info!(
-        "Found {} round results from previous rounds",
-        prev_round_space_results.len()
-    );
 
     // Get the auction params for the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
@@ -1199,63 +1231,10 @@ async fn process_proxy_bidding_for_round(
         WHERE a.id = $1",
     )
     .bind(round.auction_id)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await
     .context("failed to get auction params")?;
-
-    let mut user_err = None;
-
-    // Process each user's proxy bidding settings
-    for settings in proxy_settings {
-        if let Err(e) = process_user_proxy_bidding(
-            &settings,
-            &spaces_by_id,
-            &prev_round_space_results,
-            round.auction_id,
-            &round.id,
-            auction_params.bid_increment,
-            pool,
-            time_source,
-        )
-        .await
-        {
-            log_error(e);
-            user_err =
-                Some(anyhow::anyhow!("partial user proxy bidding failure"));
-        };
-    }
-
-    tracing::debug!(
-        "Finished processing all users' proxy bidding for round {:?}",
-        round.id
-    );
-    // Return an error if we failed to process a user's bids, so we can try
-    // again.
-    user_err.map_or(Ok(()), Err)
-}
-
-#[tracing::instrument(
-    skip_all,
-    fields(
-        user_id = ?settings.user_id,
-        max_items = settings.max_items
-    )
-)]
-#[allow(clippy::too_many_arguments)]
-async fn process_user_proxy_bidding(
-    settings: &store::UseProxyBidding,
-    // All spaces for the auction, indexed by id for cheap reserve_price
-    // lookups when computing surpluses.
-    spaces: &HashMap<SpaceId, store::Space>,
-    // prices as of the previous round; does not exist for round 0
-    prev_round_space_results: &[store::RoundSpaceResult],
-    auction_id: payloads::AuctionId,
-    current_round_id: &payloads::AuctionRoundId,
-    bid_increment: payloads::BidIncrement,
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
+    let bid_increment = auction_params.bid_increment;
 
     // Clear any existing bids for this user in this round before reprocessing.
     // This ensures that if proxy bidding settings or user values were updated
@@ -1265,9 +1244,9 @@ async fn process_user_proxy_bidding(
         "DELETE FROM bids
         WHERE round_id = $1 AND user_id = $2",
     )
-    .bind(current_round_id)
+    .bind(round.id)
     .bind(settings.user_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .with_context(|| {
         format!(
@@ -1291,7 +1270,7 @@ async fn process_user_proxy_bidding(
     let user_values = sqlx::query_as::<_, store::UserValue>(user_values_query)
         .bind(settings.user_id)
         .bind(spaces.keys().copied().collect::<Vec<_>>())
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await
         .with_context(|| {
             format!("failed to get user values for {:?}", settings.user_id)
@@ -1379,9 +1358,9 @@ async fn process_user_proxy_bidding(
 
         match store::create_bid_tx(
             &space_id,
-            current_round_id,
+            &round.id,
             &settings.user_id,
-            &mut tx,
+            tx,
             time_source,
             pool,
         )
@@ -1421,16 +1400,14 @@ async fn process_user_proxy_bidding(
     }
 
     pubsub::emit(
-        &mut tx,
+        tx,
         &payloads::AuctionEvent::BidsChanged {
-            auction_id,
-            round_id: *current_round_id,
+            auction_id: round.auction_id,
+            round_id: round.id,
             user_id: settings.user_id,
         },
     )
     .await?;
-
-    tx.commit().await?;
 
     tracing::info!("Placed {} successful new bids", successful_bids,);
 

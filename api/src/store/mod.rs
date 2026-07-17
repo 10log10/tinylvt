@@ -341,11 +341,6 @@ pub struct AuctionRound {
     #[sqlx(try_from = "SqlxTs")]
     pub end_at: Timestamp,
     pub eligibility_threshold: f64, // fractional eligibility; 0-1
-    #[sqlx(try_from = "OptionalTimestamp")]
-    pub proxy_bidding_last_processed_at: Option<Timestamp>,
-    pub proxy_bidding_failure_count: i32,
-    #[sqlx(try_from = "OptionalTimestamp")]
-    pub proxy_bidding_last_failed_at: Option<Timestamp>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -411,6 +406,7 @@ pub struct UseProxyBidding {
     pub user_id: UserId,
     pub auction_id: AuctionId,
     pub max_items: i32,
+    pub needs_processing: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]

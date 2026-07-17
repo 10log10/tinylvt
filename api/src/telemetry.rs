@@ -19,6 +19,18 @@ pub fn get_subscriber(env_filter: String) -> impl Subscriber + Sync + Send {
     Registry::default().with(env_filter).with(stderr)
 }
 
+/// Subscriber for tests. Writes through libtest's `print!` capture (a
+/// direct write to the stderr handle bypasses it), so expected error logs
+/// stay hidden for passing tests and appear on failure or `--nocapture`.
+pub fn get_test_subscriber(
+    env_filter: String,
+) -> impl Subscriber + Sync + Send {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(env_filter));
+    let layer = fmt::Layer::new().with_test_writer().pretty();
+    Registry::default().with(env_filter).with(layer)
+}
+
 /// Register a subscriber as global default to process span data.
 ///
 /// It should only be called once!

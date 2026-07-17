@@ -20,6 +20,8 @@ pub async fn create_or_update_user_value(
     )
     .await?;
 
+    let mut tx = pool.begin().await?;
+
     sqlx::query(
         "INSERT INTO user_values (user_id, space_id, value, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
@@ -30,7 +32,39 @@ pub async fn create_or_update_user_value(
     .bind(details.space_id)
     .bind(details.value)
     .bind(time_source.now().to_sqlx())
-    .execute(pool)
+    .execute(&mut *tx)
+    .await?;
+
+    flag_proxy_rows_for_space(&details.space_id, user_id, &mut tx).await?;
+
+    tx.commit().await?;
+
+    Ok(())
+}
+
+/// Mark the user's proxy rows dirty for open auctions of the space's site,
+/// in the same transaction as the value write, so the proxy processor
+/// re-selects the (round, user) item. Setting the flag in the writer's own
+/// tx (rather than comparing timestamps at selection time) is what makes
+/// re-selection immune to writes that straddle the processor's read.
+async fn flag_proxy_rows_for_space(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        "UPDATE use_proxy_bidding SET needs_processing = TRUE
+        WHERE user_id = $1
+        AND auction_id IN (
+            SELECT a.id FROM auctions a
+            JOIN sites si ON a.site_id = si.id
+            JOIN spaces s ON s.site_id = si.id
+            WHERE s.id = $2 AND a.end_at IS NULL
+        )",
+    )
+    .bind(user_id)
+    .bind(space_id)
+    .execute(&mut **tx)
     .await?;
 
     Ok(())
@@ -71,11 +105,20 @@ pub async fn delete_user_value(
         get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
             .await?;
 
+    let mut tx = pool.begin().await?;
+
     sqlx::query("DELETE FROM user_values WHERE space_id = $1 AND user_id = $2")
         .bind(space_id)
         .bind(user_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    // A deleted value changes the user's proxy plan just like an edit does.
+    // (The old timestamp-watermark selection missed deletions entirely: a
+    // deleted row has no updated_at to compare.)
+    flag_proxy_rows_for_space(space_id, user_id, &mut tx).await?;
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -121,11 +164,16 @@ pub async fn create_or_update_proxy_bidding(
     )
     .await?;
 
+    // needs_processing = TRUE (the insert default, re-asserted on update)
+    // marks the item dirty in this same statement, so the proxy processor
+    // re-selects it even if this write straddles a processing pass.
     sqlx::query(
         "INSERT INTO use_proxy_bidding (user_id, auction_id, max_items, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, auction_id)
-        DO UPDATE SET max_items = EXCLUDED.max_items, updated_at = EXCLUDED.updated_at",
+        DO UPDATE SET max_items = EXCLUDED.max_items,
+            needs_processing = TRUE,
+            updated_at = EXCLUDED.updated_at",
     )
     .bind(user_id)
     .bind(details.auction_id)

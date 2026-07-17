@@ -855,7 +855,7 @@ pub fn assert_site_image_equal(
 }
 
 pub async fn spawn_app_on_port(port: u16) -> TestApp {
-    let subscriber = telemetry::get_subscriber("error".into());
+    let subscriber = telemetry::get_test_subscriber("error".into());
     let _ = LogTracer::init();
     let _ = subscriber.try_init();
 
