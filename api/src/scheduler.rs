@@ -149,6 +149,21 @@ async fn process_next_auction(
 
     let auction_id = auction.id;
 
+    // Re-verify under the lock, since the selection's snapshot predates the
+    // lock acquisition; process the fresh row, not the selection's stale one.
+    let auction =
+        match reverify_auction_under_lock(auction_id, &mut tx, time_source)
+            .await?
+        {
+            Some(a) => a,
+            None => {
+                // A peer instance finished this auction after our selection
+                // snapshot; release the lock and keep draining the queue.
+                tx.commit().await?;
+                return Ok(true);
+            }
+        };
+
     // Run the work inside a savepoint (sqlx nested transaction)
     let work_result = async {
         let mut work_tx = tx.begin().await?;
@@ -198,6 +213,17 @@ async fn process_next_auction(
 /// Auctions that need processing are those that are still ongoing (the
 /// start_at is past and end_at is NULL) and which do not have an ongoing round
 /// (now < end_at for any round).
+///
+/// The try-lock is evaluated outside a MATERIALIZED CTE, which is documented
+/// to force separate calculation (no folding into the parent, so the lock
+/// call can't be cost-reordered in among the data predicates) while still
+/// evaluating only as many rows as the parent fetches. The outer `LIMIT 1`
+/// therefore pulls candidates lazily and acquires at most one lock: a
+/// contended candidate is skipped for free and the walk stops at the first
+/// win. Written flat, the planner cost-reorders the cheap lock call ahead of
+/// the data predicates and try-locks every scanned row. `None` therefore
+/// means no *unclaimed* work exists — every qualifying auction is either
+/// absent or currently claimed by a peer instance.
 #[tracing::instrument(skip(tx, time_source))]
 async fn lock_next_auction_needing_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -206,30 +232,63 @@ async fn lock_next_auction_needing_update(
     // Exponential backoff: 5 minutes * 2^failure_count, capped at 5 failures
     // (which gives max backoff of ~2.5 hours)
     sqlx::query_as::<_, store::Auction>(&format!(
+        "WITH candidates AS MATERIALIZED (
+            SELECT auctions.* FROM auctions
+            JOIN sites ON auctions.site_id = sites.id
+            WHERE sites.deleted_at IS NULL
+                AND start_at IS NOT NULL
+                AND $1 >= start_at
+                AND end_at IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM auction_rounds
+                    WHERE auction_id = auctions.id
+                    AND $1 < end_at
+                )
+                AND (
+                    scheduler_failure_count = 0
+                    OR scheduler_last_failed_at IS NULL
+                    OR $1 > scheduler_last_failed_at +
+                        INTERVAL '5 minutes'
+                            * POW(2, LEAST(scheduler_failure_count, 5))
+                )
+        )
+        SELECT * FROM candidates
+        WHERE pg_try_advisory_xact_lock({})
+        LIMIT 1",
+        store::auction::auction_processing_lock_key("candidates.id")
+    ))
+    .bind(time_source.now().to_sqlx())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(Into::into)
+}
+
+/// Re-read the auction under the advisory lock, confirming it still needs
+/// processing. The selection query evaluates its predicates against a
+/// snapshot taken at statement start, so a peer instance can finish this
+/// auction (and release its lock) between that snapshot and our lock
+/// acquisition. A fresh statement under the lock is guaranteed to see
+/// whatever prior lock holders committed. Returns None if the auction no
+/// longer needs processing. (Backoff fields are deliberately not re-checked:
+/// staleness there costs one immediate retry of a just-failed auction, which
+/// re-records its backoff.)
+async fn reverify_auction_under_lock(
+    auction_id: payloads::AuctionId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    time_source: &TimeSource,
+) -> anyhow::Result<Option<store::Auction>> {
+    sqlx::query_as::<_, store::Auction>(
         "SELECT auctions.* FROM auctions
-        JOIN sites ON auctions.site_id = sites.id
-        WHERE sites.deleted_at IS NULL
-            AND start_at IS NOT NULL
-            AND $1 >= start_at
+        WHERE id = $2
             AND end_at IS NULL
             AND NOT EXISTS (
                 SELECT 1 FROM auction_rounds
                 WHERE auction_id = auctions.id
                 AND $1 < end_at
-            )
-            AND (
-                scheduler_failure_count = 0
-                OR scheduler_last_failed_at IS NULL
-                OR $1 > scheduler_last_failed_at +
-                    INTERVAL '5 minutes' * POW(2, LEAST(scheduler_failure_count, 5))
-            )
-            -- Try to take a transaction-scoped advisory lock for this auction
-            AND pg_try_advisory_xact_lock({})
-        ORDER BY random()
-        LIMIT 1",
-        store::auction::auction_processing_lock_key("auctions.id")
-    ))
+            )",
+    )
     .bind(time_source.now().to_sqlx())
+    .bind(auction_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(Into::into)
