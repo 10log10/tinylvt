@@ -38,7 +38,7 @@ use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
 use payloads::SpaceId;
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use sqlx::{Acquire, PgPool};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
@@ -132,46 +132,59 @@ async fn process_next_auction(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> anyhow::Result<bool> {
-    // This transaction is ONLY used to hold the advisory lock for coordination.
-    // It prevents re-entry by other scheduler instances.
-    // No other database operations should be attached to this transaction.
-    let mut coordination_tx = pool.begin().await?;
+    // A single transaction holds the advisory lock (taken in the selection
+    // query) and carries the processing work, making results, settlement,
+    // and bookkeeping atomic with lock release. The work runs inside a
+    // savepoint so a failure can be recorded on this same transaction while
+    // the lock is still held: rolling back to a savepoint releases locks
+    // acquired after the savepoint, but the advisory lock predates it.
+    let mut tx = pool.begin().await?;
 
     // Lock one auction atomically using advisory lock
-    let auction = match lock_next_auction_needing_update(
-        &mut coordination_tx,
-        time_source,
-    )
-    .await?
-    {
-        Some(a) => a,
-        None => return Ok(false), // No auctions available
-    };
+    let auction =
+        match lock_next_auction_needing_update(&mut tx, time_source).await? {
+            Some(a) => a,
+            None => return Ok(false), // No auctions available
+        };
 
     let auction_id = auction.id;
 
-    // Process the auction in its own transaction (not the coordination_tx)
-    match process_locked_auction(&auction, pool, time_source).await {
+    // Run the work inside a savepoint (sqlx nested transaction)
+    let work_result = async {
+        let mut work_tx = tx.begin().await?;
+        match process_locked_auction(&auction, &mut work_tx, time_source).await
+        {
+            Ok(()) => work_tx.commit().await.map_err(Into::into),
+            Err(e) => {
+                // Discard the work's data changes; the advisory lock is
+                // unaffected
+                work_tx.rollback().await?;
+                Err(e)
+            }
+        }
+    }
+    .await;
+
+    match work_result {
         Ok(()) => {
-            // Success - commit the coordination transaction to release the lock
-            coordination_tx.commit().await?;
+            tx.commit().await?;
             Ok(true)
         }
         Err(e) => {
-            // Record the failure in a separate transaction before releasing
-            // lock
+            // Record the failure while still holding the lock, so no other
+            // scheduler instance can re-grab the auction before its backoff
+            // is written
             let _ = handle_auction_processing_failure(
                 auction_id,
-                pool,
+                &mut tx,
                 time_source,
             )
             .await
             .context("Failed to record auction failure")
             .map_err(log_error);
 
-            // Commit the coordination transaction to release the lock
-            // (failure has been recorded in separate transaction above)
-            let _ = coordination_tx.commit().await;
+            // Commit to persist the failure record and release the lock
+            let _ = tx.commit().await;
 
             Err(e)
         }
@@ -223,10 +236,10 @@ async fn lock_next_auction_needing_update(
 }
 
 /// Record a failure to process an auction.
-#[tracing::instrument(skip(pool, time_source))]
+#[tracing::instrument(skip(tx, time_source))]
 async fn handle_auction_processing_failure(
     auction_id: payloads::AuctionId,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
     sqlx::query(
@@ -237,24 +250,21 @@ async fn handle_auction_processing_failure(
     )
     .bind(time_source.now().to_sqlx())
     .bind(auction_id)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
 
     Ok(())
 }
 
-/// Process a locked auction in its own transaction.
-/// This function handles updating results for previous rounds and creating new
-/// rounds.
-#[tracing::instrument(skip(pool, auction, time_source))]
+/// Process a locked auction on the caller's transaction (a savepoint under
+/// the lock-holding transaction). This function handles updating results for
+/// previous rounds and creating new rounds.
+#[tracing::instrument(skip(tx, auction, time_source))]
 async fn process_locked_auction(
     auction: &store::Auction,
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
-    // Create a new transaction for the actual processing work
-    let mut tx = pool.begin().await?;
-
     let previous_round = sqlx::query_as::<_, store::AuctionRound>(
         "SELECT * FROM auction_rounds
         WHERE auction_id = $1
@@ -262,7 +272,7 @@ async fn process_locked_auction(
         LIMIT 1",
     )
     .bind(auction.id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to query for concluded round")?;
 
@@ -272,14 +282,13 @@ async fn process_locked_auction(
         let auction_continues = update_round_space_results_within_tx(
             auction,
             previous_round,
-            &mut tx,
+            tx,
             time_source,
         )
         .await?;
 
         if !auction_continues {
             // Auction has concluded, no more rounds to create
-            tx.commit().await?;
             return Ok(());
         }
 
@@ -289,8 +298,7 @@ async fn process_locked_auction(
         // rather than settle: the allocation isn't valid since bidding never
         // naturally ended, and users should retry with a larger increment.
         if previous_round.round_num + 1 >= payloads::MAX_AUCTION_ROUNDS {
-            cancel_runaway_auction(auction, &mut tx, time_source).await?;
-            tx.commit().await?;
+            cancel_runaway_auction(auction, tx, time_source).await?;
             return Ok(());
         }
     }
@@ -299,23 +307,17 @@ async fn process_locked_auction(
     let new_round_id = add_subsequent_rounds_for_auction(
         auction,
         &previous_round,
-        &mut tx,
+        tx,
         time_source,
     )
     .await?;
 
     // Update eligibilities only if there was a previous round
     if let Some(ref previous_round) = previous_round {
-        update_user_eligibilities(
-            auction,
-            previous_round,
-            &new_round_id,
-            &mut tx,
-        )
-        .await?;
+        update_user_eligibilities(auction, previous_round, &new_round_id, tx)
+            .await?;
     }
 
-    tx.commit().await?;
     Ok(())
 }
 
