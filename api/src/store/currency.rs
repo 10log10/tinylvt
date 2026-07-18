@@ -451,6 +451,45 @@ pub(crate) async fn check_sufficient_credit_tx(
     Ok(())
 }
 
+/// Canonical lock order for account rows: raw UUID byte order, matching the
+/// database's `ORDER BY id`. Every site that takes row locks on multiple
+/// accounts within one transaction — explicit `SELECT FOR UPDATE` or the
+/// implicit locks of balance updates — must acquire in this order, or two
+/// transactions sharing accounts can AB/BA deadlock. All sorted-locking sites
+/// must use this one key rather than an ad-hoc ordering: lexical order on
+/// `id.to_string()`, for example, happens to coincide with byte order for
+/// lowercase hyphenated UUIDs, but that's a fact to avoid depending on site by
+/// site. The discipline spans the transaction's entire lifetime, not each
+/// statement or loop: a lock taken early (say, on one account whose balance a
+/// caller needs) followed by later locks on lower-ordered accounts is an
+/// out-of-order acquisition even if each phase is internally sorted.
+pub fn account_lock_sort_key(id: &AccountId) -> uuid::Uuid {
+    id.0
+}
+
+/// Lock account rows in canonical order (see [`account_lock_sort_key`]).
+/// Callers that need account state before [`create_entry`] — e.g. a balance
+/// read that determines the journal lines — must lock the entry's full
+/// account set with this helper first, so `create_entry`'s locking finds every
+/// row already held; locking only a subset and letting `create_entry` acquire
+/// the rest later re-creates the out-of-order interleaving this discipline
+/// exists to prevent.
+pub(crate) async fn lock_accounts_tx(
+    account_ids: &[AccountId],
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    let mut ids = account_ids.to_vec();
+    ids.sort_by_key(account_lock_sort_key);
+    ids.dedup();
+    for id in &ids {
+        sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Parameters for creating a journal entry
 struct CreateEntryParams<'a> {
     community_id: &'a CommunityId,
@@ -467,8 +506,8 @@ struct CreateEntryParams<'a> {
 /// This is the core ledger operation. It:
 /// 1. Validates that lines sum to zero
 /// 2. Validates one line per account (except AuctionSettlement/BalanceReset)
-/// 3. Locks debited accounts and checks credit limits (except
-///    AuctionSettlement/BalanceReset)
+/// 3. Locks all line accounts in canonical order and checks credit limits
+///    (credit checks except for AuctionSettlement/BalanceReset)
 /// 4. Creates the journal entry and lines
 /// 5. Updates balance_cached for all accounts
 ///
@@ -519,12 +558,14 @@ async fn create_entry(
         return Err(StoreError::JournalLinesDoNotSumToZero(sum));
     }
 
+    let mut lines = params.lines;
+    lines.sort_by_key(|(account_id, _)| account_lock_sort_key(account_id));
+
     let now = time_source.now();
 
-    // Skip validation and credit checks for auction settlement and balance
-    // reset
+    // Skip credit checks for auction settlement and balance reset
     // - Auction settlement: locked balance already includes debits
-    // - Balance reset: accounts are pre-locked and credit checks will pass
+    // - Balance reset: credit checks would trivially pass
     let skip_checks = matches!(
         params.entry_type,
         EntryType::AuctionSettlement | EntryType::BalanceReset
@@ -532,37 +573,30 @@ async fn create_entry(
 
     if !skip_checks {
         // Validate one line per account
-        let unique_accounts: std::collections::HashSet<AccountId> = params
-            .lines
-            .iter()
-            .map(|(account_id, _)| *account_id)
-            .collect();
-        if unique_accounts.len() != params.lines.len() {
+        let unique_accounts: std::collections::HashSet<AccountId> =
+            lines.iter().map(|(account_id, _)| *account_id).collect();
+        if unique_accounts.len() != lines.len() {
             return Err(StoreError::DuplicateAccountInJournalEntry);
         }
+    }
 
-        // Collect debited accounts and sort by ID to prevent deadlocks
-        let mut debited_accounts: Vec<_> = params
-            .lines
-            .iter()
-            .filter(|(_, amount)| *amount < Decimal::ZERO)
-            .map(|(account_id, _)| *account_id)
-            .collect();
-        debited_accounts.sort_by_key(|id| id.to_string());
-        debited_accounts.dedup(); // Should be no-op given one line per account
+    // Lock every line account up front, in canonical order. Locking only a
+    // subset (the old code locked just the debited accounts) leaves the rest
+    // to be acquired by the balance updates below — a second acquisition
+    // phase whose locks can land below already-held ids, which AB/BAs
+    // against a concurrent entry sharing accounts (e.g. reverse transfers
+    // A→B and B→A). Locking everything first costs no concurrency: the
+    // updates' row locks are held until commit regardless. Callers that
+    // pre-lock (see lock_accounts_tx) hold a superset, making these
+    // acquisitions no-ops.
+    let line_accounts: Vec<AccountId> =
+        lines.iter().map(|(account_id, _)| *account_id).collect();
+    lock_accounts_tx(&line_accounts, tx).await?;
 
-        // Lock debited accounts using SELECT FOR UPDATE
-        // Ensures there's no changes between when the available credit is
-        // checked and when the debit is committed.
-        for account_id in &debited_accounts {
-            sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE")
-                .bind(account_id)
-                .execute(&mut **tx)
-                .await?;
-        }
-
-        // Check credit limits BEFORE making changes
-        for (account_id, amount) in &params.lines {
+    if !skip_checks {
+        // Check credit limits BEFORE making changes. The account locks above
+        // ensure nothing changes between the check and the committed debit.
+        for (account_id, amount) in &lines {
             if *amount >= Decimal::ZERO {
                 continue; // Skip credits, only check debits
             }
@@ -606,7 +640,7 @@ async fn create_entry(
     };
 
     // Create journal lines and update balances
-    for (account_id, amount) in &params.lines {
+    for (account_id, amount) in &lines {
         // Insert journal line
         sqlx::query(
             r#"
@@ -1588,7 +1622,20 @@ pub async fn treasury_credit_operation(
     }
     let entry_type = EntryType::TreasuryTransfer;
 
-    // Get treasury account and lock it to prevent race conditions
+    // Lock the treasury and all recipient accounts up front in canonical
+    // order (see account_lock_sort_key): the balance gate below needs the
+    // treasury locked before lines are built, and locking it alone would
+    // put its acquisition out of order with the recipient locks
+    // create_entry takes.
+    let treasury_account_id =
+        get_account_tx(community_id, AccountOwner::Treasury, &mut tx)
+            .await?
+            .id;
+    let mut lock_ids = recipient_account_ids.clone();
+    lock_ids.push(treasury_account_id);
+    lock_accounts_tx(&lock_ids, &mut tx).await?;
+
+    // Re-read the treasury under the lock for the balance gate.
     let treasury_account = get_account_for_update_tx(
         community_id,
         AccountOwner::Treasury,
@@ -1727,7 +1774,33 @@ pub async fn resolve_orphaned_balance(
 
     let owner_id = owner_id.ok_or(StoreError::OrphanedAccountNotFound)?;
 
-    // Get account and lock it for update
+    // Determine recipients (by currency mode) before locking: the orphaned
+    // account and the recipients must be locked together in canonical order
+    // (see account_lock_sort_key) — locking the orphaned account alone
+    // first would put its acquisition out of order with the recipient locks
+    // create_entry takes. Recipient emptiness is validated after the
+    // zero-balance early return below.
+    let recipient_account_ids: Vec<AccountId> = if currency_mode
+        == CurrencyMode::DistributedClearing
+    {
+        // Distribute to active members (no treasury fallback)
+        get_active_member_account_ids_tx(&actor.0.community_id, &mut tx).await?
+    } else {
+        // All other modes: transfer to treasury
+        let treasury = get_account_tx(
+            &actor.0.community_id,
+            AccountOwner::Treasury,
+            &mut tx,
+        )
+        .await?;
+        vec![treasury.id]
+    };
+
+    let mut lock_ids = recipient_account_ids.clone();
+    lock_ids.push(*orphaned_account_id);
+    lock_accounts_tx(&lock_ids, &mut tx).await?;
+
+    // Re-read the orphaned account under the lock
     let orphaned_account = get_account_for_update_tx(
         &actor.0.community_id,
         AccountOwner::Member(owner_id),
@@ -1755,29 +1828,9 @@ pub async fn resolve_orphaned_balance(
         });
     }
 
-    // Determine recipients based on currency mode
-    let recipient_account_ids: Vec<AccountId> = if currency_mode
-        == CurrencyMode::DistributedClearing
-    {
-        // Distribute to active members (no treasury fallback)
-        let member_ids =
-            get_active_member_account_ids_tx(&actor.0.community_id, &mut tx)
-                .await?;
-
-        if member_ids.is_empty() {
-            return Err(StoreError::NoActiveMembersForDistribution);
-        }
-        member_ids
-    } else {
-        // All other modes: transfer to treasury
-        let treasury = get_account_tx(
-            &actor.0.community_id,
-            AccountOwner::Treasury,
-            &mut tx,
-        )
-        .await?;
-        vec![treasury.id]
-    };
+    if recipient_account_ids.is_empty() {
+        return Err(StoreError::NoActiveMembersForDistribution);
+    }
 
     // Build journal lines
     let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
@@ -1958,18 +2011,24 @@ pub async fn reset_all_balances(
         return Err(StoreError::CannotResetDuringActiveAuction);
     }
 
-    // Lock ALL member accounts (sorted by ID to prevent deadlocks)
+    // Lock ALL member accounts plus the treasury in one ordered
+    // acquisition. `ORDER BY id` is Postgres UUID byte order — the
+    // canonical lock order (`account_lock_sort_key`) — and including the
+    // treasury keeps its acquisition in order too, so create_entry's locks
+    // find every row already held.
     #[derive(sqlx::FromRow)]
     struct AccountBalance {
         id: payloads::AccountId,
+        owner_type: AccountOwnerType,
         balance_cached: rust_decimal::Decimal,
     }
 
     let accounts: Vec<AccountBalance> = sqlx::query_as(
         r#"
-        SELECT id, balance_cached
+        SELECT id, owner_type, balance_cached
         FROM accounts
-        WHERE community_id = $1 AND owner_type = 'member_main'
+        WHERE community_id = $1
+          AND owner_type IN ('member_main', 'community_treasury')
         ORDER BY id
         FOR UPDATE
         "#,
@@ -1978,24 +2037,29 @@ pub async fn reset_all_balances(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Build journal lines for every account (even zero balances)
+    // Build journal lines for every member account (even zero balances)
     let mut total = rust_decimal::Decimal::ZERO;
+    let mut accounts_reset = 0;
     let mut lines: Vec<(payloads::AccountId, rust_decimal::Decimal)> =
         Vec::new();
 
     for account in &accounts {
+        if account.owner_type != AccountOwnerType::MemberMain {
+            continue;
+        }
         // Debit account (negative of balance)
         lines.push((account.id, -account.balance_cached));
         total += account.balance_cached;
+        accounts_reset += 1;
     }
 
-    // Get treasury account
-    let treasury_account =
-        get_account_tx(community_id, payloads::AccountOwner::Treasury, &mut tx)
-            .await?;
-
     // Add treasury credit line
-    lines.push((treasury_account.id, total));
+    let treasury_account_id = accounts
+        .iter()
+        .find(|a| a.owner_type == AccountOwnerType::CommunityTreasury)
+        .map(|a| a.id)
+        .ok_or(StoreError::AccountNotFound)?;
+    lines.push((treasury_account_id, total));
 
     // Create journal entry using shared create_entry function
     let idempotency_key = IdempotencyKey(uuid::Uuid::new_v4());
@@ -2017,7 +2081,7 @@ pub async fn reset_all_balances(
     tx.commit().await?;
 
     Ok(payloads::responses::BalanceResetResult {
-        accounts_reset: accounts.len(),
+        accounts_reset,
         total_transferred: total,
     })
 }
