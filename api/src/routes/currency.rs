@@ -113,7 +113,7 @@ pub async fn create_transfer(
         details.to,
         details.amount,
         details.note.clone(),
-        details.idempotency_key,
+        details.idempotency_key.into(),
         &time_source,
         &pool,
     )
@@ -177,7 +177,7 @@ pub async fn treasury_credit_operation(
         details.recipient.clone(),
         details.amount_per_recipient,
         details.note.clone(),
-        details.idempotency_key,
+        details.idempotency_key.into(),
         &time_source,
         &pool,
     )
@@ -273,7 +273,7 @@ pub async fn resolve_orphaned_balance(
         &validated_member,
         &details.orphaned_account_id,
         details.note.clone(),
-        details.idempotency_key,
+        details.idempotency_key.into(),
         &time_source,
         &pool,
     )

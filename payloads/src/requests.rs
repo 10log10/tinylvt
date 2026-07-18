@@ -1,6 +1,41 @@
 use crate::{CommunityId, CurrencySettings};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// A client-supplied idempotency key for a ledger operation. Must be a random
+/// (v4) UUID: system-generated journal entries use deterministic v5 keys
+/// derived from member-visible ids (e.g. auction ids), so accepting other UUID
+/// versions would let a client pre-create an entry under a predicted system key
+/// and silently block the system write. The v4-only rule is enforced at
+/// deserialization; construct with [`ClientIdempotencyKey::new`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "Uuid")]
+pub struct ClientIdempotencyKey(Uuid);
+
+impl ClientIdempotencyKey {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl TryFrom<Uuid> for ClientIdempotencyKey {
+    type Error = String;
+
+    fn try_from(value: Uuid) -> Result<Self, Self::Error> {
+        if value.get_version_num() != 4 {
+            return Err("idempotency_key must be a version-4 UUID".into());
+        }
+        Ok(Self(value))
+    }
+}
+
+impl From<ClientIdempotencyKey> for Uuid {
+    fn from(key: ClientIdempotencyKey) -> Self {
+        key.0
+    }
+}
 
 pub const EMAIL_MAX_LEN: usize = 255;
 pub const USERNAME_MIN_LEN: usize = 3;
@@ -237,7 +272,7 @@ pub struct ResolveOrphanedBalance {
     pub community_id: CommunityId,
     pub orphaned_account_id: crate::AccountId,
     pub note: Option<String>,
-    pub idempotency_key: crate::IdempotencyKey,
+    pub idempotency_key: ClientIdempotencyKey,
 }
 
 /// Update site settings.
@@ -393,7 +428,7 @@ pub struct CreateTransfer {
     pub to: crate::AccountOwner,
     pub amount: Decimal,
     pub note: Option<String>,
-    pub idempotency_key: crate::IdempotencyKey,
+    pub idempotency_key: ClientIdempotencyKey,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -414,7 +449,7 @@ pub struct TreasuryCreditOperation {
     pub recipient: crate::TreasuryRecipient,
     pub amount_per_recipient: Decimal,
     pub note: Option<String>,
-    pub idempotency_key: crate::IdempotencyKey,
+    pub idempotency_key: ClientIdempotencyKey,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

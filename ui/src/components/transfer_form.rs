@@ -1,7 +1,6 @@
 use payloads::{
-    AccountOwner, CommunityId, CurrencyMode, CurrencySettings, IdempotencyKey,
-    UserId,
-    requests::{self, JOURNAL_NOTE_MAX_LEN},
+    AccountOwner, CommunityId, CurrencyMode, CurrencySettings, UserId,
+    requests::{self, ClientIdempotencyKey, JOURNAL_NOTE_MAX_LEN},
 };
 use rust_decimal::Decimal;
 use std::str::FromStr;
@@ -277,7 +276,7 @@ pub fn TransferForm(props: &Props) -> Html {
                     to,
                     amount,
                     note,
-                    idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                    idempotency_key: ClientIdempotencyKey::new(),
                 };
 
                 match api_client.create_transfer(&request).await {

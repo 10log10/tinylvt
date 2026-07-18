@@ -895,12 +895,6 @@ pub struct JournalEntryId(pub Uuid);
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct JournalLineId(pub Uuid);
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
-)]
-#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
-pub struct IdempotencyKey(pub Uuid);
-
 /// Treasury operation recipient specification
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TreasuryRecipient {
@@ -928,20 +922,6 @@ pub struct Account {
     pub created_at: Timestamp,
     pub balance_cached: Decimal,
     pub credit_limit_override: Option<Decimal>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "use-sqlx", derive(FromRow))]
-pub struct JournalEntry {
-    pub id: JournalEntryId,
-    pub community_id: CommunityId,
-    pub entry_type: EntryType,
-    pub idempotency_key: IdempotencyKey,
-    pub auction_id: Option<AuctionId>,
-    pub initiated_by_id: Option<UserId>,
-    pub note: Option<String>,
-    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
-    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

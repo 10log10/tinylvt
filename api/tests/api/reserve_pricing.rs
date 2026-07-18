@@ -2,10 +2,9 @@
 
 use api::scheduler;
 use jiff::Span;
-use payloads::{IdempotencyKey, ReservePrice, TreasuryRecipient, requests};
+use payloads::{ReservePrice, TreasuryRecipient, requests};
 use rust_decimal::Decimal;
 use test_helpers::spawn_app;
-use uuid::Uuid;
 
 /// (a) Round 0 with positive reserve: first-time bid locks in the reserve
 /// as the bid amount.
@@ -333,7 +332,7 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(-5, 0),
             note: Some("Redistribute chore debt".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -362,7 +361,7 @@ async fn treasury_credit_rejects_negative_in_other_modes() -> anyhow::Result<()>
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(-1, 0),
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
     assert!(

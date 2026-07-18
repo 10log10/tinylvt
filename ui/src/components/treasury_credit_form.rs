@@ -1,11 +1,10 @@
 use payloads::{
-    CommunityId, CurrencyMode, IdempotencyKey, TreasuryRecipient, UserId,
-    requests::{self, JOURNAL_NOTE_MAX_LEN},
+    CommunityId, CurrencyMode, TreasuryRecipient, UserId,
+    requests::{self, ClientIdempotencyKey, JOURNAL_NOTE_MAX_LEN},
     responses::CommunityWithRole,
 };
 use rust_decimal::Decimal;
 use std::str::FromStr;
-use uuid::Uuid;
 use yew::prelude::*;
 
 use super::TextInput;
@@ -218,7 +217,7 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
                     recipient,
                     amount_per_recipient: amount,
                     note,
-                    idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                    idempotency_key: ClientIdempotencyKey::new(),
                 };
 
                 match api_client.treasury_credit_operation(&request).await {

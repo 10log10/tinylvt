@@ -1,7 +1,4 @@
-use payloads::{
-    CommunityId, IdempotencyKey, requests, responses::CommunityWithRole,
-};
-use uuid::Uuid;
+use payloads::{CommunityId, requests, responses::CommunityWithRole};
 use yew::prelude::*;
 
 use crate::components::{
@@ -171,7 +168,7 @@ fn OrphanedAccountRow(props: &OrphanedAccountRowProps) -> Html {
                     community_id,
                     orphaned_account_id: account_id,
                     note: None,
-                    idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                    idempotency_key: requests::ClientIdempotencyKey::new(),
                 };
 
                 match get_api_client().resolve_orphaned_balance(&request).await

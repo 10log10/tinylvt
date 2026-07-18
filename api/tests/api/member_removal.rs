@@ -1,9 +1,8 @@
 use api::scheduler;
-use payloads::{AccountOwner, IdempotencyKey, requests};
+use payloads::{AccountOwner, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
 use test_helpers::{assert_status_code, spawn_app};
-use uuid::Uuid;
 
 // ============================================================================
 // Permission Tests
@@ -146,7 +145,7 @@ async fn get_orphaned_accounts() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob_id),
             amount: Decimal::new(1000, 2), // 10.00
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -209,7 +208,7 @@ async fn resolve_to_treasury() -> anyhow::Result<()> {
             recipient: payloads::TreasuryRecipient::SingleMember(bob_id),
             amount_per_recipient: Decimal::new(5000, 2), // 50.00
             note: Some("Test grant".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -241,7 +240,7 @@ async fn resolve_to_treasury() -> anyhow::Result<()> {
             community_id,
             orphaned_account_id: orphaned_account.account.id,
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -299,7 +298,7 @@ async fn resolve_distributed_clearing_distributes_to_members()
             to: AccountOwner::Member(bob_id),
             amount: Decimal::new(10000, 2), // 100.00
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -333,7 +332,7 @@ async fn resolve_distributed_clearing_distributes_to_members()
             community_id,
             orphaned_account_id: orphaned_account.account.id,
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -383,7 +382,7 @@ async fn resolve_with_negative_balance() -> anyhow::Result<()> {
             to: AccountOwner::Member(alice_id),
             amount: Decimal::new(3000, 2), // 30.00
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -411,7 +410,7 @@ async fn resolve_with_negative_balance() -> anyhow::Result<()> {
             community_id,
             orphaned_account_id: orphaned_account.account.id,
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -474,7 +473,7 @@ async fn idempotency_orphaned_resolution() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob_id),
             amount: Decimal::new(10000, 2), // 100.00
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -487,7 +486,7 @@ async fn idempotency_orphaned_resolution() -> anyhow::Result<()> {
     app.login_alice().await?;
     let orphaned = app.client.get_orphaned_accounts(&community_id).await?;
     let orphaned_account = &orphaned.orphaned_accounts[0];
-    let idempotency_key = IdempotencyKey(Uuid::new_v4());
+    let idempotency_key = requests::ClientIdempotencyKey::new();
 
     app.client
         .resolve_orphaned_balance(&requests::ResolveOrphanedBalance {
@@ -541,7 +540,7 @@ async fn rejoin_after_leaving() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob_id),
             amount: Decimal::new(7500, 2), // 75.00
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -636,7 +635,7 @@ async fn setup_bob_left_with_locked_bid(
             recipient: payloads::TreasuryRecipient::SingleMember(bob_id),
             amount_per_recipient: Decimal::new(5000, 2), // 50.00
             note: Some("Test grant".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -696,7 +695,7 @@ async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
             community_id,
             orphaned_account_id: orphaned_account.account.id,
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
     assert_status_code(result, StatusCode::BAD_REQUEST);
@@ -747,7 +746,7 @@ async fn resolve_allowed_after_auction_settles() -> anyhow::Result<()> {
             community_id,
             orphaned_account_id: orphaned_account.account.id,
             note: None,
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 

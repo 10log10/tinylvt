@@ -52,14 +52,13 @@ use jiff::Timestamp;
 use jiff_sqlx::{Timestamp as SqlxTs, ToSqlx};
 use payloads::{
     Account, AccountId, AccountOwner, AccountOwnerType, CommunityId,
-    CurrencyMode, EntryType, IdempotencyKey, JournalEntry, JournalEntryId,
-    UserId,
+    CurrencyMode, EntryType, JournalEntryId, UserId,
 };
 use rust_decimal::Decimal;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 
-use super::StoreError;
+use super::{IdempotencyKey, JournalEntry, StoreError};
 
 /// Scale for NUMERIC(20, 6) in the database. All amounts should be rounded to
 /// this scale before validation and storage to ensure consistency.
@@ -498,7 +497,11 @@ async fn create_entry(
         });
     }
 
-    // Check idempotency
+    // Idempotency fast path. A replay must short-circuit here, before the
+    // account locks and credit checks re-run: the original entry already
+    // moved balances, so re-checking could spuriously fail. The ON CONFLICT
+    // on the insert below catches the concurrent duplicate this check can't
+    // see.
     let existing: Option<JournalEntryId> = sqlx::query_scalar(
         "SELECT id FROM journal_entries WHERE idempotency_key = $1",
     )
@@ -568,8 +571,11 @@ async fn create_entry(
         }
     }
 
-    // Create journal entry
-    let entry_id: JournalEntryId = sqlx::query_scalar(
+    // Create journal entry. ON CONFLICT DO NOTHING makes a true concurrent
+    // duplicate (both writers passed the fast path above) a no-op for the
+    // loser instead of a unique violation — merely mapping the violation to
+    // Ok wouldn't work, since the error poisons the surrounding transaction.
+    let entry_id: Option<JournalEntryId> = sqlx::query_scalar(
         r#"
         INSERT INTO journal_entries (
             community_id,
@@ -581,6 +587,7 @@ async fn create_entry(
             created_at
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING id
         "#,
     )
@@ -591,8 +598,12 @@ async fn create_entry(
     .bind(params.initiated_by_id)
     .bind(&params.note)
     .bind(now.to_sqlx())
-    .fetch_one(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await?;
+
+    let Some(entry_id) = entry_id else {
+        return Ok(()); // Idempotent - a concurrent duplicate committed first
+    };
 
     // Create journal lines and update balances
     for (account_id, amount) in &params.lines {
@@ -627,6 +638,26 @@ async fn create_entry(
     Ok(())
 }
 
+/// Namespace for deterministic (UUIDv5) system idempotency keys.
+const IDEMPOTENCY_KEY_NAMESPACE: uuid::Uuid =
+    uuid::uuid!("de238401-7331-4fe2-aefe-eafdbe815238");
+
+/// Derive a deterministic idempotency key for a system-generated journal entry.
+/// Any actor (retrying worker, second instance, redundant webhook)
+/// independently computes the identical key for the same operation with no
+/// shared state, so the first insert wins and the rest no-op in `create_entry`.
+/// Squatting these predictable keys is prevented by `ClientIdempotencyKey`'s
+/// v4-only deserialization: v5 keys are unreachable from the API.
+pub fn system_idempotency_key(
+    purpose: &str,
+    object_id: impl std::fmt::Display,
+) -> IdempotencyKey {
+    IdempotencyKey(uuid::Uuid::new_v5(
+        &IDEMPOTENCY_KEY_NAMESPACE,
+        format!("{purpose}:{object_id}").as_bytes(),
+    ))
+}
+
 /// Create auction settlement journal entry based on currency mode
 ///
 /// The settlement behavior depends on the community's currency_mode:
@@ -650,10 +681,12 @@ async fn create_entry(
 /// locked balance includes the very bids being settled. For this reason, it is
 /// not nessecary to lock the account.
 ///
-/// Generates a random idempotency key. Exactly-once settlement is guaranteed
-/// by the scheduler's advisory lock, not the idempotency key. Using a random
-/// key prevents malicious actors from blocking settlement by preemptively
-/// creating a journal entry with a predictable idempotency key.
+/// Uses a deterministic (v5) idempotency key derived from the auction id,
+/// adding a second exactly-once guarantee alongside the scheduler's advisory
+/// lock. Auction ids are member-visible, so this predictable key is safe only
+/// because client-supplied keys are v4-only (`ClientIdempotencyKey`) —
+/// otherwise a member could pre-create an entry under the key and silently
+/// block settlement.
 pub async fn create_auction_settlement_entry(
     community_id: &CommunityId,
     auction_id: &payloads::AuctionId,
@@ -661,8 +694,8 @@ pub async fn create_auction_settlement_entry(
     time_source: &TimeSource,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
-    // Generate random idempotency key to prevent predictable key attacks
-    let idempotency_key = IdempotencyKey(uuid::Uuid::new_v4());
+    let idempotency_key =
+        system_idempotency_key("auction_settlement", auction_id);
 
     // Get community currency mode
     let currency_mode: CurrencyMode = sqlx::query_scalar(
@@ -1965,7 +1998,7 @@ pub async fn reset_all_balances(
     lines.push((treasury_account.id, total));
 
     // Create journal entry using shared create_entry function
-    let idempotency_key = payloads::IdempotencyKey(uuid::Uuid::new_v4());
+    let idempotency_key = IdempotencyKey(uuid::Uuid::new_v4());
     create_entry(
         CreateEntryParams {
             community_id,

@@ -1,8 +1,7 @@
 use api::store;
-use payloads::{AccountOwner, IdempotencyKey, requests};
+use payloads::{AccountOwner, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use test_helpers::{
     assert_bad_request_contains, assert_status_code, spawn_app,
@@ -432,7 +431,7 @@ async fn delete_user_with_transaction_history() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob_id),
             amount: Decimal::new(5000, 2), // 50.00
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 

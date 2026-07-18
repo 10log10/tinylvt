@@ -2,8 +2,7 @@ use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use payloads::{
-    AccountOwner, AuctionId, EntryType, IdempotencyKey, SiteId, SpaceId,
-    TreasuryRecipient,
+    AccountOwner, AuctionId, EntryType, SiteId, SpaceId, TreasuryRecipient,
 };
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
@@ -219,7 +218,7 @@ async fn test_create_transfer_success() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Initial credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -230,7 +229,7 @@ async fn test_create_transfer_success() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -284,7 +283,7 @@ async fn test_create_transfer_insufficient_balance() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(10, 0), // Even small amount should fail
             note: Some("Too much".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
 
@@ -310,11 +309,11 @@ async fn test_create_transfer_idempotency() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Initial credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
-    let idempotency_key = IdempotencyKey(Uuid::new_v4());
+    let idempotency_key = requests::ClientIdempotencyKey::new();
 
     // First transfer
     app.client
@@ -347,6 +346,170 @@ async fn test_create_transfer_idempotency() -> anyhow::Result<()> {
         })
         .await?;
     assert_eq!(alice_info.balance, Decimal::new(30, 0)); // 50 - 20
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_client_idempotency_key_must_be_v4() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(50, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    // System entries use deterministic v5 keys derived from member-visible
+    // ids, so a non-v4 client key is rejected at deserialization to prevent
+    // squatting them. The typed client can't express an invalid key, so
+    // craft the payload manually.
+    let body = serde_json::to_value(requests::CreateTransfer {
+        community_id,
+        to: AccountOwner::Member(bob.user.user_id),
+        amount: Decimal::new(1, 0),
+        note: None,
+        idempotency_key: requests::ClientIdempotencyKey::new(),
+    })?;
+    let mut v5_body = body.clone();
+    v5_body["idempotency_key"] =
+        serde_json::json!(Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"squat"));
+
+    // The mutated body no longer deserializes as a CreateTransfer at all.
+    assert!(
+        serde_json::from_value::<requests::CreateTransfer>(v5_body.clone())
+            .is_err()
+    );
+
+    // Control: the unmodified body succeeds through the same raw request
+    // path, isolating the key's UUID version as the only cause of the
+    // rejection below.
+    let post_raw = |json: serde_json::Value| {
+        app.client
+            .inner_client
+            .post(format!("{}/api/create_transfer", app.client.address))
+            .json(&json)
+            .send()
+    };
+    let response = post_raw(body).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = post_raw(v5_body).await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_concurrent_duplicate_idempotency_key() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(50, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    let key = requests::ClientIdempotencyKey::new();
+
+    // Simulate a concurrent writer that claimed the key but hasn't
+    // committed: the transfer's idempotency fast-path SELECT can't see the
+    // uncommitted row, so its INSERT blocks on the unique index until this
+    // tx commits — then it must no-op via ON CONFLICT rather than abort
+    // with a unique violation (the pre-ON CONFLICT behavior, a 500).
+    let mut tx = app.db_pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO journal_entries \
+         (community_id, entry_type, idempotency_key, created_at) \
+         VALUES ($1, 'transfer', $2, $3)",
+    )
+    .bind(community_id)
+    .bind(Uuid::from(key))
+    .bind(jiff_sqlx::Timestamp::from(app.time_source.now()))
+    .execute(&mut *tx)
+    .await?;
+
+    let transfer_req = requests::CreateTransfer {
+        community_id,
+        to: AccountOwner::Member(bob.user.user_id),
+        amount: Decimal::new(20, 0),
+        note: None,
+        idempotency_key: key,
+    };
+    let transfer_fut = app.client.create_transfer(&transfer_req);
+
+    let commit_fut = async {
+        // Commit only once the transfer's insert is observably blocked on
+        // the in-flight key, so the test deterministically exercises the
+        // conflict path rather than the fast path.
+        loop {
+            let blocked: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity \
+                 WHERE datname = current_database() \
+                   AND wait_event_type = 'Lock' \
+                   AND query ILIKE '%INSERT INTO journal_entries%'",
+            )
+            .fetch_one(&app.db_pool)
+            .await?;
+            if blocked > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        tx.commit().await?;
+        anyhow::Ok(())
+    };
+
+    let (transfer_res, commit_res) = tokio::join!(transfer_fut, commit_fut);
+    commit_res?;
+    transfer_res?;
+
+    // The losing writer no-oped: one entry under the key (the simulated
+    // writer's, which has no lines) and no balance movement.
+    let entry_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM journal_entries WHERE idempotency_key = $1",
+    )
+    .bind(Uuid::from(key))
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(entry_count, 1);
+
+    let line_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM journal_lines jl \
+         JOIN journal_entries je ON jl.entry_id = je.id \
+         WHERE je.idempotency_key = $1",
+    )
+    .bind(Uuid::from(key))
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(line_count, 0);
+
+    let alice_info = app
+        .client
+        .get_member_currency_info(&requests::GetMemberCurrencyInfo {
+            community_id,
+            member_user_id: None,
+        })
+        .await?;
+    assert_eq!(alice_info.balance, Decimal::new(50, 0));
 
     Ok(())
 }
@@ -403,7 +566,7 @@ async fn test_treasury_credit_operation_all_active_members()
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Universal credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -453,7 +616,7 @@ async fn test_treasury_credit_operation_member_fails() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Unauthorized".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
 
@@ -479,7 +642,7 @@ async fn test_get_member_transactions() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(100, 0),
             note: Some("Initial credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -489,7 +652,7 @@ async fn test_get_member_transactions() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(20, 0),
             note: Some("Transfer to Bob".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -531,7 +694,7 @@ async fn test_get_treasury_transactions() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Universal credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -566,7 +729,7 @@ async fn test_transaction_pagination() -> anyhow::Result<()> {
                 recipient: TreasuryRecipient::AllActiveMembers,
                 amount_per_recipient: Decimal::new(10, 0),
                 note: Some(format!("Transaction {}", i)),
-                idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                idempotency_key: requests::ClientIdempotencyKey::new(),
             })
             .await?;
     }
@@ -625,7 +788,7 @@ async fn test_treasury_operation_prevents_negative_balance_distributed_clearing(
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(100, 0),
             note: Some("Should fail".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
 
@@ -821,7 +984,7 @@ async fn test_auction_settlement_points_allocation() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(100, 0),
             note: Some("Initial allocation".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -837,7 +1000,7 @@ async fn test_auction_settlement_points_allocation() -> anyhow::Result<()> {
     // Round 2: Alice bids on space
     // Round 3: No bids, settlement triggers
     // space value = 2, space_b value = 1
-    let _auction_id = run_simple_auction(
+    let auction_id = run_simple_auction(
         &app,
         site.site_id,
         vec![
@@ -849,6 +1012,23 @@ async fn test_auction_settlement_points_allocation() -> anyhow::Result<()> {
         ],
     )
     .await?;
+
+    // Settlement entries carry a deterministic v5 key derived from the
+    // auction id, so any settlement attempt recomputes the identical key.
+    let settlement_key: api::store::IdempotencyKey = sqlx::query_scalar(
+        "SELECT idempotency_key FROM journal_entries \
+         WHERE auction_id = $1 AND entry_type = 'auction_settlement'",
+    )
+    .bind(auction_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(
+        settlement_key,
+        api::store::currency::system_idempotency_key(
+            "auction_settlement",
+            auction_id
+        )
+    );
 
     // In points_allocation mode, winners pay treasury (not members)
     // Alice won both spaces: total payment = 2 + 1 = 3
@@ -1142,7 +1322,7 @@ async fn test_reset_all_balances_basic() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::SingleMember(alice.user.user_id),
             amount_per_recipient: alice_amount,
             note: Some("Test credit for Alice".to_string()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1153,7 +1333,7 @@ async fn test_reset_all_balances_basic() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
             amount_per_recipient: bob_amount,
             note: Some("Test credit for Bob".to_string()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1286,7 +1466,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             recipient: TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(100, 0),
             note: Some("Initial credit".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1534,7 +1714,7 @@ async fn create_community_points_allocation_mode() -> anyhow::Result<()> {
             ),
             amount_per_recipient: Decimal::new(50, 0),
             note: Some("Test grant".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1652,7 +1832,7 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
             to: AccountOwner::Member(alice.user.user_id),
             amount: Decimal::new(50, 0),
             note: Some("Test transfer".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1684,7 +1864,7 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
             to: AccountOwner::Member(bob.user.user_id),
             amount: Decimal::new(50, 0),
             note: Some("Paying Bob back".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await?;
 
@@ -1831,7 +2011,7 @@ async fn test_member_to_treasury_transfer_round_trip() -> anyhow::Result<()> {
                 recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
                 amount_per_recipient: issued,
                 note: Some(format!("credit in {mode}")),
-                idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                idempotency_key: requests::ClientIdempotencyKey::new(),
             })
             .await?;
 
@@ -1843,7 +2023,7 @@ async fn test_member_to_treasury_transfer_round_trip() -> anyhow::Result<()> {
                 to: AccountOwner::Treasury,
                 amount: returned,
                 note: Some(format!("return in {mode}")),
-                idempotency_key: IdempotencyKey(Uuid::new_v4()),
+                idempotency_key: requests::ClientIdempotencyKey::new(),
             })
             .await?;
 
@@ -1892,7 +2072,7 @@ async fn test_member_to_treasury_rejected_in_distributed_clearing()
             to: AccountOwner::Treasury,
             amount: Decimal::new(10, 0),
             note: Some("Should fail".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
 
@@ -1920,7 +2100,7 @@ async fn test_member_to_treasury_capped_by_balance() -> anyhow::Result<()> {
             to: AccountOwner::Treasury,
             amount: Decimal::new(10, 0),
             note: Some("Too much".into()),
-            idempotency_key: IdempotencyKey(Uuid::new_v4()),
+            idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
 

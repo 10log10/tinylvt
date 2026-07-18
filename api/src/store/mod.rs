@@ -187,6 +187,33 @@ pub struct CommunityMembershipSchedule {
     pub updated_at: Timestamp,
 }
 
+/// A journal-entry idempotency key. Backend-only: clients supply keys via the
+/// request-side `payloads::requests::ClientIdempotencyKey`, which enforces
+/// v4-only at deserialization; system-generated entries use deterministic v5
+/// keys (`currency::system_idempotency_key`).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct IdempotencyKey(pub Uuid);
+
+impl From<payloads::requests::ClientIdempotencyKey> for IdempotencyKey {
+    fn from(key: payloads::requests::ClientIdempotencyKey) -> Self {
+        Self(key.into())
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct JournalEntry {
+    pub id: payloads::JournalEntryId,
+    pub community_id: CommunityId,
+    pub entry_type: payloads::EntryType,
+    pub idempotency_key: IdempotencyKey,
+    pub auction_id: Option<payloads::AuctionId>,
+    pub initiated_by_id: Option<payloads::UserId>,
+    pub note: Option<String>,
+    #[sqlx(try_from = "SqlxTs")]
+    pub created_at: Timestamp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
 #[sqlx(transparent)]
 pub struct AuctionParamsId(pub Uuid);

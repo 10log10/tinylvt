@@ -82,7 +82,7 @@ impl DeskAllocationScreenshot {
             recipient: payloads::TreasuryRecipient::AllActiveMembers,
             amount_per_recipient: Decimal::new(250, 0),
             note: Some("Initial allocation (2.5 terms)".to_string()),
-            idempotency_key: payloads::IdempotencyKey(uuid::Uuid::new_v4()),
+            idempotency_key: payloads::requests::ClientIdempotencyKey::new(),
         };
         app.client.treasury_credit_operation(&issue_request).await?;
 
