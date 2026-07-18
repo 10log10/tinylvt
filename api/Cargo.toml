@@ -19,6 +19,11 @@ actix-session = { version = "0.10.1", features = ["cookie-session"] }
 actix-web = "4.10.2"
 anyhow = { workspace = true }
 argon2 = { version = "0.5.3", features = ["std"] }
+async-stripe = "=1.0.0-rc.6"
+async-stripe-billing = { version = "=1.0.0-rc.6", default-features = false, features = ["subscription", "billing_portal_session"] }
+async-stripe-checkout = { version = "=1.0.0-rc.6", default-features = false, features = ["checkout_session"] }
+async-stripe-core = { version = "=1.0.0-rc.6", default-features = false, features = ["customer"] }
+async-stripe-shared = "=1.0.0-rc.6"
 base64 = "0.22"
 derive_more = { workspace = true }
 dotenvy = { workspace = true }
@@ -38,7 +43,6 @@ serde_json = { workspace = true }
 sha2 = "0.10.9"
 sqlx = { workspace = true, features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "rust_decimal" ] }
 sqlx-postgres = "0.8.3"
-stripe = { version = "0.41.0", package = "async-stripe", default-features = false, features = ["runtime-tokio-hyper", "full", "webhook-events"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
@@ -49,4 +53,9 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 api = { path = "." }
+async-stripe-billing = { version = "=1.0.0-rc.6", default-features = false, features = ["billing_portal_configuration"] }
+async-stripe-core = { version = "=1.0.0-rc.6", default-features = false, features = ["payment_intent"] }
+async-stripe-payment = { version = "=1.0.0-rc.6", default-features = false, features = ["payment_method"] }
+async-stripe-product = { version = "=1.0.0-rc.6", default-features = false, features = ["price"] }
+async-stripe-types = "=1.0.0-rc.6"
 test-helpers = { path = "../test-helpers" }  # enables mocking for api

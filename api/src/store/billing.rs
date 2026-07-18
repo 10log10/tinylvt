@@ -608,7 +608,7 @@ pub async fn create_checkout_session(
         .context("Failed to get community")
         .map_err(StoreError::from)?;
 
-    let customer_id: stripe::CustomerId = match existing_customer_id {
+    let customer_id: stripe_shared::CustomerId = match existing_customer_id {
         Some(id) => id
             .parse()
             .context("Invalid stored stripe_customer_id")

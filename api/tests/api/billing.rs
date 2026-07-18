@@ -500,10 +500,14 @@ async fn test_storage_enforcement_blocks_auction_creation() -> anyhow::Result<()
 
 // --- Webhook state transition tests ---
 //
-// These test the webhook handler logic by calling
-// handle_webhook_event directly with constructed stripe types.
-// This avoids fighting with async-stripe's strict JSON
-// deserialization which requires many fields we don't use.
+// These test the webhook handler logic by calling handle_webhook_event directly
+// with raw JSON fixtures. Raw JSON rather than serialized async-stripe types:
+// the 1.0-rc generated response types aren't hand-constructible (dozens of
+// required fields, no Default), and the fixtures should pin the wire shape the
+// handler contracts on rather than track the crate's model of it. The env-gated
+// sandbox tests in stripe_sandbox.rs run the same handler against real
+// Stripe-rendered payloads, verifying the fixture shapes stay faithful to the
+// pinned API version.
 
 /// Fetch subscription info via the API endpoint.
 async fn get_subscription(
@@ -554,59 +558,51 @@ async fn insert_test_subscription(
     .expect("Failed to insert test subscription");
 }
 
-/// Convert a stripe::Event to serde_json::Value for the
-/// webhook handler (which parses raw JSON).
-fn to_value(event: stripe::Event) -> serde_json::Value {
-    serde_json::to_value(event).unwrap()
-}
-
-/// Build a subscription event (created or updated).
+/// Build a subscription event as raw JSON, mirroring the
+/// pinned API version's shape: period bounds on the
+/// subscription item and the interval on its price.
 #[allow(clippy::too_many_arguments)]
 fn make_subscription_event(
-    event_type: stripe::EventType,
+    event_type: &str,
     subscription_id: &str,
     customer_id: &str,
-    status: stripe::SubscriptionStatus,
-    interval: stripe::PlanInterval,
+    status: &str,
+    interval: &str,
     cancel_at_period_end: bool,
     period_start: i64,
     period_end: i64,
-) -> stripe::Event {
-    use stripe::{EventObject, Expandable, NotificationEventData};
-
-    let sub = stripe::Subscription {
-        id: subscription_id.parse().unwrap(),
-        customer: Expandable::Id(customer_id.parse().unwrap()),
-        status,
-        cancel_at_period_end,
-        current_period_start: period_start,
-        current_period_end: period_end,
-        items: stripe::List {
-            data: vec![stripe::SubscriptionItem {
-                id: "si_test".parse().unwrap(),
-                plan: Some(stripe::Plan {
-                    id: "plan_test".parse().unwrap(),
-                    interval: Some(interval),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }],
-            has_more: false,
-            total_count: Some(1),
-            url: "/v1/subscription_items".to_string(),
-        },
-        ..Default::default()
-    };
-
-    stripe::Event {
-        id: "evt_test".parse().unwrap(),
-        type_: event_type,
-        data: NotificationEventData {
-            object: EventObject::Subscription(sub),
-            previous_attributes: None,
-        },
-        ..Default::default()
-    }
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": "evt_test",
+        "object": "event",
+        "type": event_type,
+        "data": {
+            "object": {
+                "id": subscription_id,
+                "object": "subscription",
+                "customer": customer_id,
+                "status": status,
+                "cancel_at_period_end": cancel_at_period_end,
+                "items": {
+                    "object": "list",
+                    "data": [{
+                        "id": "si_test",
+                        "object": "subscription_item",
+                        "current_period_start": period_start,
+                        "current_period_end": period_end,
+                        "price": {
+                            "id": "price_test",
+                            "object": "price",
+                            "recurring": { "interval": interval }
+                        }
+                    }],
+                    "has_more": false,
+                    "total_count": 1,
+                    "url": "/v1/subscription_items"
+                }
+            }
+        }
+    })
 }
 
 #[tokio::test]
@@ -625,11 +621,11 @@ async fn test_webhook_subscription_created_inserts_row() -> anyhow::Result<()> {
         .insert("cus_test".to_string(), community_id);
 
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionCreated,
+        "customer.subscription.created",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::Active,
-        stripe::PlanInterval::Month,
+        "active",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -638,7 +634,7 @@ async fn test_webhook_subscription_created_inserts_row() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -660,11 +656,11 @@ async fn test_webhook_subscription_updated_sets_cancel() -> anyhow::Result<()> {
     insert_test_subscription(&app, community_id, "sub_test").await;
 
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::Active,
-        stripe::PlanInterval::Month,
+        "active",
+        "month",
         true,
         1700000000,
         1702592000,
@@ -673,7 +669,7 @@ async fn test_webhook_subscription_updated_sets_cancel() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -695,11 +691,11 @@ async fn test_webhook_subscription_canceled() -> anyhow::Result<()> {
     insert_test_subscription(&app, community_id, "sub_test").await;
 
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::Canceled,
-        stripe::PlanInterval::Month,
+        "canceled",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -708,7 +704,7 @@ async fn test_webhook_subscription_canceled() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -726,11 +722,11 @@ async fn test_webhook_subscription_past_due() -> anyhow::Result<()> {
     insert_test_subscription(&app, community_id, "sub_test").await;
 
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::PastDue,
-        stripe::PlanInterval::Month,
+        "past_due",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -739,7 +735,7 @@ async fn test_webhook_subscription_past_due() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -758,11 +754,11 @@ async fn test_webhook_past_due_reactivates() -> anyhow::Result<()> {
 
     // Set to past_due
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::PastDue,
-        stripe::PlanInterval::Month,
+        "past_due",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -771,7 +767,7 @@ async fn test_webhook_past_due_reactivates() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -780,11 +776,11 @@ async fn test_webhook_past_due_reactivates() -> anyhow::Result<()> {
 
     // Payment retry succeeds
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::Active,
-        stripe::PlanInterval::Month,
+        "active",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -793,7 +789,7 @@ async fn test_webhook_past_due_reactivates() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -812,11 +808,11 @@ async fn test_webhook_resubscribe_after_cancel() -> anyhow::Result<()> {
 
     // Cancel
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionUpdated,
+        "customer.subscription.updated",
         "sub_test",
         "cus_test",
-        stripe::SubscriptionStatus::Canceled,
-        stripe::PlanInterval::Month,
+        "canceled",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -825,7 +821,7 @@ async fn test_webhook_resubscribe_after_cancel() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 
@@ -839,11 +835,11 @@ async fn test_webhook_resubscribe_after_cancel() -> anyhow::Result<()> {
         .unwrap()
         .insert("cus_test_new".to_string(), community_id);
     let event = make_subscription_event(
-        stripe::EventType::CustomerSubscriptionCreated,
+        "customer.subscription.created",
         "sub_test_new",
         "cus_test_new",
-        stripe::SubscriptionStatus::Active,
-        stripe::PlanInterval::Month,
+        "active",
+        "month",
         false,
         1700000000,
         1702592000,
@@ -852,7 +848,7 @@ async fn test_webhook_resubscribe_after_cancel() -> anyhow::Result<()> {
         &app.db_pool,
         &app.time_source,
         &app.stripe_service,
-        &to_value(event),
+        &event,
     )
     .await?;
 

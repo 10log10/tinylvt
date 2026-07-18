@@ -14,6 +14,7 @@ mod reserve_pricing;
 mod schema_reference;
 mod security_headers;
 mod site;
+mod stripe_sandbox;
 
 use test_helpers::spawn_app;
 
