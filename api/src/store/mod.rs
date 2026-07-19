@@ -693,6 +693,10 @@ pub enum StoreError {
     UserIsLeader,
     #[error("Account not found")]
     AccountNotFound,
+    #[error(
+        "Internal invariant violation: account not covered by lock witness"
+    )]
+    AccountNotLocked,
     #[error("Insufficient balance")]
     InsufficientBalance,
     #[error("Amount must be positive")]

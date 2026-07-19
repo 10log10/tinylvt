@@ -183,6 +183,7 @@ impl From<StoreError> for APIError {
             StoreError::InvalidCurrencyConfiguration => {
                 APIError::UnexpectedError(e.into())
             }
+            StoreError::AccountNotLocked => APIError::UnexpectedError(e.into()),
 
             // Not found errors
             StoreError::MemberNotFound => APIError::AuthError(e.into()),

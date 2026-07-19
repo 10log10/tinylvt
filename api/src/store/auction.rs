@@ -814,15 +814,6 @@ pub async fn create_bid_tx(
         }
     }
 
-    // Check credit limit before creating bid
-    // Get and lock the account for this user in the community
-    let account = currency::get_account_for_update_tx(
-        &site.community_id,
-        payloads::AccountOwner::Member(*user_id),
-        tx,
-    )
-    .await?;
-
     // Get bid increment from auction params
     let auction =
         sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
@@ -878,8 +869,22 @@ pub async fn create_bid_tx(
     // clamps chore bids to zero rather than treating them as freed
     // credit).
     if bid_amount > Decimal::ZERO {
-        currency::check_sufficient_credit_tx(&account.id, bid_amount, tx)
-            .await?;
+        // Lock the bidder's account row for the credit check; without it,
+        // a settlement or transfer committing mid-check could tear the
+        // balance/locked-balance read and overstate available credit.
+        let mut locked = currency::lock_account_tx(
+            &site.community_id,
+            payloads::AccountOwner::Member(*user_id),
+            tx,
+        )
+        .await?;
+        let account_id = locked.accounts()[0].id;
+        currency::check_sufficient_credit_tx(
+            &account_id,
+            bid_amount,
+            &mut locked,
+        )
+        .await?;
     }
 
     // Create the bid
