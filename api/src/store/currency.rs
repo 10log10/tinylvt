@@ -202,15 +202,12 @@ pub(crate) async fn get_effective_credit_limit_tx(
 
 /// Get locked balance for an account (Rust-based implementation).
 ///
-/// The locked balance reduces the user's available credit.
+/// The locked balance reduces the user's available credit. Sums the
+/// per-auction locked balance over all active auctions in the account's
+/// community.
 ///
 /// Works within an active transaction and will see uncommitted changes made
 /// by the same transaction (e.g., bids inserted but not yet committed).
-///
-/// Locked balance includes:
-/// - Winning bids: value from latest processed round_space_results
-/// - Outstanding bids: (prev round value + bid increment) for unprocessed
-///   rounds
 async fn get_locked_balance_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -226,15 +223,9 @@ async fn get_locked_balance_tx(
         .ok_or(StoreError::AccountNotFound)?;
 
     // Step 2: Get all active auctions in this community
-    #[derive(sqlx::FromRow)]
-    struct ActiveAuction {
-        auction_id: payloads::AuctionId,
-        auction_params_id: uuid::Uuid,
-    }
-
-    let active_auctions: Vec<ActiveAuction> = sqlx::query_as(
+    let active_auction_ids: Vec<payloads::AuctionId> = sqlx::query_scalar(
         r#"
-        SELECT auc.id as auction_id, auc.auction_params_id
+        SELECT auc.id
         FROM auctions auc
         JOIN sites s ON auc.site_id = s.id
         WHERE s.community_id = $1 AND auc.end_at IS NULL
@@ -244,124 +235,146 @@ async fn get_locked_balance_tx(
     .fetch_all(&mut **tx)
     .await?;
 
+    // Step 3: Sum locked balance across auctions
     let mut total_locked = Decimal::ZERO;
+    for auction_id in active_auction_ids {
+        total_locked +=
+            get_auction_locked_balance_tx(&user_id, &auction_id, tx).await?;
+    }
 
-    // Step 3: For each auction, calculate locked balance
-    for auction in active_auctions {
-        // Get the latest processed round number (highest round with results)
-        let max_processed_round: Option<i32> = sqlx::query_scalar(
+    Ok(total_locked)
+}
+
+/// Get a user's locked balance within a single auction.
+///
+/// Locked balance includes:
+/// - Winning bids: value from latest processed round_space_results
+/// - Outstanding bids: (prev round value + bid increment) for unprocessed
+///   rounds
+pub(crate) async fn get_auction_locked_balance_tx(
+    user_id: &payloads::UserId,
+    auction_id: &payloads::AuctionId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Decimal, StoreError> {
+    // Get bid increment for calculating bid amounts
+    let bid_increment: payloads::BidIncrement = sqlx::query_scalar(
+        r#"
+        SELECT ap.bid_increment
+        FROM auctions auc
+        JOIN auction_params ap ON auc.auction_params_id = ap.id
+        WHERE auc.id = $1
+        "#,
+    )
+    .bind(auction_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    // Get the latest processed round number (highest round with results)
+    let max_processed_round: Option<i32> = sqlx::query_scalar(
+        r#"
+        SELECT MAX(ar.round_num)
+        FROM round_space_results rsr
+        JOIN auction_rounds ar ON rsr.round_id = ar.id
+        WHERE ar.auction_id = $1
+        "#,
+    )
+    .bind(auction_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+
+    let mut locked = Decimal::ZERO;
+
+    // Add locked balance from winning bids in latest processed round
+    if let Some(processed_round_num) = max_processed_round {
+        let winning_values: Vec<Decimal> = sqlx::query_scalar(
             r#"
-            SELECT MAX(ar.round_num)
+            SELECT rsr.value
             FROM round_space_results rsr
             JOIN auction_rounds ar ON rsr.round_id = ar.id
             WHERE ar.auction_id = $1
+              AND ar.round_num = $2
+              AND rsr.winning_user_id = $3
             "#,
         )
-        .bind(auction.auction_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .flatten();
-
-        // Get bid increment for calculating bid amounts
-        let bid_increment: payloads::BidIncrement = sqlx::query_scalar(
-            "SELECT bid_increment FROM auction_params WHERE id = $1",
-        )
-        .bind(auction.auction_params_id)
-        .fetch_one(&mut **tx)
+        .bind(auction_id)
+        .bind(processed_round_num)
+        .bind(user_id)
+        .fetch_all(&mut **tx)
         .await?;
 
-        // Step 3a: Add locked balance from winning bids in latest processed
-        // round
-        if let Some(processed_round_num) = max_processed_round {
-            let winning_values: Vec<Decimal> = sqlx::query_scalar(
+        // Clamp negative values (chore wins) to zero: a chore winner is
+        // owed compensation if the auction settles now, but a later
+        // round could displace them, so treating the unrealized chore
+        // reward as freed available credit would let them place
+        // positive bids funded by money they may never receive.
+        for value in winning_values {
+            locked += value.max(Decimal::ZERO);
+        }
+    }
+
+    // Add locked balance from bids in unprocessed rounds
+    #[derive(sqlx::FromRow)]
+    struct UnprocessedBid {
+        space_id: payloads::SpaceId,
+        round_num: i32,
+        reserve_price: payloads::ReservePrice,
+    }
+
+    let unprocessed_bids: Vec<UnprocessedBid> = sqlx::query_as(
+        r#"
+        SELECT b.space_id, ar.round_num, s.reserve_price
+        FROM bids b
+        JOIN auction_rounds ar ON b.round_id = ar.id
+        JOIN spaces s ON b.space_id = s.id
+        WHERE ar.auction_id = $1
+          AND ar.round_num > $2
+          AND b.user_id = $3
+        "#,
+    )
+    .bind(auction_id)
+    .bind(max_processed_round.unwrap_or(-1))
+    .bind(user_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for bid in unprocessed_bids {
+        // Get the previous round's value for this space (if any)
+        let prev_round_value: Option<Decimal> = if bid.round_num > 0 {
+            sqlx::query_scalar(
                 r#"
                 SELECT rsr.value
                 FROM round_space_results rsr
                 JOIN auction_rounds ar ON rsr.round_id = ar.id
                 WHERE ar.auction_id = $1
                   AND ar.round_num = $2
-                  AND rsr.winning_user_id = $3
+                  AND rsr.space_id = $3
                 "#,
             )
-            .bind(auction.auction_id)
-            .bind(processed_round_num)
-            .bind(user_id)
-            .fetch_all(&mut **tx)
-            .await?;
+            .bind(auction_id)
+            .bind(bid.round_num - 1)
+            .bind(bid.space_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten()
+        } else {
+            None
+        };
 
-            // Clamp negative values (chore wins) to zero: a chore winner is
-            // owed compensation if the auction settles now, but a later
-            // round could displace them, so treating the unrealized chore
-            // reward as freed available credit would let them place
-            // positive bids funded by money they may never receive.
-            for value in winning_values {
-                total_locked += value.max(Decimal::ZERO);
-            }
-        }
-
-        // Step 3b: Add locked balance from bids in unprocessed rounds
-        #[derive(sqlx::FromRow)]
-        struct UnprocessedBid {
-            space_id: payloads::SpaceId,
-            round_num: i32,
-            reserve_price: payloads::ReservePrice,
-        }
-
-        let unprocessed_bids: Vec<UnprocessedBid> = sqlx::query_as(
-            r#"
-            SELECT b.space_id, ar.round_num, s.reserve_price
-            FROM bids b
-            JOIN auction_rounds ar ON b.round_id = ar.id
-            JOIN spaces s ON b.space_id = s.id
-            WHERE ar.auction_id = $1
-              AND ar.round_num > $2
-              AND b.user_id = $3
-            "#,
-        )
-        .bind(auction.auction_id)
-        .bind(max_processed_round.unwrap_or(-1))
-        .bind(user_id)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        for bid in unprocessed_bids {
-            // Get the previous round's value for this space (if any)
-            let prev_round_value: Option<Decimal> = if bid.round_num > 0 {
-                sqlx::query_scalar(
-                    r#"
-                    SELECT rsr.value
-                    FROM round_space_results rsr
-                    JOIN auction_rounds ar ON rsr.round_id = ar.id
-                    WHERE ar.auction_id = $1
-                      AND ar.round_num = $2
-                      AND rsr.space_id = $3
-                    "#,
-                )
-                .bind(auction.auction_id)
-                .bind(bid.round_num - 1)
-                .bind(bid.space_id)
-                .fetch_optional(&mut **tx)
-                .await?
-                .flatten()
-            } else {
-                None
-            };
-
-            // Clamp negative bid amounts (chore bids) to zero: the bidder
-            // isn't on the hook for anything until they actually win, and
-            // a later round could displace them, so treating a negative
-            // bid as freed credit would let them pre-spend money they may
-            // never receive.
-            let bid_amount = payloads::next_bid_amount(
-                prev_round_value,
-                bid_increment,
-                bid.reserve_price,
-            );
-            total_locked += bid_amount.max(Decimal::ZERO);
-        }
+        // Clamp negative bid amounts (chore bids) to zero: the bidder
+        // isn't on the hook for anything until they actually win, and
+        // a later round could displace them, so treating a negative
+        // bid as freed credit would let them pre-spend money they may
+        // never receive.
+        let bid_amount = payloads::next_bid_amount(
+            prev_round_value,
+            bid_increment,
+            bid.reserve_price,
+        );
+        locked += bid_amount.max(Decimal::ZERO);
     }
 
-    Ok(total_locked)
+    Ok(locked)
 }
 
 /// Get available credit for an account
