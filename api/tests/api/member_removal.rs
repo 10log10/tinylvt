@@ -1,8 +1,7 @@
 use api::scheduler;
-use payloads::{AccountOwner, requests};
-use reqwest::StatusCode;
+use payloads::{AccountOwner, ApiError, requests};
 use rust_decimal::Decimal;
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_api_error, spawn_app};
 
 // ============================================================================
 // Permission Tests
@@ -24,7 +23,7 @@ async fn remove_member_requires_moderator() -> anyhow::Result<()> {
         member_user_id: alice.user.user_id,
     };
     let result = app.client.remove_member(&request).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresModeratorPermissions);
 
     Ok(())
 }
@@ -45,7 +44,7 @@ async fn cannot_remove_self() -> anyhow::Result<()> {
         member_user_id: alice.user.user_id,
     };
     let result = app.client.remove_member(&request).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::CannotRemoveSelf);
 
     Ok(())
 }
@@ -118,7 +117,7 @@ async fn leader_cannot_leave() -> anyhow::Result<()> {
     app.login_alice().await?;
     let request = requests::LeaveCommunity { community_id };
     let result = app.client.leave_community(&request).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::LeaderMustTransferFirst);
 
     Ok(())
 }
@@ -180,7 +179,7 @@ async fn get_orphaned_accounts_requires_coleader() -> anyhow::Result<()> {
     // Bob (member, not coleader) tries to get orphaned accounts - should fail
     app.login_bob().await?;
     let result = app.client.get_orphaned_accounts(&community_id).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     Ok(())
 }
@@ -698,7 +697,7 @@ async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
             idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::OrphanedAccountHasLockedBalance);
 
     // The balance is untouched, still available to back the winning bid.
     let orphaned_after =

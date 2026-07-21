@@ -1,6 +1,6 @@
 use super::*;
 use jiff_sqlx::ToSqlx;
-use payloads::{PermissionLevel, SiteId, SpaceId, UserId};
+use payloads::{ApiError, PermissionLevel, SiteId, SpaceId, UserId};
 use sqlx::PgPool;
 
 use crate::time::TimeSource;
@@ -20,7 +20,7 @@ pub(super) async fn get_validated_space(
             .fetch_one(pool)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => StoreError::SpaceNotFound,
+                sqlx::Error::RowNotFound => ApiError::SpaceNotFound.into(),
                 e => StoreError::Database(e),
             })?;
 
@@ -29,16 +29,17 @@ pub(super) async fn get_validated_space(
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+            sqlx::Error::RowNotFound => ApiError::SiteNotFound.into(),
             e => StoreError::Database(e),
         })?;
 
     let actor = get_validated_member(user_id, &site.community_id, pool).await?;
 
     if !required_permission.validate(actor.0.role) {
-        return Err(StoreError::InsufficientPermissions {
+        return Err(ApiError::InsufficientPermissions {
             required: required_permission,
-        });
+        }
+        .into());
     }
 
     Ok((space, actor))
@@ -53,7 +54,7 @@ fn validate_eligibility_points(
 ) -> Result<(), StoreError> {
     let points = details.eligibility_points;
     if !points.is_finite() || points < 0.0 {
-        return Err(StoreError::InvalidEligibilityPoints);
+        return Err(ApiError::InvalidEligibilityPoints.into());
     }
     Ok(())
 }
@@ -68,20 +69,22 @@ async fn create_space_tx(
 ) -> Result<Space, StoreError> {
     // Validate name length
     if details.name.len() > payloads::requests::SPACE_NAME_MAX_LEN {
-        return Err(StoreError::SpaceNameTooLong {
+        return Err(ApiError::SpaceNameTooLong {
             size: details.name.len(),
             max: payloads::requests::SPACE_NAME_MAX_LEN,
-        });
+        }
+        .into());
     }
 
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::SpaceDescriptionTooLong {
+        return Err(ApiError::SpaceDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
 
     validate_eligibility_points(details)?;
@@ -129,9 +132,10 @@ pub async fn create_space(
     let actor = get_validated_member(user_id, &site.community_id, pool).await?;
 
     if !PermissionLevel::Coleader.validate(actor.0.role) {
-        return Err(StoreError::InsufficientPermissions {
+        return Err(ApiError::InsufficientPermissions {
             required: PermissionLevel::Coleader,
-        });
+        }
+        .into());
     }
 
     validate_reserve_price_quantized(&site.community_id, details, pool).await?;
@@ -227,20 +231,22 @@ async fn update_space_tx(
 ) -> Result<payloads::responses::UpdateSpaceResult, StoreError> {
     // Validate name length
     if details.name.len() > payloads::requests::SPACE_NAME_MAX_LEN {
-        return Err(StoreError::SpaceNameTooLong {
+        return Err(ApiError::SpaceNameTooLong {
             size: details.name.len(),
             max: payloads::requests::SPACE_NAME_MAX_LEN,
-        });
+        }
+        .into());
     }
 
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SPACE_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::SpaceDescriptionTooLong {
+        return Err(ApiError::SpaceDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SPACE_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
 
     // Validate up front so an invalid value is rejected before the
@@ -387,7 +393,7 @@ pub async fn delete_space(
 
     if result.rows_affected() == 0 {
         // Space exists but wasn't deleted due to auction history
-        return Err(StoreError::SpaceHasAuctionHistory);
+        return Err(ApiError::SpaceHasAuctionHistory.into());
     }
 
     Ok(())
@@ -414,7 +420,7 @@ pub async fn soft_delete_space(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::SpaceNotFound);
+        return Err(ApiError::SpaceNotFound.into());
     }
 
     Ok(())
@@ -442,7 +448,7 @@ pub async fn restore_space(
     .map_err(|e| map_space_name_unique_error(e, &space.name))?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::SpaceNotFound);
+        return Err(ApiError::SpaceNotFound.into());
     }
 
     Ok(())

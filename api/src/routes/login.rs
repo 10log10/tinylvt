@@ -12,14 +12,14 @@ use crate::password::{
 use crate::store::{self, TokenAction, TokenId};
 use crate::time::TimeSource;
 
-use super::{APIError, get_user_id};
+use super::{RouteError, get_user_id};
 
 #[post("/login")]
 pub async fn login(
     request: HttpRequest,
     credentials: web::Json<Credentials>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     tracing::Span::current()
         .record("username", tracing::field::display(&credentials.username));
     match validate_credentials(credentials.0, &pool).await {
@@ -27,16 +27,16 @@ pub async fn login(
             tracing::Span::current()
                 .record("user_id", tracing::field::display(&user_id));
             Identity::login(&request.extensions(), user_id.to_string())
-                .map_err(|e| APIError::UnexpectedError(e.into()))?;
+                .map_err(|e| RouteError::UnexpectedError(e.into()))?;
             Ok(HttpResponse::Ok().finish())
         }
         Err(e) => {
             let e = match e {
                 AuthError::InvalidCredentials(_) => {
-                    APIError::AuthError(e.into())
+                    RouteError::AuthError(e.into())
                 }
                 AuthError::UnexpectedError(_) => {
-                    APIError::UnexpectedError(e.into())
+                    RouteError::UnexpectedError(e.into())
                 }
             };
             Err(e)
@@ -45,13 +45,13 @@ pub async fn login(
 }
 
 #[post("/login_check")]
-pub async fn login_check(user: Identity) -> Result<HttpResponse, APIError> {
+pub async fn login_check(user: Identity) -> Result<HttpResponse, RouteError> {
     get_user_id(&user)?;
     Ok(HttpResponse::Ok().finish())
 }
 
 #[post("/logout")]
-pub async fn logout(user: Identity) -> Result<HttpResponse, APIError> {
+pub async fn logout(user: Identity) -> Result<HttpResponse, RouteError> {
     let _ = get_user_id(&user); // to instrument the user_id, if exists
     user.logout();
     Ok(HttpResponse::Ok().finish())
@@ -65,7 +65,7 @@ pub async fn create_account(
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
     config: web::Data<AppConfig>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = create_user(new_user_details.0, &pool, &time_source).await?;
 
     // Read the user back to get the full User struct
@@ -104,12 +104,12 @@ pub async fn verify_email(
     request: web::Json<payloads::requests::VerifyEmail>,
     pool: web::Data<PgPool>,
     time_source: web::Data<TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     // Parse token
     let token_uuid = request
         .token
         .parse::<uuid::Uuid>()
-        .map_err(|e| APIError::BadRequest(anyhow::Error::from(e)))?;
+        .map_err(|e| RouteError::BadRequest(anyhow::Error::from(e)))?;
     let token_id = TokenId(token_uuid);
 
     // Consume token and get user_id
@@ -138,7 +138,7 @@ pub async fn forgot_password(
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
     config: web::Data<AppConfig>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     // Always return success to prevent email enumeration
     let response = payloads::responses::SuccessMessage {
         message: "If an account with that email exists, a password reset link has been sent.".to_string(),
@@ -207,7 +207,7 @@ pub async fn resend_verification_email(
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
     config: web::Data<AppConfig>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&identity)?;
     let user = store::read_user(&pool, &user_id).await?;
 
@@ -242,7 +242,7 @@ pub async fn resend_verification_email(
         .await
         .map_err(|e| {
             tracing::error!("Failed to send verification email: {}", e);
-            APIError::UnexpectedError(anyhow::anyhow!(
+            RouteError::UnexpectedError(anyhow::anyhow!(
                 "Failed to send verification email"
             ))
         })?;
@@ -265,12 +265,12 @@ pub async fn reset_password(
     mut request: web::Json<ResetPasswordRequest>,
     pool: web::Data<PgPool>,
     time_source: web::Data<TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     // Parse token
     let token_uuid = request
         .token
         .parse::<uuid::Uuid>()
-        .map_err(|e| APIError::BadRequest(anyhow::Error::from(e)))?;
+        .map_err(|e| RouteError::BadRequest(anyhow::Error::from(e)))?;
     let token_id = TokenId(token_uuid);
 
     // Consume token and get user_id
@@ -289,7 +289,7 @@ pub async fn reset_password(
     );
     change_password(user_id, password, &pool)
         .await
-        .map_err(APIError::UnexpectedError)?;
+        .map_err(RouteError::UnexpectedError)?;
 
     tracing::info!("Password changed successfully for user {}", user_id);
 
@@ -304,7 +304,7 @@ pub async fn reset_password(
 pub async fn user_profile(
     user: Identity,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let user_data = store::read_user(&pool, &user_id).await?;
 
@@ -325,14 +325,14 @@ pub async fn update_profile(
     request: web::Json<payloads::requests::UpdateProfile>,
     pool: web::Data<PgPool>,
     time_source: web::Data<TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
 
     // Validate display_name length if provided
     if let Some(ref display_name) = request.display_name
         && display_name.len() > payloads::requests::DISPLAY_NAME_MAX_LEN
     {
-        return Err(APIError::BadRequest(anyhow::anyhow!(
+        return Err(RouteError::BadRequest(anyhow::anyhow!(
             "Display name must not exceed {} characters",
             payloads::requests::DISPLAY_NAME_MAX_LEN
         )));
@@ -362,7 +362,7 @@ pub async fn delete_user(
     user: Identity,
     pool: web::Data<PgPool>,
     time_source: web::Data<TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::delete_user(&pool, &user_id, &time_source).await?;
     user.logout();

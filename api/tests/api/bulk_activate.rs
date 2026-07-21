@@ -1,6 +1,6 @@
-use payloads::requests;
+use payloads::{ApiError, requests};
 use reqwest::StatusCode;
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_api_error, assert_status_code, spawn_app};
 
 /// A moderator+ can activate members in bulk by email or username, and the
 /// result reports matched/unmatched identifiers. Activation is additive:
@@ -201,7 +201,7 @@ async fn bulk_activate_requires_moderator() -> anyhow::Result<()> {
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresModeratorPermissions);
 
     Ok(())
 }

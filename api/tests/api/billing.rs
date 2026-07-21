@@ -2,9 +2,10 @@
 //! state transitions.
 
 use api::store;
-use payloads::{SubscriptionStatus, SubscriptionTier, TierLimits, requests};
-use reqwest::StatusCode;
-use test_helpers::{TestApp, assert_status_code, spawn_app};
+use payloads::{
+    ApiError, SubscriptionStatus, SubscriptionTier, TierLimits, requests,
+};
+use test_helpers::{TestApp, spawn_app};
 
 /// Helper to get current storage usage directly from the database.
 async fn get_cached_storage_total(
@@ -105,7 +106,15 @@ async fn test_storage_enforcement_blocks_image_upload_over_limit()
     let body = test_helpers::site_image_details_a(community_id);
     let result = app.client.create_site_image(&body).await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    // The exact byte figures depend on the store's internal row-size
+    // estimates, so match only the variant.
+    assert!(matches!(
+        result,
+        Err(payloads::ClientError::Api(
+            _,
+            ApiError::StorageLimitExceeded { .. }
+        ))
+    ));
 
     Ok(())
 }
@@ -240,12 +249,15 @@ async fn test_storage_enforcement_blocks_site_creation() -> anyhow::Result<()> {
     let result = app.client.create_site(&site_details).await;
 
     // Verify it's blocked specifically for storage, not some other error
-    let err =
-        result.expect_err("Site creation should fail due to storage limit");
     assert!(
-        err.to_string().to_lowercase().contains("storage"),
-        "Error should mention storage limit, got: {}",
-        err
+        matches!(
+            result,
+            Err(payloads::ClientError::Api(
+                _,
+                ApiError::StorageLimitExceeded { .. }
+            ))
+        ),
+        "Site creation should fail due to storage limit, got: {result:?}"
     );
 
     Ok(())
@@ -493,7 +505,13 @@ async fn test_storage_enforcement_blocks_auction_creation() -> anyhow::Result<()
         test_helpers::auction_details_a(site_id, &app.time_source);
     let result = app.client.create_auction(&auction_details).await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert!(matches!(
+        result,
+        Err(payloads::ClientError::Api(
+            _,
+            ApiError::StorageLimitExceeded { .. }
+        ))
+    ));
 
     Ok(())
 }

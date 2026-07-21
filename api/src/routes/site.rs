@@ -4,7 +4,7 @@ use sqlx::PgPool;
 
 use crate::store;
 
-use super::{APIError, get_user_id, get_validated_member};
+use super::{RouteError, get_user_id, get_validated_member};
 
 #[post("/create_site")]
 pub async fn create_site(
@@ -12,7 +12,7 @@ pub async fn create_site(
     details: web::Json<payloads::Site>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.0.community_id, &pool).await?;
@@ -28,7 +28,7 @@ pub async fn get_site(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id = store::get_site_community_id(&site_id, &pool).await?;
     get_validated_member(&user_id, &community_id, &pool).await?;
@@ -43,7 +43,7 @@ pub async fn update_site(
     details: web::Json<payloads::requests::UpdateSite>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id =
         store::get_site_community_id(&details.site_id, &pool).await?;
@@ -58,7 +58,7 @@ pub async fn delete_site(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id = store::get_site_community_id(&site_id, &pool).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
@@ -72,7 +72,7 @@ pub async fn soft_delete_site(
     site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id = store::get_site_community_id(&site_id, &pool).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
@@ -86,7 +86,7 @@ pub async fn restore_site(
     site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id = store::get_site_community_id(&site_id, &pool).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
@@ -99,7 +99,7 @@ pub async fn list_sites(
     user: Identity,
     community_id: web::Json<payloads::CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let sites = store::list_sites(&community_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(sites))
@@ -113,7 +113,7 @@ pub async fn create_site_image(
     details: web::Json<payloads::requests::CreateSiteImage>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let site_image_id =
         store::create_site_image(&details, &user_id, &pool, &time_source)
@@ -126,7 +126,7 @@ pub async fn get_site_image(
     user: Identity,
     site_image_id: web::Json<payloads::SiteImageId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let site_image =
         store::get_site_image(&site_image_id, &user_id, &pool).await?;
@@ -140,7 +140,7 @@ pub async fn get_site_image_bytes(
     user: Identity,
     path: web::Path<payloads::SiteImageId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let site_image_id = path.into_inner();
     let site_image =
@@ -159,7 +159,7 @@ pub async fn update_site_image(
     details: web::Json<payloads::requests::UpdateSiteImage>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let site_image =
         store::update_site_image(&details, &user_id, &pool, &time_source)
@@ -173,7 +173,7 @@ pub async fn delete_site_image(
     site_image_id: web::Json<payloads::SiteImageId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::delete_site_image(&site_image_id, &user_id, &pool, &time_source)
         .await?;
@@ -185,7 +185,7 @@ pub async fn list_site_images(
     user: Identity,
     community_id: web::Json<payloads::CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let site_images =
         store::list_site_images(&community_id, &user_id, &pool).await?;
@@ -200,7 +200,7 @@ pub async fn create_space(
     details: web::Json<payloads::Space>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let space =
         store::create_space(&details, &user_id, &pool, &time_source).await?;
@@ -212,7 +212,7 @@ pub async fn get_space(
     user: Identity,
     space_id: web::Json<payloads::SpaceId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let space = store::get_space(&space_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(space))
@@ -224,7 +224,7 @@ pub async fn update_space(
     details: web::Json<payloads::requests::UpdateSpace>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let result = store::update_space(
         &details.space_id,
@@ -243,7 +243,7 @@ pub async fn update_spaces(
     details: web::Json<payloads::requests::UpdateSpaces>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let results =
         store::update_spaces(&details.spaces, &user_id, &pool, &time_source)
@@ -256,7 +256,7 @@ pub async fn delete_space(
     user: Identity,
     space_id: web::Json<payloads::SpaceId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::delete_space(&space_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().finish())
@@ -268,7 +268,7 @@ pub async fn soft_delete_space(
     space_id: web::Json<payloads::SpaceId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::soft_delete_space(&space_id, &user_id, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
@@ -280,7 +280,7 @@ pub async fn restore_space(
     space_id: web::Json<payloads::SpaceId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::restore_space(&space_id, &user_id, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
@@ -291,7 +291,7 @@ pub async fn list_spaces(
     user: Identity,
     site_id: web::Json<payloads::SiteId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let spaces = store::list_spaces(&site_id, &user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(spaces))

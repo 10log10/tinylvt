@@ -1,3 +1,5 @@
+use payloads::ApiError;
+
 use crate::store::{self, StoreError};
 use crate::telemetry::spawn_blocking_with_tracing;
 use anyhow::Context;
@@ -149,7 +151,7 @@ pub async fn create_user(
         new_user_details.password.expose_secret(),
     );
     if let Some(error_message) = password_validation.error_message() {
-        return Err(StoreError::InvalidPassword(error_message.to_string()));
+        return Err(ApiError::InvalidPassword(error_message.to_string()).into());
     }
 
     let password_hash = spawn_blocking_with_tracing(move || {

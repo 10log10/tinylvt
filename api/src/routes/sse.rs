@@ -14,7 +14,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pubsub::PubSub;
-use crate::routes::{APIError, get_user_id};
+use crate::routes::{RouteError, get_user_id};
 use crate::store;
 
 const HEARTBEAT: Duration = Duration::from_secs(20);
@@ -29,7 +29,7 @@ pub async fn sse_auction(
     path: web::Path<AuctionId>,
     pool: web::Data<PgPool>,
     bus: web::Data<PubSub>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let auction_id = path.into_inner();
     // Same gate as POST /auction.

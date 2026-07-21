@@ -1,7 +1,8 @@
 use super::*;
 use jiff_sqlx::ToSqlx;
 use payloads::{
-    AuctionId, AuctionRoundId, Bid, PermissionLevel, SiteId, SpaceId, UserId,
+    ApiError, AuctionId, AuctionRoundId, Bid, PermissionLevel, SiteId, SpaceId,
+    UserId,
 };
 use rust_decimal::Decimal;
 use sqlx::PgPool;
@@ -68,7 +69,9 @@ pub async fn get_eligibility(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
         e => StoreError::Database(e),
     })?;
 
@@ -159,7 +162,9 @@ pub(super) async fn get_validated_auction(
             .fetch_one(pool)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => StoreError::AuctionNotFound,
+                sqlx::Error::RowNotFound => {
+                    StoreError::Api(ApiError::AuctionNotFound)
+                }
                 e => StoreError::Database(e),
             })?;
 
@@ -167,9 +172,10 @@ pub(super) async fn get_validated_auction(
     let actor = get_validated_member(user_id, &community_id, pool).await?;
 
     if !required_permission.validate(actor.0.role) {
-        return Err(StoreError::InsufficientPermissions {
+        return Err(ApiError::InsufficientPermissions {
             required: required_permission,
-        });
+        }
+        .into());
     }
 
     Ok((auction, actor))
@@ -186,9 +192,10 @@ pub async fn create_auction(
     let actor = get_validated_member(user_id, &community_id, pool).await?;
 
     if !PermissionLevel::Coleader.validate(actor.0.role) {
-        return Err(StoreError::InsufficientPermissions {
+        return Err(ApiError::InsufficientPermissions {
             required: PermissionLevel::Coleader,
-        });
+        }
+        .into());
     }
 
     // Check if the site has been deleted
@@ -198,11 +205,11 @@ pub async fn create_auction(
         .await?;
 
     if site.deleted_at.is_some() {
-        return Err(StoreError::SiteDeleted);
+        return Err(ApiError::SiteDeleted.into());
     }
 
     if details.possession_start_at >= details.possession_end_at {
-        return Err(StoreError::InvalidPossessionPeriod);
+        return Err(ApiError::InvalidPossessionPeriod.into());
     }
 
     // A start time more than one round in the past would create round 0 already
@@ -210,7 +217,7 @@ pub async fn create_auction(
     // immediately self-conclude with no allocations. Starting exactly at now is
     // allowed: that's the immediate-start pattern used in tests.
     if details.start_at.is_some_and(|s| s < time_source.now()) {
-        return Err(StoreError::AuctionStartInPast);
+        return Err(ApiError::AuctionStartInPast.into());
     }
 
     // Reserve prices seed bid values and thus settlement lines, so every
@@ -239,10 +246,11 @@ pub async fn create_auction(
     .fetch_all(pool)
     .await?;
     if !unquantized_spaces.is_empty() {
-        return Err(StoreError::UnquantizedReservePrices {
+        return Err(ApiError::UnquantizedReservePrices {
             minor_units,
             space_names: unquantized_spaces.join(", "),
-        });
+        }
+        .into());
     }
 
     // Check storage limit before creating auction
@@ -331,7 +339,7 @@ pub async fn delete_auction(
     // visible to bidders by default and settled auctions (whose journal
     // entries reference them with ON DELETE RESTRICT) are never deletable.
     if !auction.was_canceled {
-        return Err(StoreError::AuctionNotCanceled);
+        return Err(ApiError::AuctionNotCanceled.into());
     }
 
     sqlx::query("DELETE FROM auctions WHERE id = $1")
@@ -388,7 +396,9 @@ async fn lock_auction_for_update(
         .fetch_one(&mut **tx)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::AuctionNotFound,
+            sqlx::Error::RowNotFound => {
+                StoreError::Api(ApiError::AuctionNotFound)
+            }
             e => e.into(),
         })
 }
@@ -411,19 +421,19 @@ pub async fn schedule_auction(
 
     let now = time_source.now();
     if details.start_at.is_some_and(|s| s <= now) {
-        return Err(StoreError::AuctionStartNotInFuture);
+        return Err(ApiError::AuctionStartNotInFuture.into());
     }
 
     let mut tx = pool.begin().await?;
     let auction = lock_auction_for_update(&details.auction_id, &mut tx).await?;
 
     if auction.end_at.is_some() {
-        return Err(StoreError::AuctionAlreadyEnded);
+        return Err(ApiError::AuctionAlreadyEnded.into());
     }
     // A started auction can't be rescheduled, even in the brief window
     // before round 0's row is created.
     if auction.has_started(now) {
-        return Err(StoreError::AuctionAlreadyStarted);
+        return Err(ApiError::AuctionAlreadyStarted.into());
     }
 
     sqlx::query(
@@ -482,7 +492,7 @@ pub async fn cancel_auction(
     let auction = lock_auction_for_update(auction_id, &mut tx).await?;
 
     if auction.end_at.is_some() {
-        return Err(StoreError::AuctionAlreadyEnded);
+        return Err(ApiError::AuctionAlreadyEnded.into());
     }
 
     sqlx::query(
@@ -615,7 +625,7 @@ pub async fn get_round_space_result(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::RoundSpaceResultNotFound,
+        sqlx::Error::RowNotFound => StoreError::Api(ApiError::RoundSpaceResultNotFound),
         e => e.into(),
     })?;
 
@@ -641,7 +651,7 @@ pub async fn get_round_space_result(
     let winner = user_identities
         .get(&db_result.winning_user_id)
         .cloned()
-        .ok_or(StoreError::UserNotFound)?;
+        .ok_or(ApiError::UserNotFound)?;
 
     Ok(payloads::RoundSpaceResult {
         space_id: db_result.space_id,
@@ -664,7 +674,9 @@ pub async fn list_round_space_results_for_round(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
         e => e.into(),
     })?;
 
@@ -731,12 +743,12 @@ pub async fn create_bid_tx(
 
     // Ensure the space is available for bidding
     if !space.is_available {
-        return Err(StoreError::SpaceNotAvailable);
+        return Err(ApiError::SpaceNotAvailable.into());
     }
 
     // Check if the space has been deleted
     if space.deleted_at.is_some() {
-        return Err(StoreError::SpaceDeleted);
+        return Err(ApiError::SpaceDeleted.into());
     }
 
     // Check if the site has been deleted
@@ -746,7 +758,7 @@ pub async fn create_bid_tx(
         .await?;
 
     if site.deleted_at.is_some() {
-        return Err(StoreError::SiteDeleted);
+        return Err(ApiError::SiteDeleted.into());
     }
 
     // Verify the round exists and is ongoing
@@ -757,16 +769,18 @@ pub async fn create_bid_tx(
     .fetch_one(&mut **tx)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
         e => StoreError::Database(e),
     })?;
 
     let now = time_source.now();
     if now < round.start_at {
-        return Err(StoreError::RoundNotStarted);
+        return Err(ApiError::RoundNotStarted.into());
     }
     if now >= round.end_at {
-        return Err(StoreError::RoundEnded);
+        return Err(ApiError::RoundEnded.into());
     }
 
     if round.round_num > 0 {
@@ -796,7 +810,7 @@ pub async fn create_bid_tx(
         .await?;
 
         if is_winning {
-            return Err(StoreError::AlreadyWinningSpace);
+            return Err(ApiError::AlreadyWinningSpace.into());
         }
 
         // Resolve the user's eligibility for this round the same way the read
@@ -842,10 +856,11 @@ pub async fn create_bid_tx(
                     .await?;
 
             if total_points > budget {
-                return Err(StoreError::ExceedsEligibility {
+                return Err(ApiError::ExceedsEligibility {
                     available: budget,
                     required: total_points,
-                });
+                }
+                .into());
             }
         }
     }
@@ -967,7 +982,7 @@ pub async fn get_bid(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::BidNotFound,
+        sqlx::Error::RowNotFound => StoreError::Api(ApiError::BidNotFound),
         e => StoreError::Database(e),
     })?;
 
@@ -987,7 +1002,9 @@ pub async fn list_bids(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
         e => e.into(),
     })?;
 
@@ -1033,16 +1050,18 @@ pub async fn delete_bid(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionRoundNotFound,
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
         e => StoreError::Database(e),
     })?;
 
     let now = time_source.now();
     if now < round.start_at {
-        return Err(StoreError::RoundNotStarted);
+        return Err(ApiError::RoundNotStarted.into());
     }
     if now >= round.end_at {
-        return Err(StoreError::RoundEnded);
+        return Err(ApiError::RoundEnded.into());
     }
 
     // Delete the bid

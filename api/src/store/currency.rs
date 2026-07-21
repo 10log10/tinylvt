@@ -51,7 +51,7 @@
 use jiff::Timestamp;
 use jiff_sqlx::{Timestamp as SqlxTs, ToSqlx};
 use payloads::{
-    Account, AccountId, AccountOwner, AccountOwnerType, CommunityId,
+    Account, AccountId, AccountOwner, AccountOwnerType, ApiError, CommunityId,
     CurrencyMode, EntryType, JournalEntryId, UserId,
 };
 use rust_decimal::Decimal;
@@ -150,7 +150,7 @@ pub(crate) fn check_amount_quantized(
     if payloads::is_quantized(amount, minor_units) {
         Ok(())
     } else {
-        Err(StoreError::AmountNotQuantized { minor_units })
+        Err(ApiError::AmountNotQuantized { minor_units }.into())
     }
 }
 
@@ -198,7 +198,7 @@ pub(crate) async fn get_effective_credit_limit_tx(
     .bind(account_id)
     .fetch_optional(&mut **tx)
     .await?
-    .ok_or(StoreError::AccountNotFound)?;
+    .ok_or(ApiError::AccountNotFound)?;
 
     Ok(row.0.or(row.1))
 }
@@ -223,7 +223,7 @@ async fn get_locked_balance_tx(
         .bind(account_id)
         .fetch_optional(&mut **tx)
         .await?
-        .ok_or(StoreError::AccountNotFound)?;
+        .ok_or(ApiError::AccountNotFound)?;
 
     // Step 2: Get all active auctions in this community
     let active_auction_ids: Vec<payloads::AuctionId> = sqlx::query_scalar(
@@ -418,7 +418,7 @@ async fn get_available_credit_tx(
     .bind(account_id)
     .fetch_optional(&mut **tx)
     .await?
-    .ok_or(StoreError::AccountNotFound)?;
+    .ok_or(ApiError::AccountNotFound)?;
 
     // Treasury accounts have unlimited credit
     if owner_type == AccountOwnerType::CommunityTreasury {
@@ -447,7 +447,7 @@ async fn get_available_credit_tx(
 /// Check if an account has sufficient credit for a transaction
 ///
 /// Returns Ok(()) if the account can spend the given amount, or
-/// Err(StoreError::InsufficientBalance) if not.
+/// Err(ApiError::InsufficientBalance) if not.
 ///
 /// Demands a [`LockedAccounts`] witness covering the account: without the row
 /// lock, a settlement or transfer committing between this check's statements
@@ -466,7 +466,7 @@ pub(crate) async fn check_sufficient_credit_tx(
     };
 
     if available_amount < amount {
-        return Err(StoreError::InsufficientBalance);
+        return Err(ApiError::InsufficientBalance.into());
     }
 
     Ok(())
@@ -576,7 +576,7 @@ mod lock {
         .fetch_all(&mut **tx)
         .await?;
         if db_accounts.len() != ids.len() {
-            return Err(StoreError::AccountNotFound);
+            return Err(ApiError::AccountNotFound.into());
         }
         Ok(LockedAccounts {
             accounts: into_accounts(db_accounts)?,
@@ -605,7 +605,7 @@ mod lock {
         .bind(owner.owner_id())
         .fetch_optional(&mut **tx)
         .await?
-        .ok_or(StoreError::AccountNotFound)?;
+        .ok_or(ApiError::AccountNotFound)?;
         Ok(LockedAccounts {
             accounts: vec![db_account.try_into()?],
             tx,
@@ -689,10 +689,11 @@ async fn create_entry(
     if let Some(note) = &params.note
         && note.len() > payloads::requests::JOURNAL_NOTE_MAX_LEN
     {
-        return Err(StoreError::JournalNoteTooLong {
+        return Err(ApiError::JournalNoteTooLong {
             size: note.len(),
             max: payloads::requests::JOURNAL_NOTE_MAX_LEN,
-        });
+        }
+        .into());
     }
 
     // Idempotency fast path. A replay must short-circuit here, before the
@@ -713,7 +714,7 @@ async fn create_entry(
     // Validate lines sum to zero
     let sum: Decimal = params.lines.iter().map(|(_, amount)| amount).sum();
     if sum != Decimal::ZERO {
-        return Err(StoreError::JournalLinesDoNotSumToZero(sum));
+        return Err(ApiError::JournalLinesDoNotSumToZero(sum).into());
     }
 
     let lines = params.lines;
@@ -769,7 +770,7 @@ async fn create_entry(
         let unique_accounts: std::collections::HashSet<AccountId> =
             lines.iter().map(|(account_id, _)| *account_id).collect();
         if unique_accounts.len() != lines.len() {
-            return Err(StoreError::DuplicateAccountInJournalEntry);
+            return Err(ApiError::DuplicateAccountInJournalEntry.into());
         }
 
         // Check credit limits BEFORE making changes. The account locks
@@ -1030,7 +1031,7 @@ async fn get_account_tx(
     .bind(owner.owner_id())
     .fetch_optional(&mut **tx)
     .await?
-    .ok_or(StoreError::AccountNotFound)?;
+    .ok_or(ApiError::AccountNotFound)?;
 
     db_account.try_into()
 }
@@ -1209,7 +1210,7 @@ pub async fn get_member_credit_limit_override(
 ) -> Result<payloads::responses::MemberCreditLimitOverride, StoreError> {
     // Requires moderator+ permissions
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Verify the target user is a member of the community
@@ -1334,7 +1335,7 @@ async fn fetch_account_transactions(
                     let user_identity = user_identities
                         .get(&user_id)
                         .cloned()
-                        .ok_or(StoreError::UserNotFound)?;
+                        .ok_or(ApiError::UserNotFound)?;
 
                     payloads::responses::TransactionParty::Member(user_identity)
                 }
@@ -1604,7 +1605,7 @@ pub async fn update_credit_limit_override(
 ) -> Result<Account, StoreError> {
     // Check permissions
     if !actor.0.role.can_edit_credit_limit() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Check if currency mode supports credit limits
@@ -1620,7 +1621,7 @@ pub async fn update_credit_limit_override(
         currency_mode,
         CurrencyMode::DistributedClearing | CurrencyMode::DeferredPayment
     ) {
-        return Err(StoreError::InvalidCreditLimitOperation);
+        return Err(ApiError::InvalidCreditLimitOperation.into());
     }
 
     if let Some(limit) = credit_limit_override {
@@ -1680,7 +1681,7 @@ pub async fn create_transfer(
     pool: &PgPool,
 ) -> Result<(), StoreError> {
     if amount <= Decimal::ZERO {
-        return Err(StoreError::AmountMustBePositive);
+        return Err(ApiError::AmountMustBePositive.into());
     }
 
     let mut tx = pool.begin().await?;
@@ -1699,7 +1700,7 @@ pub async fn create_transfer(
     if matches!(to, AccountOwner::Treasury)
         && currency_mode == CurrencyMode::DistributedClearing
     {
-        return Err(StoreError::InvalidTreasuryOperation);
+        return Err(ApiError::InvalidTreasuryOperation.into());
     }
 
     let from_account = get_account_tx(
@@ -1770,11 +1771,11 @@ pub async fn treasury_credit_operation(
 ) -> Result<payloads::TreasuryOperationResult, StoreError> {
     // Check permissions
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     if amount_per_recipient == Decimal::ZERO {
-        return Err(StoreError::AmountMustBeNonZero);
+        return Err(ApiError::AmountMustBeNonZero.into());
     }
 
     let community_id = &actor.0.community_id;
@@ -1806,7 +1807,7 @@ pub async fn treasury_credit_operation(
             )
         )
     {
-        return Err(StoreError::NegativeTreasuryAmountNotAllowed);
+        return Err(ApiError::NegativeTreasuryAmountNotAllowed.into());
     }
 
     // Get recipient account IDs based on TreasuryRecipient
@@ -1859,7 +1860,7 @@ pub async fn treasury_credit_operation(
         | (DistributedClearing, AllActiveMembers)
         | (DeferredPayment, SingleMember(_))
         | (PrepaidCredits, SingleMember(_)) => {}
-        _ => return Err(StoreError::InvalidTreasuryOperation),
+        _ => return Err(ApiError::InvalidTreasuryOperation.into()),
     }
     let entry_type = EntryType::TreasuryTransfer;
 
@@ -1900,15 +1901,15 @@ pub async fn treasury_credit_operation(
         let new_balance = balance - total_amount;
         if balance >= Decimal::ZERO && total_amount >= Decimal::ZERO {
             if new_balance < Decimal::ZERO {
-                return Err(StoreError::InsufficientBalance);
+                return Err(ApiError::InsufficientBalance.into());
             }
         } else if balance <= Decimal::ZERO && total_amount <= Decimal::ZERO {
             if new_balance > Decimal::ZERO {
-                return Err(StoreError::InsufficientBalance);
+                return Err(ApiError::InsufficientBalance.into());
             }
         } else {
             // Mixed signs would push the treasury further from zero
-            return Err(StoreError::InsufficientBalance);
+            return Err(ApiError::InsufficientBalance.into());
         }
     }
 
@@ -1961,7 +1962,7 @@ pub async fn resolve_orphaned_balance(
 ) -> Result<payloads::TreasuryOperationResult, StoreError> {
     // Permission check: Coleader+
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let mut tx = pool.begin().await?;
@@ -1998,7 +1999,7 @@ pub async fn resolve_orphaned_balance(
     .await?;
 
     if !is_orphaned {
-        return Err(StoreError::OrphanedAccountNotFound);
+        return Err(ApiError::OrphanedAccountNotFound.into());
     }
 
     // Determine recipients (by currency mode) before locking: the orphaned
@@ -2036,7 +2037,7 @@ pub async fn resolve_orphaned_balance(
     let locked_balance =
         get_locked_balance_tx(orphaned_account_id, locked.tx()).await?;
     if locked_balance > Decimal::ZERO {
-        return Err(StoreError::OrphanedAccountHasLockedBalance);
+        return Err(ApiError::OrphanedAccountHasLockedBalance.into());
     }
 
     // If balance is zero, nothing to transfer
@@ -2049,7 +2050,7 @@ pub async fn resolve_orphaned_balance(
     }
 
     if recipient_account_ids.is_empty() {
-        return Err(StoreError::NoActiveMembersForDistribution);
+        return Err(ApiError::NoActiveMembersForDistribution.into());
     }
 
     // Build journal lines
@@ -2098,7 +2099,7 @@ pub async fn get_orphaned_accounts(
     pool: &PgPool,
 ) -> Result<Vec<payloads::responses::OrphanedAccount>, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     // Get orphaned accounts with non-zero balances
@@ -2157,7 +2158,7 @@ pub async fn get_treasury_account(
     pool: &PgPool,
 ) -> Result<Account, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     get_account(&actor.0.community_id, AccountOwner::Treasury, pool).await
@@ -2173,7 +2174,7 @@ pub async fn get_treasury_transactions(
     pool: &PgPool,
 ) -> Result<Vec<payloads::responses::MemberTransaction>, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     // Get treasury account
@@ -2204,7 +2205,7 @@ pub async fn reset_all_balances(
 ) -> Result<payloads::responses::BalanceResetResult, StoreError> {
     // Check permissions
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let mut tx = pool.begin().await?;
@@ -2228,7 +2229,7 @@ pub async fn reset_all_balances(
     .await?;
 
     if active_count > 0 {
-        return Err(StoreError::CannotResetDuringActiveAuction);
+        return Err(ApiError::CannotResetDuringActiveAuction.into());
     }
 
     // Lock ALL member accounts plus the treasury in one ordered acquisition;
@@ -2257,7 +2258,7 @@ pub async fn reset_all_balances(
         .iter()
         .find(|a| matches!(a.owner, AccountOwner::Treasury))
         .map(|a| a.id)
-        .ok_or(StoreError::AccountNotFound)?;
+        .ok_or(ApiError::AccountNotFound)?;
     lines.push((treasury_account_id, total));
 
     // Create journal entry using shared create_entry function
@@ -2373,7 +2374,7 @@ pub async fn get_member_currency_info_with_permissions(
         Some(uid) => {
             // Checking another user's info requires coleader+
             if !actor.0.role.is_ge_coleader() {
-                return Err(StoreError::RequiresColeaderPermissions);
+                return Err(ApiError::RequiresColeaderPermissions.into());
             }
             *uid
         }
@@ -2407,7 +2408,7 @@ pub async fn get_member_transactions_with_permissions(
         Some(uid) => {
             // Checking another user's transactions requires coleader+
             if !actor.0.role.is_ge_coleader() {
-                return Err(StoreError::RequiresColeaderPermissions);
+                return Err(ApiError::RequiresColeaderPermissions.into());
             }
             *uid
         }
@@ -2436,7 +2437,7 @@ pub async fn update_currency_config(
 ) -> Result<(), StoreError> {
     // Permission check: coleader or above
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     // Get current community to verify mode hasn't changed
@@ -2445,15 +2446,15 @@ pub async fn update_currency_config(
 
     // Validate mode is unchanged
     if currency.mode() != current_community.currency.mode() {
-        return Err(StoreError::CurrencyModeImmutable);
+        return Err(ApiError::CurrencyModeImmutable.into());
     }
 
     // Validate currency name/symbol lengths
     if currency.name.len() > 50 {
-        return Err(StoreError::InvalidCurrencyName);
+        return Err(ApiError::InvalidCurrencyName.into());
     }
     if currency.symbol.chars().count() > 5 {
-        return Err(StoreError::InvalidCurrencySymbol);
+        return Err(ApiError::InvalidCurrencySymbol.into());
     }
     validate_currency_settings_quantization(currency)?;
 
@@ -2545,7 +2546,7 @@ pub async fn update_currency_config(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::CommunityNotFound);
+        return Err(ApiError::CommunityNotFound.into());
     }
 
     tx.commit().await?;

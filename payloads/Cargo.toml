@@ -12,6 +12,7 @@ jiff-sqlx = { workspace = true, optional = true }
 reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true, optional = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }

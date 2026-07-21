@@ -2,7 +2,7 @@ use super::*;
 use anyhow::Context;
 use jiff::Timestamp;
 use jiff_sqlx::ToSqlx;
-use payloads::UserId;
+use payloads::{ApiError, UserId};
 use sqlx::PgPool;
 
 use crate::time::TimeSource;
@@ -18,12 +18,12 @@ pub async fn create_user(
     // Validate username format
     let validation = payloads::requests::validate_username(username);
     if let Some(error_message) = validation.error_message() {
-        return Err(StoreError::InvalidUsername(error_message.to_string()));
+        return Err(ApiError::InvalidUsername(error_message.to_string()).into());
     }
     // Validate email format
     let email_validation = payloads::requests::validate_email(email);
     if let Some(error_message) = email_validation.error_message() {
-        return Err(StoreError::InvalidEmail(error_message.to_string()));
+        return Err(ApiError::InvalidEmail(error_message.to_string()).into());
     }
     let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (
@@ -53,7 +53,7 @@ pub async fn read_user(pool: &PgPool, id: &UserId) -> Result<User, StoreError> {
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::UserNotFound,
+            sqlx::Error::RowNotFound => ApiError::UserNotFound.into(),
             e => StoreError::Database(e),
         })
 }
@@ -77,7 +77,7 @@ pub async fn update_user_profile(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::UserNotFound,
+        sqlx::Error::RowNotFound => ApiError::UserNotFound.into(),
         _ => StoreError::Database(e),
     })?;
 
@@ -125,9 +125,9 @@ pub async fn delete_user(
             .await?;
 
             if is_leader {
-                Err(StoreError::UserIsLeader)
+                Err(ApiError::UserIsLeader.into())
             } else {
-                Err(StoreError::UserNotFound)
+                Err(ApiError::UserNotFound.into())
             }
         }
         Err(sqlx::Error::Database(db_err))
@@ -165,7 +165,7 @@ pub async fn delete_user(
                 .await?;
 
                 if is_leader {
-                    return Err(StoreError::UserIsLeader);
+                    return Err(ApiError::UserIsLeader.into());
                 }
                 // rows_deleted == 0 but not a leader means they had no
                 // community memberships, which is fine
@@ -270,21 +270,21 @@ pub async fn consume_token(
     .fetch_optional(&mut *tx)
     .await
     .context("Failed to fetch token")?
-    .ok_or(StoreError::TokenNotFound)?;
+    .ok_or(ApiError::TokenNotFound)?;
 
     // Validate token
     if token.action != expected_action {
-        return Err(StoreError::InvalidTokenAction);
+        return Err(ApiError::InvalidTokenAction.into());
     }
 
     if token.used {
-        return Err(StoreError::TokenAlreadyUsed);
+        return Err(ApiError::TokenAlreadyUsed.into());
     }
 
     // Check expiration using the provided time source
     let now = time_source.now();
     if now > token.expires_at {
-        return Err(StoreError::TokenExpired);
+        return Err(ApiError::TokenExpired.into());
     }
 
     // Mark token as used
@@ -335,7 +335,7 @@ pub async fn verify_user_email(
     .rows_affected();
 
     if rows_affected == 0 {
-        return Err(StoreError::UserNotFound);
+        return Err(ApiError::UserNotFound.into());
     }
 
     tracing::info!("Verified email for user {}", user_id.0);
@@ -358,7 +358,7 @@ pub async fn get_user_by_email(
     .fetch_optional(pool)
     .await
     .context("Failed to fetch user by email")?
-    .ok_or(StoreError::UserNotFound)
+    .ok_or(ApiError::UserNotFound.into())
 }
 
 /// Clean up expired tokens

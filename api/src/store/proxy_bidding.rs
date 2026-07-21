@@ -1,6 +1,6 @@
 use super::*;
 use jiff_sqlx::ToSqlx;
-use payloads::{AuctionId, PermissionLevel, SpaceId, UserId};
+use payloads::{ApiError, AuctionId, PermissionLevel, SpaceId, UserId};
 use sqlx::PgPool;
 
 use crate::time::TimeSource;
@@ -88,7 +88,7 @@ pub async fn get_user_value(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::UserValueNotFound,
+        sqlx::Error::RowNotFound => ApiError::UserValueNotFound.into(),
         e => StoreError::Database(e),
     })?;
 
@@ -237,7 +237,7 @@ pub async fn list_proxy_bidding_participants(
     .await?;
 
     if auction.has_started(time_source.now()) {
-        return Err(StoreError::AuctionAlreadyStarted);
+        return Err(ApiError::AuctionAlreadyStarted.into());
     }
 
     let community_id = actor.0.community_id;

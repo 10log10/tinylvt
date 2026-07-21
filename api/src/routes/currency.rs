@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::store;
 
-use super::{APIError, get_user_id, get_validated_member};
+use super::{RouteError, get_user_id, get_validated_member};
 
 // Phase 3: Credit Limit Management
 
@@ -14,7 +14,7 @@ pub async fn update_credit_limit_override(
     user: Identity,
     details: web::Json<requests::UpdateCreditLimitOverride>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -35,7 +35,7 @@ pub async fn get_member_credit_limit_override(
     user: Identity,
     details: web::Json<requests::GetMemberCreditLimitOverride>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -57,7 +57,7 @@ pub async fn get_member_currency_info(
     user: Identity,
     details: web::Json<requests::GetMemberCurrencyInfo>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -77,7 +77,7 @@ pub async fn get_member_transactions(
     user: Identity,
     details: web::Json<requests::GetMemberTransactions>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -103,7 +103,7 @@ pub async fn create_transfer(
     details: web::Json<requests::CreateTransfer>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -129,7 +129,7 @@ pub async fn get_treasury_account(
     user: Identity,
     details: web::Json<requests::GetTreasuryAccount>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -145,7 +145,7 @@ pub async fn get_treasury_transactions(
     user: Identity,
     details: web::Json<requests::GetTreasuryTransactions>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -167,7 +167,7 @@ pub async fn treasury_credit_operation(
     details: web::Json<requests::TreasuryCreditOperation>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -195,7 +195,7 @@ pub async fn update_currency_config(
     details: web::Json<requests::UpdateCurrencyConfig>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -217,7 +217,7 @@ pub async fn reset_all_balances(
     details: web::Json<requests::ResetAllBalances>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -241,7 +241,7 @@ pub async fn get_orphaned_accounts(
     user: Identity,
     community_id: web::Json<CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
@@ -264,7 +264,7 @@ pub async fn resolve_orphaned_balance(
     details: web::Json<requests::ResolveOrphanedBalance>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;

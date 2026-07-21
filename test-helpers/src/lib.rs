@@ -1039,33 +1039,25 @@ pub fn assert_status_code<T>(
     expected: StatusCode,
 ) {
     match result {
-        Err(payloads::ClientError::APIError(code, _)) => {
-            assert_eq!(code, expected)
-        }
-        _ => panic!("Expected APIError"),
+        Err(
+            payloads::ClientError::Api(code, _)
+            | payloads::ClientError::APIError(code, _),
+        ) => assert_eq!(code, expected),
+        _ => panic!("Expected an API error"),
     };
 }
 
-/// Assert that a client result is a 400 APIError whose body contains the given
-/// substring. The store error enums don't cross the HTTP boundary, only their
-/// Display strings (see APIError::error_response), so tests match on a stable
-/// substring of that string rather than the variant. Matching the substring
-/// (not just the status) guards against a 400 that fired for an unrelated
-/// reason (e.g. a name collision instead of the value under test).
-pub fn assert_bad_request_contains<T: std::fmt::Debug>(
+/// Assert that a client result is the given typed API error. Matching the
+/// exact variant (not just the status code) guards against an error that
+/// fired for an unrelated reason (e.g. a name collision instead of the value
+/// under test).
+pub fn assert_api_error<T: std::fmt::Debug>(
     result: Result<T, payloads::ClientError>,
-    expected_substring: &str,
+    expected: payloads::ApiError,
 ) {
     match result {
-        Err(payloads::ClientError::APIError(code, message)) => {
-            assert_eq!(code, StatusCode::BAD_REQUEST);
-            assert!(
-                message.contains(expected_substring),
-                "expected error message to contain {expected_substring:?}, \
-                 got {message:?}"
-            );
-        }
-        other => panic!("expected a bad-request APIError, got {other:?}"),
+        Err(payloads::ClientError::Api(_, err)) => assert_eq!(err, expected),
+        other => panic!("expected a typed API error, got {other:?}"),
     }
 }
 

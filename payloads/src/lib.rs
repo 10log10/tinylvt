@@ -118,7 +118,7 @@ impl Role {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PermissionLevel {
     /// Any member of the community
     Member,
@@ -193,32 +193,23 @@ pub const MIN_ROUND_DURATION_SECS: i64 = 5;
 pub const MAX_AUCTION_ROUNDS: i32 = 10_000;
 
 /// Why an [`AuctionParams`] is invalid.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
 pub enum AuctionParamsError {
     /// The round duration is below [`MIN_ROUND_DURATION_SECS`].
+    #[error(
+        "Round duration must be at least {} seconds",
+        MIN_ROUND_DURATION_SECS
+    )]
     RoundDurationTooShort,
     /// The bid increment is zero or negative. A simultaneous ascending auction
     /// terminates when each space's price rises past every bidder's value, so a
     /// non-positive increment never raises the price and the auction would
     /// never conclude (see the round cap in the scheduler for the backstop).
+    #[error("Bid increment must be greater than zero")]
     BidIncrementNotPositive,
     /// The eligibility progression is invalid.
+    #[error(transparent)]
     EligibilityProgression(EligibilityProgressionError),
-}
-
-impl AuctionParamsError {
-    pub fn error_message(&self) -> String {
-        match self {
-            Self::RoundDurationTooShort => format!(
-                "Round duration must be at least {MIN_ROUND_DURATION_SECS} \
-                 seconds"
-            ),
-            Self::BidIncrementNotPositive => {
-                "Bid increment must be greater than zero".to_string()
-            }
-            Self::EligibilityProgression(e) => e.error_message(),
-        }
-    }
 }
 
 impl AuctionParams {
@@ -266,35 +257,24 @@ pub struct ActivityRuleParams {
 
 /// Why an eligibility progression is invalid. Each variant names the offending
 /// breakpoint so the UI can point at the specific entry the user is editing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize, Deserialize,
+)]
 pub enum EligibilityProgressionError {
     /// A threshold fell outside `[0.0, 1.0]`. `round` is the breakpoint's round
     /// number; `index` is its position in the list.
+    #[error("Threshold for round {round} must be between 0% and 100%")]
     ThresholdOutOfRange { index: usize, round: i32 },
     /// Round numbers must be strictly ascending. `index` is the position of the
     /// entry that is not greater than its predecessor (so the offending pair is
     /// `index - 1` and `index`).
+    #[error("Round numbers must be in strictly ascending order")]
     RoundsNotAscending { index: usize },
     /// A round number was negative. Round 0 is allowed (it sets eligibility
     /// going into round 1 without constraining round 0 bids), but negatives
     /// have no meaning.
+    #[error("Round number {round} cannot be negative")]
     NegativeRound { index: usize, round: i32 },
-}
-
-impl EligibilityProgressionError {
-    pub fn error_message(&self) -> String {
-        match self {
-            Self::ThresholdOutOfRange { round, .. } => format!(
-                "Threshold for round {round} must be between 0% and 100%"
-            ),
-            Self::RoundsNotAscending { .. } => {
-                "Round numbers must be in strictly ascending order".to_string()
-            }
-            Self::NegativeRound { round, .. } => {
-                format!("Round number {round} cannot be negative")
-            }
-        }
-    }
 }
 
 impl ActivityRuleParams {
@@ -951,8 +931,11 @@ pub struct JournalLine {
 
 pub mod auction_sim;
 pub mod billing;
+pub mod errors;
 pub mod requests;
 pub mod responses;
+
+pub use errors::ApiError;
 
 /// Live update events delivered to the UI over Server-Sent Events. Payloads
 /// are routing-only — the client refetches the actual state on receipt.

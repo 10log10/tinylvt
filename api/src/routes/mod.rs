@@ -10,8 +10,9 @@ pub mod sse;
 use actix_identity::Identity;
 use actix_web::{
     HttpResponse, Responder, ResponseError, body::BoxBody,
-    dev::HttpServiceFactory, get, web,
+    dev::HttpServiceFactory, get, http::StatusCode, web,
 };
+use payloads::ApiError;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -123,7 +124,7 @@ pub async fn health_check() -> impl Responder {
 #[get("/platform_stats")]
 pub async fn platform_stats(
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let stats = store::get_platform_stats(&pool).await?;
     Ok(HttpResponse::Ok()
         .insert_header(("Cache-Control", "public, max-age=3600"))
@@ -131,18 +132,48 @@ pub async fn platform_stats(
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum APIError {
+pub enum RouteError {
     #[error("Authentication failed")]
     AuthError(#[source] anyhow::Error),
     #[error("Bad request")]
     BadRequest(#[source] anyhow::Error),
     #[error("Not found")]
     NotFound(#[source] anyhow::Error),
+    /// A typed client-facing error, serialized as JSON in the response body
+    /// so clients can match on the exact variant.
+    #[error(transparent)]
+    Api(payloads::ApiError),
     #[error("Something went wrong")]
     UnexpectedError(#[from] anyhow::Error),
 }
 
-impl ResponseError for APIError {
+/// Status code for a typed API error. `MemberNotFound` is an auth failure
+/// since membership is what authorizes access to community resources.
+/// Not-found variants map to 404; everything else is a client error.
+fn api_error_status(e: &ApiError) -> StatusCode {
+    match e {
+        ApiError::MemberNotFound => StatusCode::UNAUTHORIZED,
+        ApiError::TokenNotFound
+        | ApiError::UserNotFound
+        | ApiError::CommunityNotFound
+        | ApiError::SiteNotFound
+        | ApiError::SpaceNotFound
+        | ApiError::SiteImageNotFound
+        | ApiError::AuctionNotFound
+        | ApiError::AuctionRoundNotFound
+        | ApiError::RoundSpaceResultNotFound
+        | ApiError::BidNotFound
+        | ApiError::UserValueNotFound
+        | ApiError::ProxyBiddingNotFound
+        | ApiError::CommunityInviteNotFound
+        | ApiError::OpenHoursNotFound
+        | ApiError::AuctionParamsNotFound
+        | ApiError::AccountNotFound => StatusCode::NOT_FOUND,
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
+impl ResponseError for RouteError {
     fn error_response(&self) -> HttpResponse<BoxBody> {
         match self {
             Self::AuthError(e) => {
@@ -154,6 +185,7 @@ impl ResponseError for APIError {
             Self::NotFound(e) => {
                 HttpResponse::NotFound().body(format!("{self}: {e}"))
             }
+            Self::Api(e) => HttpResponse::build(api_error_status(e)).json(e),
             Self::UnexpectedError(e) => {
                 tracing::error!(error = ?e, "Internal server error");
                 HttpResponse::InternalServerError().body(self.to_string())
@@ -162,62 +194,34 @@ impl ResponseError for APIError {
     }
 }
 
-impl From<StoreError> for APIError {
+impl From<StoreError> for RouteError {
     fn from(e: StoreError) -> Self {
         match e {
-            // Database errors
-            StoreError::Database(_) => APIError::UnexpectedError(e.into()),
+            // Client-facing errors cross the HTTP boundary as typed JSON.
+            StoreError::Api(api) => RouteError::Api(api),
 
-            // External service errors
-            StoreError::StripeError(_) => APIError::UnexpectedError(e.into()),
+            // Unique violations are client errors, but the sqlx detail is
+            // internal; send only the generic message.
+            StoreError::NotUnique(_) => RouteError::BadRequest(e.into()),
 
-            // Unexpected / internal errors
-            StoreError::UnexpectedError(_) => {
-                APIError::UnexpectedError(e.into())
+            // Database errors, external service errors, and invariant
+            // violations are internal server errors.
+            StoreError::Database(_)
+            | StoreError::StripeError(_)
+            | StoreError::UnexpectedError(_)
+            | StoreError::InvalidAccountOwnership
+            | StoreError::InvalidCurrencyConfiguration
+            | StoreError::AccountNotLocked
+            | StoreError::UnquantizedJournalLine { .. } => {
+                RouteError::UnexpectedError(e.into())
             }
-
-            // Database invariant violations (should never happen)
-            StoreError::InvalidAccountOwnership => {
-                APIError::UnexpectedError(e.into())
-            }
-            StoreError::InvalidCurrencyConfiguration => {
-                APIError::UnexpectedError(e.into())
-            }
-            StoreError::AccountNotLocked => APIError::UnexpectedError(e.into()),
-            StoreError::UnquantizedJournalLine { .. } => {
-                APIError::UnexpectedError(e.into())
-            }
-
-            // Not found errors
-            StoreError::MemberNotFound => APIError::AuthError(e.into()),
-            StoreError::TokenNotFound => APIError::NotFound(e.into()),
-            StoreError::UserNotFound => APIError::NotFound(e.into()),
-            StoreError::CommunityNotFound => APIError::NotFound(e.into()),
-            StoreError::SiteNotFound => APIError::NotFound(e.into()),
-            StoreError::SpaceNotFound => APIError::NotFound(e.into()),
-            StoreError::SiteImageNotFound => APIError::NotFound(e.into()),
-            StoreError::AuctionNotFound => APIError::NotFound(e.into()),
-            StoreError::AuctionRoundNotFound => APIError::NotFound(e.into()),
-            StoreError::RoundSpaceResultNotFound => {
-                APIError::NotFound(e.into())
-            }
-            StoreError::BidNotFound => APIError::NotFound(e.into()),
-            StoreError::UserValueNotFound => APIError::NotFound(e.into()),
-            StoreError::ProxyBiddingNotFound => APIError::NotFound(e.into()),
-            StoreError::CommunityInviteNotFound => APIError::NotFound(e.into()),
-            StoreError::OpenHoursNotFound => APIError::NotFound(e.into()),
-            StoreError::AuctionParamsNotFound => APIError::NotFound(e.into()),
-            StoreError::AccountNotFound => APIError::NotFound(e.into()),
-
-            // All other errors are bad requests (client errors)
-            _ => APIError::BadRequest(e.into()),
         }
     }
 }
 
-fn get_user_id(user: &Identity) -> Result<payloads::UserId, APIError> {
+fn get_user_id(user: &Identity) -> Result<payloads::UserId, RouteError> {
     let id_str = user.id().map_err(|e| {
-        APIError::AuthError(
+        RouteError::AuthError(
             anyhow::Error::from(e).context("Invalid login session"),
         )
     })?;
@@ -234,18 +238,17 @@ async fn get_validated_member(
     user_id: &payloads::UserId,
     community_id: &payloads::CommunityId,
     pool: &PgPool,
-) -> Result<store::ValidatedMember, APIError> {
+) -> Result<store::ValidatedMember, RouteError> {
     let result = store::get_validated_member(user_id, community_id, pool).await;
     match result {
         Ok(validated_member) => Ok(validated_member),
         Err(e) => Err(match e {
             // assume any errors from the database mean that the member couldn't
             // have their membership validated
-            StoreError::MemberNotFound => APIError::AuthError(
-                anyhow::Error::from(e)
-                    .context("Couldn't validate community membership"),
-            ),
-            _ => APIError::UnexpectedError(e.into()),
+            StoreError::Api(ApiError::MemberNotFound) => {
+                RouteError::Api(ApiError::MemberNotFound)
+            }
+            _ => RouteError::UnexpectedError(e.into()),
         }),
     }
 }

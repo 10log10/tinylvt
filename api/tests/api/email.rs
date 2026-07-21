@@ -1,7 +1,7 @@
 use jiff_sqlx::ToSqlx;
-use payloads::requests;
+use payloads::{ApiError, requests};
 use reqwest::StatusCode;
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_api_error, assert_status_code, spawn_app};
 
 #[tokio::test]
 async fn test_email_verification_flow() {
@@ -25,7 +25,7 @@ async fn test_verify_email_with_invalid_token() {
     };
 
     let result = app.client.verify_email(&verify_request).await;
-    assert_status_code(result, StatusCode::NOT_FOUND);
+    assert_api_error(result, ApiError::TokenNotFound);
 }
 
 #[tokio::test]
@@ -69,7 +69,7 @@ async fn test_verify_email_with_used_token() {
     // 4. Try to use token again (should fail)
     let verify_request = requests::VerifyEmail { token };
     let result = app.client.verify_email(&verify_request).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::TokenAlreadyUsed);
 }
 
 #[tokio::test]
@@ -83,7 +83,7 @@ async fn test_reset_password_with_invalid_token() {
     };
 
     let result = app.client.reset_password(&reset_request).await;
-    assert_status_code(result, StatusCode::NOT_FOUND);
+    assert_api_error(result, ApiError::TokenNotFound);
 }
 
 #[tokio::test]
@@ -230,5 +230,5 @@ async fn test_expired_token_handling() {
     // 4. Try to use expired token
     let verify_request = requests::VerifyEmail { token };
     let result = app.client.verify_email(&verify_request).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::TokenExpired);
 }

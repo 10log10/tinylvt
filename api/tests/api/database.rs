@@ -17,7 +17,7 @@ use api::store::{
     self, AuctionParams, AuctionParamsId, OpenHours, OpenHoursId,
     OpenHoursWeekday, Site, Space, StoreError, User,
 };
-use payloads::{CommunityId, SiteId};
+use payloads::{ApiError, CommunityId, SiteId};
 
 use test_helpers::spawn_app;
 
@@ -81,7 +81,10 @@ async fn test_populate() -> Result<(), StoreError> {
     // check that we get a unique constraint error if attempting to populate
     // the same usernames
     let result = populate_users(conn, &community.id, &app.time_source).await;
-    assert!(matches!(result, Err(StoreError::UsernameTaken)));
+    assert!(matches!(
+        result,
+        Err(StoreError::Api(ApiError::UsernameTaken))
+    ));
     let open_hours = populate_open_hours(conn).await?;
     let auction_params =
         populate_auction_params(conn, &app.time_source).await?;

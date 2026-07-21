@@ -1,7 +1,7 @@
 use crate::{
-    Account, Auction, AuctionId, AuctionRoundId, Bid, CommunityId, InviteId,
-    MembershipSchedule, RoundSpaceResult, Site, SiteId, SiteImageId, Space,
-    SpaceId, TreasuryOperationResult, requests, responses,
+    Account, ApiError, Auction, AuctionId, AuctionRoundId, Bid, CommunityId,
+    InviteId, MembershipSchedule, RoundSpaceResult, Site, SiteId, SiteImageId,
+    Space, SpaceId, TreasuryOperationResult, requests, responses,
 };
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -113,10 +113,7 @@ impl APIClient {
         match response.status() {
             StatusCode::OK => Ok(true),
             StatusCode::UNAUTHORIZED => Ok(false),
-            _ => Err(ClientError::APIError(
-                response.status(),
-                response.text().await?,
-            )),
+            _ => Err(error_response(response).await?),
         }
     }
 
@@ -830,11 +827,28 @@ impl APIClient {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
-    /// An unhandled API error to display, containing response text.
+    /// A typed error deserialized from a JSON error response body.
+    #[error("{1}")]
+    Api(StatusCode, ApiError),
+    /// An error response with a non-JSON body (auth failures, 500s,
+    /// infrastructure errors), containing the response text.
     #[error("{1}")]
     APIError(StatusCode, String),
     #[error("Network error. Please check your connection.")]
     Network(#[from] reqwest::Error),
+}
+
+/// Convert a non-success response into a ClientError, deserializing the
+/// typed error from the body when it is JSON.
+async fn error_response(
+    response: reqwest::Response,
+) -> Result<ClientError, ClientError> {
+    let status = response.status();
+    let text = response.text().await?;
+    Ok(match serde_json::from_str::<ApiError>(&text) {
+        Ok(err) => ClientError::Api(status, err),
+        Err(_) => ClientError::APIError(status, text),
+    })
 }
 
 /// Deserialize a successful request into the desired type, or return an
@@ -843,10 +857,7 @@ pub async fn ok_body<T: serde::de::DeserializeOwned>(
     response: reqwest::Response,
 ) -> Result<T, ClientError> {
     if !response.status().is_success() {
-        return Err(ClientError::APIError(
-            response.status(),
-            response.text().await?,
-        ));
+        return Err(error_response(response).await?);
     }
     Ok(response.json::<T>().await?)
 }
@@ -854,10 +865,7 @@ pub async fn ok_body<T: serde::de::DeserializeOwned>(
 /// Check that an empty response is OK, returning a ClientError if not.
 pub async fn ok_empty(response: reqwest::Response) -> Result<(), ClientError> {
     if !response.status().is_success() {
-        return Err(ClientError::APIError(
-            response.status(),
-            response.text().await?,
-        ));
+        return Err(error_response(response).await?);
     }
     Ok(())
 }

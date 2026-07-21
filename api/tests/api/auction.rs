@@ -2,11 +2,13 @@ use api::scheduler;
 use api::time::TimeSource;
 use jiff::Timestamp;
 use jiff::{Span, Zoned};
-use payloads::requests;
-use reqwest::StatusCode;
+use payloads::{
+    ApiError, AuctionParamsError, EligibilityProgressionError, PermissionLevel,
+    requests,
+};
 use test_helpers::{self, spawn_app};
 
-use test_helpers::{assert_bad_request_contains, assert_status_code};
+use test_helpers::assert_api_error;
 
 #[tokio::test]
 async fn test_mock_time() -> anyhow::Result<()> {
@@ -38,9 +40,9 @@ async fn test_auction_crud() -> anyhow::Result<()> {
     assert_eq!(auctions[0].auction_id, auction.auction_id);
 
     // Hard deletion is only allowed after cancellation
-    assert_status_code(
+    assert_api_error(
         app.client.delete_auction(&auction.auction_id).await,
-        StatusCode::BAD_REQUEST,
+        ApiError::AuctionNotCanceled,
     );
 
     app.client.cancel_auction(&auction.auction_id).await?;
@@ -74,30 +76,30 @@ async fn test_auction_unauthorized() -> anyhow::Result<()> {
         .login(&test_helpers::to_login_credentials(&details))
         .await?;
 
-    assert_status_code(
+    assert_api_error(
         app.client.get_auction(&auction.auction_id).await,
-        StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
-    assert_status_code(
+    assert_api_error(
         app.client.list_auctions(&site.site_id).await,
-        StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
-    assert_status_code(
+    assert_api_error(
         app.client.delete_auction(&auction.auction_id).await,
-        StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
-    assert_status_code(
+    assert_api_error(
         app.client
             .schedule_auction(&requests::ScheduleAuction {
                 auction_id: auction.auction_id,
                 start_at: None,
             })
             .await,
-        StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
-    assert_status_code(
+    assert_api_error(
         app.client.cancel_auction(&auction.auction_id).await,
-        StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
 
     Ok(())
@@ -184,9 +186,9 @@ async fn test_create_auction_time_validation() -> anyhow::Result<()> {
         test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at =
         Some(app.time_source.now() - Span::new().minutes(1));
-    assert_status_code(
+    assert_api_error(
         app.client.create_auction(&auction_details).await,
-        StatusCode::BAD_REQUEST,
+        ApiError::AuctionStartInPast,
     );
 
     // Starting exactly at now is allowed (immediate start)
@@ -197,9 +199,9 @@ async fn test_create_auction_time_validation() -> anyhow::Result<()> {
     let mut auction_details =
         test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.possession_end_at = auction_details.possession_start_at;
-    assert_status_code(
+    assert_api_error(
         app.client.create_auction(&auction_details).await,
-        StatusCode::BAD_REQUEST,
+        ApiError::InvalidPossessionPeriod,
     );
 
     Ok(())
@@ -218,9 +220,16 @@ async fn test_create_auction_eligibility_validation() -> anyhow::Result<()> {
         .auction_params
         .activity_rule_params
         .eligibility_progression = vec![(0, 1.5)];
-    assert_bad_request_contains(
+    assert_api_error(
         app.client.create_auction(&auction_details).await,
-        "between 0% and 100%",
+        ApiError::InvalidAuctionParams(
+            AuctionParamsError::EligibilityProgression(
+                EligibilityProgressionError::ThresholdOutOfRange {
+                    index: 0,
+                    round: 0,
+                },
+            ),
+        ),
     );
 
     // Round numbers must be strictly ascending (duplicates included), since
@@ -231,9 +240,13 @@ async fn test_create_auction_eligibility_validation() -> anyhow::Result<()> {
         .auction_params
         .activity_rule_params
         .eligibility_progression = vec![(5, 0.5), (3, 0.75)];
-    assert_bad_request_contains(
+    assert_api_error(
         app.client.create_auction(&auction_details).await,
-        "ascending",
+        ApiError::InvalidAuctionParams(
+            AuctionParamsError::EligibilityProgression(
+                EligibilityProgressionError::RoundsNotAscending { index: 1 },
+            ),
+        ),
     );
 
     // A round 0 breakpoint is valid: it sets eligibility going into round 1
@@ -286,14 +299,16 @@ async fn test_schedule_auction() -> anyhow::Result<()> {
 
     // bob is a plain member, not coleader+
     app.login_bob().await?;
-    assert_status_code(
+    assert_api_error(
         app.client
             .schedule_auction(&requests::ScheduleAuction {
                 auction_id,
                 start_at: Some(app.time_source.now() + Span::new().hours(1)),
             })
             .await,
-        StatusCode::BAD_REQUEST,
+        ApiError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        },
     );
     app.login_alice().await?;
 
@@ -330,14 +345,14 @@ async fn test_schedule_auction() -> anyhow::Result<()> {
     assert_eq!(retrieved.auction_details.start_at, None);
 
     // A start time in the past is rejected
-    assert_status_code(
+    assert_api_error(
         app.client
             .schedule_auction(&requests::ScheduleAuction {
                 auction_id,
                 start_at: Some(app.time_source.now() - Span::new().minutes(1)),
             })
             .await,
-        StatusCode::BAD_REQUEST,
+        ApiError::AuctionStartNotInFuture,
     );
 
     // Once the scheduled start passes, the auction has started and can no
@@ -357,14 +372,14 @@ async fn test_schedule_auction() -> anyhow::Result<()> {
     assert_eq!(rounds[0].round_details.round_num, 0);
     assert_eq!(rounds[0].round_details.start_at, soon);
 
-    assert_status_code(
+    assert_api_error(
         app.client
             .schedule_auction(&requests::ScheduleAuction {
                 auction_id,
                 start_at: Some(app.time_source.now() + Span::new().hours(1)),
             })
             .await,
-        StatusCode::BAD_REQUEST,
+        ApiError::AuctionAlreadyStarted,
     );
 
     Ok(())
@@ -384,9 +399,11 @@ async fn test_cancel_before_start() -> anyhow::Result<()> {
 
     // bob is a plain member, not coleader+
     app.login_bob().await?;
-    assert_status_code(
+    assert_api_error(
         app.client.cancel_auction(&auction_id).await,
-        StatusCode::BAD_REQUEST,
+        ApiError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        },
     );
 
     app.login_alice().await?;
@@ -405,9 +422,9 @@ async fn test_cancel_before_start() -> anyhow::Result<()> {
     assert!(rounds.is_empty());
 
     // Canceling again fails
-    assert_status_code(
+    assert_api_error(
         app.client.cancel_auction(&auction_id).await,
-        StatusCode::BAD_REQUEST,
+        ApiError::AuctionAlreadyEnded,
     );
 
     Ok(())
@@ -465,9 +482,9 @@ async fn test_cancel_mid_auction_blocks_settlement() -> anyhow::Result<()> {
 
     // Despite round/bid history, the canceled auction can be hard-deleted
     app.client.delete_auction(&auction_id).await?;
-    assert_status_code(
+    assert_api_error(
         app.client.get_auction(&auction_id).await,
-        StatusCode::NOT_FOUND,
+        ApiError::AuctionNotFound,
     );
 
     Ok(())
@@ -819,15 +836,22 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .client
         .create_bid(&space_a.space_id, &round_1.round_id)
         .await;
-    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+    assert_api_error(result, ApiError::AlreadyWinningSpace);
 
     // But she can bid on space_b (though it will fail due to insufficient
-    // eligibility)
+    // eligibility: her standing 10-point win on space_a plus the 15-point
+    // space_b exceeds her 10 / 0.5 = 20 point budget)
     let result = app
         .client
         .create_bid(&space_b.space_id, &round_1.round_id)
         .await;
-    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+    assert_api_error(
+        result,
+        ApiError::ExceedsEligibility {
+            available: 20.0,
+            required: 25.0,
+        },
+    );
 
     // Bob cannot bid on space_b in round 1 since he's already winning it
     app.login_bob().await?;
@@ -835,7 +859,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
         .client
         .create_bid(&space_b.space_id, &round_1.round_id)
         .await;
-    assert!(matches!(result, Err(payloads::ClientError::APIError(..))));
+    assert_api_error(result, ApiError::AlreadyWinningSpace);
 
     // But he can bid on space_a since he has enough eligibility (15 points * 2
     // = 30 points > 25 points needed)
@@ -994,11 +1018,14 @@ async fn test_eligibility_required_when_nonzero() -> anyhow::Result<()> {
 
     // He cannot bid on the 10-point space: with eligibility 0, the 10 points
     // exceed it.
-    assert_bad_request_contains(
+    assert_api_error(
         app.client
             .create_bid(&space.space_id, &round_1.round_id)
             .await,
-        "Exceeds eligibility",
+        ApiError::ExceedsEligibility {
+            available: 0.0,
+            required: 10.0,
+        },
     );
 
     // But he can bid on the zero-point space, since it adds nothing to his
@@ -1121,11 +1148,14 @@ async fn test_eligibility_progression_activates_midway() -> anyhow::Result<()> {
     // 10-point standing win already counts toward her activity. Adding the
     // 15-point space_b would total 25 > 20, so she cannot bid on space_b.
     app.login_alice().await?;
-    assert_bad_request_contains(
+    assert_api_error(
         app.client
             .create_bid(&space_b.space_id, &round_3.round_id)
             .await,
-        "Exceeds eligibility",
+        ApiError::ExceedsEligibility {
+            available: 20.0,
+            required: 25.0,
+        },
     );
 
     // Bob holds no standing win in round 3, so only his round-3 bids count. He
@@ -1135,11 +1165,14 @@ async fn test_eligibility_progression_activates_midway() -> anyhow::Result<()> {
     app.client
         .create_bid(&space_a.space_id, &round_3.round_id)
         .await?;
-    assert_bad_request_contains(
+    assert_api_error(
         app.client
             .create_bid(&space_b.space_id, &round_3.round_id)
             .await,
-        "Exceeds eligibility",
+        ApiError::ExceedsEligibility {
+            available: 20.0,
+            required: 25.0,
+        },
     );
 
     Ok(())
@@ -1223,13 +1256,13 @@ async fn test_eligibility_routes() -> anyhow::Result<()> {
         .login(&test_helpers::to_login_credentials(&details))
         .await?;
 
-    assert_status_code(
+    assert_api_error(
         app.client.get_eligibility(&round1.round_id).await,
-        reqwest::StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
-    assert_status_code(
+    assert_api_error(
         app.client.list_eligibility(&auction_id).await,
-        reqwest::StatusCode::UNAUTHORIZED,
+        ApiError::MemberNotFound,
     );
 
     Ok(())
@@ -1262,18 +1295,8 @@ async fn test_bid_unavailable_space() -> anyhow::Result<()> {
     // Try to create a bid on the unavailable space - should fail
     let result = app.client.create_bid(&space_id, &round.round_id).await;
 
-    // The error message should indicate the space is not available
-    if let Err(payloads::ClientError::APIError(code, message)) = result {
-        // Verify we got a 400 Bad Request
-        assert_eq!(code, StatusCode::BAD_REQUEST);
-        assert!(
-            message.contains("Space is not available for bidding"),
-            "Unexpected error message: {}",
-            message
-        );
-    } else {
-        panic!("Expected APIError but got {:?}", result);
-    }
+    // The error should indicate the space is not available
+    assert_api_error(result, ApiError::SpaceNotAvailable);
 
     Ok(())
 }

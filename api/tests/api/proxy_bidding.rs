@@ -1,10 +1,10 @@
 use api::scheduler;
 use jiff::Span;
 use jiff_sqlx::ToSqlx;
-use payloads::requests;
+use payloads::{ApiError, PermissionLevel, requests};
 use rust_decimal::Decimal;
 use sqlx::Row;
-use test_helpers::{self, spawn_app};
+use test_helpers::{self, assert_api_error, spawn_app};
 
 #[tokio::test]
 async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
@@ -513,9 +513,11 @@ async fn test_list_proxy_bidding_participants_permissions() -> anyhow::Result<()
         .client
         .list_proxy_bidding_participants(&auction_id)
         .await;
-    assert!(
-        matches!(member_result, Err(payloads::ClientError::APIError(..))),
-        "member should be denied, got {member_result:?}"
+    assert_api_error(
+        member_result,
+        ApiError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        },
     );
 
     // The leader can, and sees exactly the members who opted in.
@@ -536,10 +538,7 @@ async fn test_list_proxy_bidding_participants_permissions() -> anyhow::Result<()
         .client
         .list_proxy_bidding_participants(&auction_id)
         .await;
-    assert!(
-        matches!(after_start, Err(payloads::ClientError::APIError(..))),
-        "list should be refused after start, got {after_start:?}"
-    );
+    assert_api_error(after_start, ApiError::AuctionAlreadyStarted);
 
     Ok(())
 }

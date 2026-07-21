@@ -36,7 +36,7 @@
 use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
-use payloads::SpaceId;
+use payloads::{ApiError, SpaceId};
 use rust_decimal::Decimal;
 use sqlx::{Acquire, PgPool};
 use std::collections::HashMap;
@@ -1370,8 +1370,10 @@ async fn run_proxy_item_work(
                 successful_bids += 1;
                 tracing::info!("Successfully placed bid on {:?}", space_id);
             }
-            Err(store::StoreError::ExceedsEligibility { .. })
-            | Err(store::StoreError::AlreadyWinningSpace) => {
+            Err(store::StoreError::Api(
+                ApiError::ExceedsEligibility { .. }
+                | ApiError::AlreadyWinningSpace,
+            )) => {
                 // Expected errors - try next space
                 tracing::info!(
                     "Failed to bid on {:?}: eligibility or already winning",
@@ -1379,7 +1381,7 @@ async fn run_proxy_item_work(
                 );
                 continue;
             }
-            Err(store::StoreError::InsufficientBalance) => {
+            Err(store::StoreError::Api(ApiError::InsufficientBalance)) => {
                 // User has run out of credit - try next space
                 tracing::info!(
                     "Failed to bid on {:?}: insufficient credit, trying next space",

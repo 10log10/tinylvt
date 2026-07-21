@@ -7,7 +7,7 @@ use crate::AppConfig;
 use crate::store;
 use crate::stripe_service::StripeService;
 
-use super::{APIError, get_user_id, get_validated_member};
+use super::{RouteError, get_user_id, get_validated_member};
 
 #[post("/get_community_storage_usage")]
 pub async fn get_community_storage_usage(
@@ -15,7 +15,7 @@ pub async fn get_community_storage_usage(
     request: web::Json<payloads::requests::GetCommunityStorageUsage>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let actor =
         get_validated_member(&user_id, &request.community_id, &pool).await?;
@@ -41,7 +41,7 @@ pub async fn get_subscription_info(
     user: Identity,
     request: web::Json<payloads::requests::GetSubscriptionInfo>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let actor =
         get_validated_member(&user_id, &request.community_id, &pool).await?;
@@ -58,7 +58,7 @@ pub async fn create_checkout_session(
     pool: web::Data<PgPool>,
     stripe_service: web::Data<StripeService>,
     app_config: web::Data<AppConfig>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let actor =
         get_validated_member(&user_id, &request.community_id, &pool).await?;
@@ -82,7 +82,7 @@ pub async fn create_portal_session(
     pool: web::Data<PgPool>,
     stripe_service: web::Data<StripeService>,
     app_config: web::Data<AppConfig>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let actor =
         get_validated_member(&user_id, &request.community_id, &pool).await?;
@@ -107,9 +107,9 @@ pub async fn stripe_webhook(
     stripe_service: web::Data<StripeService>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let payload = std::str::from_utf8(&body).map_err(|_| {
-        APIError::BadRequest(anyhow::anyhow!("Invalid UTF-8 payload"))
+        RouteError::BadRequest(anyhow::anyhow!("Invalid UTF-8 payload"))
     })?;
 
     let signature = req
@@ -117,7 +117,7 @@ pub async fn stripe_webhook(
         .get("Stripe-Signature")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
-            APIError::BadRequest(anyhow::anyhow!(
+            RouteError::BadRequest(anyhow::anyhow!(
                 "Missing Stripe-Signature header"
             ))
         })?;
@@ -125,7 +125,7 @@ pub async fn stripe_webhook(
     let event = stripe_service
         .verify_webhook(payload, signature, &time_source)
         .map_err(|e| {
-            APIError::BadRequest(anyhow::anyhow!(
+            RouteError::BadRequest(anyhow::anyhow!(
                 "Webhook verification failed: {e:#}"
             ))
         })?;

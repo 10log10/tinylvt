@@ -1,11 +1,9 @@
 use api::store;
-use payloads::{AccountOwner, requests};
+use payloads::{AccountOwner, ApiError, requests};
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
 
-use test_helpers::{
-    assert_bad_request_contains, assert_status_code, spawn_app,
-};
+use test_helpers::{assert_api_error, assert_status_code, spawn_app};
 
 #[tokio::test]
 async fn login_refused() -> anyhow::Result<()> {
@@ -67,7 +65,7 @@ async fn username_email_collisions_are_case_insensitive() -> anyhow::Result<()>
         password: "a-password".into(),
     };
     let result = app.client.create_account(&username_clash).await;
-    assert_bad_request_contains(result, "username is already taken");
+    assert_api_error(result, ApiError::UsernameTaken);
 
     // An email differing only in case collides.
     let email_clash = requests::CreateAccount {
@@ -76,7 +74,7 @@ async fn username_email_collisions_are_case_insensitive() -> anyhow::Result<()>
         password: "a-password".into(),
     };
     let result = app.client.create_account(&email_clash).await;
-    assert_bad_request_contains(result, "email already exists");
+    assert_api_error(result, ApiError::EmailTaken);
 
     Ok(())
 }
@@ -93,7 +91,10 @@ async fn reserved_deleted_domain_rejected() -> anyhow::Result<()> {
         password: "a-password".into(),
     };
     let result = app.client.create_account(&body).await;
-    assert_bad_request_contains(result, "Invalid email");
+    assert_api_error(
+        result,
+        ApiError::InvalidEmail("Invalid email format".into()),
+    );
 
     Ok(())
 }
@@ -132,13 +133,21 @@ async fn long_username_email_rejected() -> anyhow::Result<()> {
         password: "a-password".into(),
     };
     let result = app.client.create_account(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(
+        result,
+        ApiError::InvalidUsername(
+            "Username must be at most 30 characters".into(),
+        ),
+    );
 
     body.username = "username".into();
     body.email =
         format!("{}@example.clom", (0..300).map(|_| "X").collect::<String>());
     let result = app.client.create_account(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(
+        result,
+        ApiError::InvalidEmail("Email must be at most 255 characters".into()),
+    );
 
     Ok(())
 }

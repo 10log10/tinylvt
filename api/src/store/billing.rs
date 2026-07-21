@@ -5,7 +5,7 @@ use jiff_sqlx::ToSqlx;
 use sqlx::PgPool;
 
 use payloads::{
-    BillingInterval, CommunityId, StorageUsage, SubscriptionInfo,
+    ApiError, BillingInterval, CommunityId, StorageUsage, SubscriptionInfo,
     SubscriptionStatus, SubscriptionTier, TierLimits,
 };
 
@@ -161,7 +161,7 @@ pub async fn get_storage_usage(
     actor: &ValidatedMember,
 ) -> Result<StorageUsage, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let community_id = actor.0.community_id;
@@ -234,7 +234,7 @@ pub async fn get_subscription_info(
     actor: &ValidatedMember,
 ) -> Result<Option<SubscriptionInfo>, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
     sqlx::query_as(
         "SELECT status, billing_interval, current_period_end, \
@@ -271,11 +271,12 @@ pub async fn check_storage_limit(
     let estimated_total = current_total + estimated_additional_bytes;
 
     if estimated_total > limits.storage_bytes {
-        return Err(StoreError::StorageLimitExceeded {
+        return Err(ApiError::StorageLimitExceeded {
             current: current_total,
             limit: limits.storage_bytes,
             estimated_size_after_operation: estimated_total,
-        });
+        }
+        .into());
     }
 
     Ok(())
@@ -563,7 +564,7 @@ pub async fn create_checkout_session(
     billing_interval: BillingInterval,
 ) -> Result<String, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let community_id = actor.0.community_id;
@@ -583,13 +584,13 @@ pub async fn create_checkout_session(
 
     match status {
         Some(SubscriptionStatus::Active) => {
-            return Err(StoreError::AlreadySubscribed);
+            return Err(ApiError::AlreadySubscribed.into());
         }
         Some(SubscriptionStatus::PastDue) => {
-            return Err(StoreError::SubscriptionPastDue);
+            return Err(ApiError::SubscriptionPastDue.into());
         }
         Some(SubscriptionStatus::Unpaid) => {
-            return Err(StoreError::SubscriptionPastDue);
+            return Err(ApiError::SubscriptionPastDue.into());
         }
         Some(SubscriptionStatus::Canceled) | None => {
             // OK to proceed
@@ -702,7 +703,7 @@ pub async fn create_portal_session(
     actor: &ValidatedMember,
 ) -> Result<String, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let community_id = actor.0.community_id;
@@ -717,7 +718,7 @@ pub async fn create_portal_session(
     .context("Failed to get stripe customer ID")?;
 
     let stripe_customer_id =
-        stripe_customer_id.ok_or(StoreError::NoSubscriptionFound)?;
+        stripe_customer_id.ok_or(ApiError::NoSubscriptionFound)?;
 
     let return_url = format!(
         "{}/communities/{}/billing",

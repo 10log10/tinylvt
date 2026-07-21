@@ -1,6 +1,6 @@
 use super::*;
 use jiff_sqlx::ToSqlx;
-use payloads::{CommunityId, InviteId, Role, UserId, requests};
+use payloads::{ApiError, CommunityId, InviteId, Role, UserId, requests};
 use sqlx::{PgPool, Row};
 use tracing::Level;
 
@@ -15,18 +15,19 @@ pub async fn create_community(
 ) -> Result<Community, StoreError> {
     let user = read_user(pool, &user_id).await?;
     if !user.email_verified {
-        return Err(StoreError::UnverifiedEmail);
+        return Err(ApiError::UnverifiedEmail.into());
     }
     if details.name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
-        return Err(StoreError::FieldTooLong);
+        return Err(ApiError::FieldTooLong.into());
     }
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::CommunityDescriptionTooLong {
+        return Err(ApiError::CommunityDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
     let mut tx = pool.begin().await?;
 
@@ -45,7 +46,7 @@ pub async fn create_community(
         // payments (docs/plans/stripe-auction-payments.md), so the schema
         // can change freely with no live communities in this mode.
         payloads::CurrencyModeConfig::PrepaidCredits(_) => {
-            return Err(StoreError::CurrencyModeUnderConstruction);
+            return Err(ApiError::CurrencyModeUnderConstruction.into());
         }
         _ => {}
     }
@@ -141,7 +142,7 @@ pub async fn get_validated_member(
     .fetch_optional(pool)
     .await?
     else {
-        return Err(StoreError::MemberNotFound);
+        return Err(ApiError::MemberNotFound.into());
     };
     Ok(ValidatedMember(member))
 }
@@ -217,7 +218,7 @@ where
             let identity = user_identities
                 .get(&user_id)
                 .cloned()
-                .ok_or(StoreError::UserNotFound)?;
+                .ok_or(ApiError::UserNotFound)?;
             mapper(item, identity)
         })
         .collect()
@@ -231,7 +232,7 @@ pub async fn invite_community_member(
     time_source: &TimeSource,
 ) -> Result<InviteId, StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
     let invite = sqlx::query_as::<_, CommunityInvite>(
         "INSERT INTO community_invites (community_id, email, single_use, created_at)
@@ -261,7 +262,7 @@ pub async fn get_invite_community_name(
     .await?;
 
     let Some(community_name) = community_name else {
-        return Err(StoreError::CommunityInviteNotFound);
+        return Err(ApiError::CommunityInviteNotFound.into());
     };
 
     Ok(community_name)
@@ -275,7 +276,7 @@ pub async fn accept_invite(
 ) -> Result<(), StoreError> {
     let user = read_user(pool, user_id).await?;
     if !user.email_verified {
-        return Err(StoreError::UnverifiedEmail);
+        return Err(ApiError::UnverifiedEmail.into());
     }
     let invite = sqlx::query_as::<_, CommunityInvite>(
         "SELECT * FROM community_invites WHERE id = $1;",
@@ -284,14 +285,14 @@ pub async fn accept_invite(
     .fetch_optional(pool)
     .await?;
     let Some(invite) = invite else {
-        return Err(StoreError::CommunityInviteNotFound);
+        return Err(ApiError::CommunityInviteNotFound.into());
     };
     // Compare the database-normalized forms so the match is case-insensitive
     // and uses the exact value Postgres computed for the unique index.
     if let Some(ref invite_email_normalized) = invite.email_normalized
         && *invite_email_normalized != user.email_normalized
     {
-        return Err(StoreError::MismatchedInviteEmail);
+        return Err(ApiError::MismatchedInviteEmail.into());
     }
 
     // Fetch community to get new_members_default_active setting
@@ -330,7 +331,7 @@ pub async fn accept_invite(
     .await;
 
     if let Err(StoreError::NotUnique(_)) = result.map_err(StoreError::from) {
-        return Err(StoreError::AlreadyMember);
+        return Err(ApiError::AlreadyMember.into());
     }
 
     // Only create account if this is a new member (no orphaned account)
@@ -364,7 +365,7 @@ pub async fn delete_invite(
     pool: &PgPool,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Verify the invite exists and belongs to this community
@@ -377,7 +378,7 @@ pub async fn delete_invite(
     .await?;
 
     if !invite_exists {
-        return Err(StoreError::CommunityInviteNotFound);
+        return Err(ApiError::CommunityInviteNotFound.into());
     }
 
     // Delete the invite
@@ -432,7 +433,7 @@ pub async fn get_community_by_id(
     .bind(community_id)
     .fetch_optional(pool)
     .await?
-    .ok_or(StoreError::CommunityNotFound)?;
+    .ok_or(ApiError::CommunityNotFound)?;
 
     db_community.try_into()
 }
@@ -445,7 +446,7 @@ pub async fn get_received_invites(
     // Need to make sure this user actually owns this email before showing them
     // the invites they've received
     if !user.email_verified {
-        return Err(StoreError::UnverifiedEmail);
+        return Err(ApiError::UnverifiedEmail.into());
     }
     Ok(sqlx::query_as::<_, responses::CommunityInviteReceived>(
         "SELECT
@@ -465,7 +466,7 @@ pub async fn get_issued_invites(
     pool: &PgPool,
 ) -> Result<Vec<responses::IssuedCommunityInvite>, StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     Ok(sqlx::query_as::<_, responses::IssuedCommunityInvite>(
@@ -558,12 +559,12 @@ pub async fn remove_member(
 ) -> Result<(), StoreError> {
     // Permission check: Moderator+
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Cannot remove yourself (use leave_community instead)
     if member_user_id == &actor.0.user_id {
-        return Err(StoreError::CannotRemoveSelf);
+        return Err(ApiError::CannotRemoveSelf.into());
     }
 
     // Get target member to validate they exist and check their role
@@ -575,7 +576,7 @@ pub async fn remove_member(
 
     // Cannot remove higher role
     if !actor.0.role.can_remove_role(&target_member.0.role) {
-        return Err(StoreError::CannotRemoveHigherRole);
+        return Err(ApiError::CannotRemoveHigherRole.into());
     }
 
     // Delete the community_members row (account persists)
@@ -596,7 +597,7 @@ pub async fn remove_member(
     // The error isn't accurate for the latter case but a retry will then yield
     // MemberNotFound.
     if rows_deleted == 0 {
-        return Err(StoreError::CannotRemoveHigherRole);
+        return Err(ApiError::CannotRemoveHigherRole.into());
     }
 
     delete_proxy_bidding_for_community(
@@ -644,17 +645,17 @@ pub async fn change_member_role(
 ) -> Result<(), StoreError> {
     // Cannot change own role
     if member_user_id == &actor.0.user_id {
-        return Err(StoreError::CannotChangeSelfRole);
+        return Err(ApiError::CannotChangeSelfRole.into());
     }
 
     // Cannot promote to leader
     if new_role.is_leader() {
-        return Err(StoreError::CannotPromoteToLeader);
+        return Err(ApiError::CannotPromoteToLeader.into());
     }
 
     // Minimum permission: must be coleader+
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     // Get target member to validate they exist and check their role
@@ -668,7 +669,7 @@ pub async fn change_member_role(
         .role
         .can_change_role(&target_member.0.role, &new_role)
     {
-        return Err(StoreError::CannotChangeRole);
+        return Err(ApiError::CannotChangeRole.into());
     }
 
     // Atomic update with race condition protection
@@ -687,7 +688,7 @@ pub async fn change_member_role(
 
     if rows_updated == 0 {
         // Target was promoted to leader (race condition) or doesn't exist
-        return Err(StoreError::CannotChangeRole);
+        return Err(ApiError::CannotChangeRole.into());
     }
 
     Ok(())
@@ -699,7 +700,7 @@ pub async fn leave_community(
 ) -> Result<(), StoreError> {
     // Early check for leader (avoids unnecessary delete attempt)
     if member.0.role.is_leader() {
-        return Err(StoreError::LeaderMustTransferFirst);
+        return Err(ApiError::LeaderMustTransferFirst.into());
     }
 
     let mut tx = pool.begin().await?;
@@ -719,7 +720,7 @@ pub async fn leave_community(
     // If no rows deleted, user was promoted to leader (race condition)
     // or the user was already removed.
     if rows_deleted == 0 {
-        return Err(StoreError::LeaderMustTransferFirst);
+        return Err(ApiError::LeaderMustTransferFirst.into());
     }
 
     delete_proxy_bidding_for_community(
@@ -740,7 +741,7 @@ pub async fn set_membership_schedule(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     let mut tx = pool.begin().await?;
@@ -789,7 +790,7 @@ pub async fn update_member_active_status(
 ) -> Result<(), StoreError> {
     // Check permissions
     if !actor.0.role.can_change_active_status() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Verify target member exists
@@ -829,7 +830,7 @@ pub async fn bulk_activate_members(
     time_source: &TimeSource,
 ) -> Result<responses::BulkActivateMembersResult, StoreError> {
     if !actor.0.role.can_change_active_status() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     // Trim and drop empties. Duplicates are left in: activation is idempotent,
@@ -918,7 +919,7 @@ pub async fn get_membership_schedule(
     pool: &PgPool,
 ) -> Result<Vec<payloads::MembershipSchedule>, StoreError> {
     if !actor.0.role.is_ge_moderator() {
-        return Err(StoreError::RequiresModeratorPermissions);
+        return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
     Ok(sqlx::query_as::<_, payloads::MembershipSchedule>(
@@ -1002,7 +1003,7 @@ pub async fn delete_community(
 ) -> Result<(), StoreError> {
     // Only leader can delete a community
     if !actor.0.role.is_leader() {
-        return Err(StoreError::RequiresLeaderPermissions);
+        return Err(ApiError::RequiresLeaderPermissions.into());
     }
 
     // Cancel any active Stripe subscription before deleting
@@ -1040,7 +1041,7 @@ pub async fn delete_community(
         .await?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::CommunityNotFound);
+        return Err(ApiError::CommunityNotFound.into());
     }
 
     tx.commit().await?;
@@ -1058,20 +1059,21 @@ pub async fn update_community_details(
     pool: &PgPool,
 ) -> Result<Community, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     if details.name.len() > payloads::requests::COMMUNITY_NAME_MAX_LEN {
-        return Err(StoreError::FieldTooLong);
+        return Err(ApiError::FieldTooLong.into());
     }
 
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::CommunityDescriptionTooLong {
+        return Err(ApiError::CommunityDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_COMMUNITY_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
 
     let db_community = sqlx::query_as::<_, DbCommunity>(
@@ -1085,7 +1087,7 @@ pub async fn update_community_details(
     .bind(details.community_id)
     .fetch_optional(pool)
     .await?
-    .ok_or(StoreError::CommunityNotFound)?;
+    .ok_or(ApiError::CommunityNotFound)?;
 
     db_community.try_into()
 }

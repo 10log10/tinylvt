@@ -2,11 +2,12 @@ use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use payloads::{
-    AccountOwner, AuctionId, EntryType, SiteId, SpaceId, TreasuryRecipient,
+    AccountOwner, ApiError, AuctionId, EntryType, SiteId, SpaceId,
+    TreasuryRecipient,
 };
 use reqwest::StatusCode;
 use rust_decimal::Decimal;
-use test_helpers::{TestApp, assert_status_code, spawn_app};
+use test_helpers::{TestApp, assert_api_error, spawn_app};
 use uuid::Uuid;
 
 /// Helper to run an auction to settlement
@@ -133,7 +134,7 @@ async fn test_get_member_currency_info_other_account_member_fails()
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     Ok(())
 }
@@ -196,7 +197,7 @@ async fn test_update_credit_limit_member_fails() -> anyhow::Result<()> {
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresModeratorPermissions);
 
     Ok(())
 }
@@ -287,7 +288,7 @@ async fn test_create_transfer_insufficient_balance() -> anyhow::Result<()> {
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::InsufficientBalance);
 
     Ok(())
 }
@@ -546,7 +547,7 @@ async fn test_get_treasury_account_member_fails() -> anyhow::Result<()> {
         .get_treasury_account(&requests::GetTreasuryAccount { community_id })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     Ok(())
 }
@@ -620,7 +621,7 @@ async fn test_treasury_credit_operation_member_fails() -> anyhow::Result<()> {
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     Ok(())
 }
@@ -793,12 +794,7 @@ async fn test_treasury_operation_prevents_negative_balance_distributed_clearing(
         .await;
 
     // Should fail with insufficient balance
-    assert!(result.is_err());
-    let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(
-        err_msg.contains("InsufficientBalance")
-            || err_msg.contains("Insufficient balance")
-    );
+    assert_api_error(result, ApiError::InsufficientBalance);
 
     Ok(())
 }
@@ -1094,7 +1090,7 @@ async fn update_currency_config_coleader_permissions() -> anyhow::Result<()> {
         },
     };
     let result = app.client.update_currency_config(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     // Alice (leader) updates - should succeed
     app.login_alice().await?;
@@ -1160,7 +1156,7 @@ async fn currency_mode_immutable() -> anyhow::Result<()> {
         },
     };
     let result = app.client.update_currency_config(&update_body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::CurrencyModeImmutable);
 
     // Verify mode unchanged
     let communities = app.client.get_communities().await?;
@@ -1193,7 +1189,7 @@ async fn currency_config_validation() -> anyhow::Result<()> {
         },
     };
     let result = app.client.update_currency_config(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::InvalidCurrencyName);
 
     // Test currency symbol too long (> 5 chars)
     let body = requests::UpdateCurrencyConfig {
@@ -1208,7 +1204,7 @@ async fn currency_config_validation() -> anyhow::Result<()> {
         },
     };
     let result = app.client.update_currency_config(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::InvalidCurrencySymbol);
 
     // Test valid update succeeds
     let body = requests::UpdateCurrencyConfig {
@@ -1426,7 +1422,7 @@ async fn test_reset_all_balances_blocked_during_auction() -> anyhow::Result<()>
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::CannotResetDuringActiveAuction);
 
     Ok(())
 }
@@ -1448,7 +1444,7 @@ async fn test_reset_all_balances_member_permission_denied() -> anyhow::Result<()
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresColeaderPermissions);
 
     Ok(())
 }
@@ -1918,9 +1914,7 @@ async fn create_community_prepaid_credits_mode_blocked() -> anyhow::Result<()> {
     };
     let result = app.client.create_community(&body).await;
 
-    assert!(result.is_err());
-    let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(err_msg.contains("under construction"));
+    assert_api_error(result, ApiError::CurrencyModeUnderConstruction);
 
     Ok(())
 }
@@ -2076,7 +2070,7 @@ async fn test_member_to_treasury_rejected_in_distributed_clearing()
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::InvalidTreasuryOperation);
 
     Ok(())
 }
@@ -2104,7 +2098,7 @@ async fn test_member_to_treasury_capped_by_balance() -> anyhow::Result<()> {
         })
         .await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::InsufficientBalance);
 
     Ok(())
 }
@@ -2127,7 +2121,7 @@ async fn test_transfer_amount_must_be_quantized() -> anyhow::Result<()> {
             idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::AmountNotQuantized { minor_units: 2 });
 
     // The on-grain control succeeds
     app.client
@@ -2159,7 +2153,7 @@ async fn test_treasury_amount_must_be_quantized() -> anyhow::Result<()> {
             idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::AmountNotQuantized { minor_units: 2 });
 
     app.client
         .treasury_credit_operation(&requests::TreasuryCreditOperation {
@@ -2189,7 +2183,7 @@ async fn test_credit_limit_must_be_quantized() -> anyhow::Result<()> {
             credit_limit_override: Some(Decimal::new(5_005, 3)),
         })
         .await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::AmountNotQuantized { minor_units: 2 });
 
     app.client
         .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
@@ -2227,7 +2221,7 @@ async fn test_currency_config_amounts_must_be_quantized() -> anyhow::Result<()>
         },
     };
     let result = app.client.update_currency_config(&body).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::AmountNotQuantized { minor_units: 2 });
 
     Ok(())
 }
@@ -2242,7 +2236,7 @@ async fn test_reserve_price_must_be_quantized() -> anyhow::Result<()> {
     let mut space = test_helpers::space_details_a(site.site_id);
     space.reserve_price = payloads::ReservePrice(Decimal::new(1_005, 3));
     let result = app.client.create_space(&space).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::AmountNotQuantized { minor_units: 2 });
 
     Ok(())
 }
@@ -2267,7 +2261,13 @@ async fn test_auction_rejects_pre_existing_unquantized_reserve()
         test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = Some(app.time_source.now());
     let result = app.client.create_auction(&auction_details).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(
+        result,
+        ApiError::UnquantizedReservePrices {
+            minor_units: 2,
+            space_names: "test space".into(),
+        },
+    );
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use super::*;
 use anyhow::Context;
 use jiff_sqlx::ToSqlx;
-use payloads::{PermissionLevel, SiteId};
+use payloads::{ApiError, PermissionLevel, SiteId};
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::time::TimeSource;
@@ -13,36 +13,40 @@ pub async fn create_site(
     time_source: &TimeSource,
 ) -> Result<Site, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::InsufficientPermissions {
+        return Err(ApiError::InsufficientPermissions {
             required: PermissionLevel::Coleader,
-        });
+        }
+        .into());
     }
 
     // Validate name length
     if details.name.len() > payloads::requests::SITE_NAME_MAX_LEN {
-        return Err(StoreError::SiteNameTooLong {
+        return Err(ApiError::SiteNameTooLong {
             size: details.name.len(),
             max: payloads::requests::SITE_NAME_MAX_LEN,
-        });
+        }
+        .into());
     }
 
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::SiteDescriptionTooLong {
+        return Err(ApiError::SiteDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
 
     // Validate timezone is a valid IANA timezone string
     if let Some(tz) = &details.timezone
         && jiff::tz::TimeZone::get(tz).is_err()
     {
-        return Err(StoreError::InvalidTimezone {
+        return Err(ApiError::InvalidTimezone {
             timezone: tz.clone(),
-        });
+        }
+        .into());
     }
 
     // Check storage limit before creating
@@ -154,9 +158,7 @@ pub(super) async fn create_auction_params(
     // binary-searches it by round number, so an out-of-order list would
     // silently resolve wrong thresholds) and the round duration lower bound
     // relative to the scheduler tick.
-    params
-        .validate()
-        .map_err(|e| StoreError::InvalidAuctionParams(e.error_message()))?;
+    params.validate().map_err(ApiError::InvalidAuctionParams)?;
 
     // The bid increment feeds every bid value and thus every settlement
     // line; it must land on the community's minor-unit grain.
@@ -196,7 +198,7 @@ pub async fn get_site_community_id(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+        sqlx::Error::RowNotFound => ApiError::SiteNotFound.into(),
         e => StoreError::Database(e),
     })
 }
@@ -210,7 +212,7 @@ pub async fn get_site(
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::SiteNotFound,
+            sqlx::Error::RowNotFound => ApiError::SiteNotFound.into(),
             e => StoreError::Database(e),
         })?;
     let open_hours = match &site.open_hours_id {
@@ -232,7 +234,7 @@ pub async fn get_site(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::AuctionParamsNotFound,
+        sqlx::Error::RowNotFound => ApiError::AuctionParamsNotFound.into(),
         e => StoreError::Database(e),
     })?;
     let site_details = payloads::Site {
@@ -264,36 +266,39 @@ pub async fn update_site(
     time_source: &TimeSource,
 ) -> Result<responses::Site, StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let details = &update_site.site_details;
 
     // Validate name length
     if details.name.len() > payloads::requests::SITE_NAME_MAX_LEN {
-        return Err(StoreError::SiteNameTooLong {
+        return Err(ApiError::SiteNameTooLong {
             size: details.name.len(),
             max: payloads::requests::SITE_NAME_MAX_LEN,
-        });
+        }
+        .into());
     }
 
     // Validate description length
     if let Some(desc) = &details.description
         && desc.len() > payloads::MAX_SITE_DESCRIPTION_LENGTH
     {
-        return Err(StoreError::SiteDescriptionTooLong {
+        return Err(ApiError::SiteDescriptionTooLong {
             size: desc.len(),
             max: payloads::MAX_SITE_DESCRIPTION_LENGTH,
-        });
+        }
+        .into());
     }
 
     // Validate timezone is a valid IANA timezone string
     if let Some(tz) = &details.timezone
         && jiff::tz::TimeZone::get(tz).is_err()
     {
-        return Err(StoreError::InvalidTimezone {
+        return Err(ApiError::InvalidTimezone {
             timezone: tz.clone(),
-        });
+        }
+        .into());
     }
 
     let existing_site =
@@ -404,7 +409,7 @@ pub async fn delete_site(
     pool: &PgPool,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let existing_site =
@@ -435,7 +440,7 @@ pub async fn delete_site(
             // FK violation means site has auctions with financial history:
             // sites → auctions (CASCADE) → journal_entries.auction_id
             // (RESTRICT)
-            Err(StoreError::SiteHasFinancialHistory)
+            Err(ApiError::SiteHasFinancialHistory.into())
         }
         Err(e) => Err(e.into()),
     }
@@ -448,7 +453,7 @@ pub async fn soft_delete_site(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let now = time_source.now().to_sqlx();
@@ -488,7 +493,7 @@ pub async fn soft_delete_site(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::SiteNotFound);
+        return Err(ApiError::SiteNotFound.into());
     }
 
     tx.commit().await?;
@@ -503,7 +508,7 @@ pub async fn restore_site(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let now = time_source.now().to_sqlx();
@@ -517,7 +522,7 @@ pub async fn restore_site(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(StoreError::SiteNotFound);
+        return Err(ApiError::SiteNotFound.into());
     }
 
     Ok(())
@@ -556,16 +561,17 @@ pub async fn create_site_image(
 ) -> Result<payloads::SiteImageId, StoreError> {
     // Validate image size
     if details.image_data.len() > payloads::MAX_IMAGE_SIZE {
-        return Err(StoreError::ImageTooLarge {
+        return Err(ApiError::ImageTooLarge {
             size: details.image_data.len(),
-        });
+        }
+        .into());
     }
 
     // Validate image format using magic bytes
-    let kind = infer::get(&details.image_data)
-        .ok_or(StoreError::InvalidImageFormat)?;
+    let kind =
+        infer::get(&details.image_data).ok_or(ApiError::InvalidImageFormat)?;
     if !infer::is_image(&details.image_data) {
-        return Err(StoreError::InvalidImageFormat);
+        return Err(ApiError::InvalidImageFormat.into());
     }
     let mime_type = kind.mime_type();
 
@@ -575,7 +581,7 @@ pub async fn create_site_image(
 
     // Check if user has at least coleader permissions
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let file_size = details.image_data.len() as i64;
@@ -629,7 +635,7 @@ pub async fn get_site_image(
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+        sqlx::Error::RowNotFound => ApiError::SiteImageNotFound.into(),
         e => StoreError::Database(e),
     })?;
 
@@ -656,7 +662,7 @@ pub async fn update_site_image(
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+            sqlx::Error::RowNotFound => ApiError::SiteImageNotFound.into(),
             e => StoreError::Database(e),
         })?;
 
@@ -665,7 +671,7 @@ pub async fn update_site_image(
         get_validated_member(user_id, &existing_site_image.community_id, pool)
             .await?;
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     // Update the site image (only name can be changed)
@@ -701,7 +707,7 @@ pub async fn delete_site_image(
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => StoreError::SiteImageNotFound,
+            sqlx::Error::RowNotFound => ApiError::SiteImageNotFound.into(),
             e => StoreError::Database(e),
         })?;
 
@@ -710,7 +716,7 @@ pub async fn delete_site_image(
         get_validated_member(user_id, &existing_site_image.community_id, pool)
             .await?;
     if !actor.0.role.is_ge_coleader() {
-        return Err(StoreError::RequiresColeaderPermissions);
+        return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
     let file_size = existing_site_image.file_size;

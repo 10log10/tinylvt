@@ -8,7 +8,7 @@ use sqlx::PgPool;
 
 use crate::store;
 
-use super::{APIError, get_user_id, get_validated_member};
+use super::{RouteError, get_user_id, get_validated_member};
 
 #[post("/create_community")]
 pub async fn create_community(
@@ -16,7 +16,7 @@ pub async fn create_community(
     details: web::Json<CreateCommunity>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community =
         store::create_community(&details, user_id, &pool, &time_source).await?;
@@ -31,7 +31,7 @@ pub async fn create_community(
 pub async fn get_communities(
     user: Identity,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let communities = store::get_communities(&user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(communities))
@@ -45,7 +45,7 @@ pub async fn invite_community_member(
     email_service: web::Data<crate::email::EmailService>,
     config: web::Data<crate::AppConfig>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.0.community_id, &pool).await?;
@@ -86,7 +86,7 @@ pub async fn invite_community_member(
 pub async fn get_received_invites(
     user: Identity,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let invites = store::get_received_invites(&user_id, &pool).await?;
     Ok(HttpResponse::Ok().json(invites))
@@ -98,7 +98,7 @@ pub async fn get_issued_invites(
     user: Identity,
     community_id: web::Json<CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
@@ -112,7 +112,7 @@ pub async fn delete_invite(
     user: Identity,
     details: web::Json<requests::DeleteInvite>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -124,7 +124,7 @@ pub async fn delete_invite(
 pub async fn get_invite_community_name(
     path: web::Path<payloads::InviteId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let community_name = store::get_invite_community_name(&path, &pool).await?;
     Ok(HttpResponse::Ok().json(community_name))
 }
@@ -135,7 +135,7 @@ pub async fn accept_invite(
     path: web::Path<payloads::InviteId>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     store::accept_invite(&user_id, &path, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
@@ -146,7 +146,7 @@ pub async fn get_members(
     user: Identity,
     community_id: web::Json<CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
@@ -161,7 +161,7 @@ pub async fn set_membership_schedule(
     details: web::Json<requests::SetMembershipSchedule>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -180,7 +180,7 @@ pub async fn get_membership_schedule(
     user: Identity,
     community_id: web::Json<CommunityId>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
@@ -196,7 +196,7 @@ pub async fn update_member_active_status(
     details: web::Json<requests::UpdateMemberActiveStatus>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -220,11 +220,11 @@ pub async fn bulk_activate_members(
     details: web::Json<requests::BulkActivateMembers>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
 
     if details.identifiers.len() > requests::MAX_BULK_ACTIVATE_IDENTIFIERS {
-        return Err(APIError::BadRequest(anyhow::anyhow!(
+        return Err(RouteError::BadRequest(anyhow::anyhow!(
             "Too many identifiers: {} exceeds the limit of {}",
             details.identifiers.len(),
             requests::MAX_BULK_ACTIVATE_IDENTIFIERS
@@ -236,7 +236,7 @@ pub async fn bulk_activate_members(
         .iter()
         .find(|id| id.len() > requests::MAX_BULK_ACTIVATE_IDENTIFIER_LEN)
     {
-        return Err(APIError::BadRequest(anyhow::anyhow!(
+        return Err(RouteError::BadRequest(anyhow::anyhow!(
             "Identifier too long: {} bytes exceeds the limit of {}",
             too_long.len(),
             requests::MAX_BULK_ACTIVATE_IDENTIFIER_LEN
@@ -264,7 +264,7 @@ pub async fn remove_member(
     details: web::Json<requests::RemoveMember>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -287,7 +287,7 @@ pub async fn change_member_role(
     details: web::Json<requests::ChangeMemberRole>,
     pool: web::Data<PgPool>,
     time_source: web::Data<crate::time::TimeSource>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -310,7 +310,7 @@ pub async fn leave_community(
     user: Identity,
     details: web::Json<requests::LeaveCommunity>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
@@ -327,7 +327,7 @@ pub async fn delete_community(
     community_id: web::Json<CommunityId>,
     stripe_service: web::Data<crate::stripe_service::StripeService>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &community_id, &pool).await?;
@@ -347,7 +347,7 @@ pub async fn update_community_details(
     user: Identity,
     details: web::Json<requests::UpdateCommunityDetails>,
     pool: web::Data<PgPool>,
-) -> Result<HttpResponse, APIError> {
+) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;

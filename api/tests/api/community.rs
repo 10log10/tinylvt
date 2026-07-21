@@ -1,8 +1,7 @@
-use payloads::{AccountOwner, requests};
-use reqwest::StatusCode;
+use payloads::{AccountOwner, ApiError, requests};
 use rust_decimal::Decimal;
 
-use test_helpers::{assert_status_code, spawn_app};
+use test_helpers::{assert_api_error, spawn_app};
 
 #[tokio::test]
 async fn create_community() -> anyhow::Result<()> {
@@ -31,7 +30,7 @@ async fn long_community_name_rejected() -> anyhow::Result<()> {
     };
     let result = app.client.create_community(&body).await;
 
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::FieldTooLong);
 
     Ok(())
 }
@@ -128,7 +127,7 @@ async fn delete_community_leader_only() -> anyhow::Result<()> {
     // Bob (member) tries to delete - should fail
     app.login_bob().await?;
     let result = app.client.delete_community(&community_id).await;
-    assert_status_code(result, StatusCode::BAD_REQUEST);
+    assert_api_error(result, ApiError::RequiresLeaderPermissions);
 
     // Verify community still exists
     app.login_alice().await?;

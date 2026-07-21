@@ -1,4 +1,4 @@
-use payloads::ReservePrice;
+use payloads::{ApiError, ReservePrice};
 use rust_decimal::Decimal;
 use test_helpers::spawn_app;
 
@@ -137,7 +137,10 @@ async fn site_image_permissions_require_coleader() -> anyhow::Result<()> {
     // Bob should not be able to create site images (only coleaders+ can)
     let body = test_helpers::site_image_details_a(community_id);
     let result = app.client.create_site_image(&body).await;
-    test_helpers::assert_status_code(result, reqwest::StatusCode::BAD_REQUEST);
+    test_helpers::assert_api_error(
+        result,
+        ApiError::RequiresColeaderPermissions,
+    );
 
     // But Bob should be able to view site images (any member can)
     app.login_alice().await?;
@@ -309,11 +312,11 @@ async fn space_eligibility_points_must_be_finite_non_negative()
     };
 
     // A negative value reaches the store and is rejected by our validation
-    // (matched on the eligibility message, so the assertion can't pass for an
-    // unrelated reason like a name collision). The DB CHECK would also reject
-    // it, but as an opaque 500; our guard turns it into a clean 400.
+    // (matched on the exact error variant, so the assertion can't pass for
+    // an unrelated reason like a name collision). The DB CHECK would also
+    // reject it, but as an opaque 500; our guard turns it into a clean 400.
     let result = app.client.create_space(&space_with_points(-1.0)).await;
-    test_helpers::assert_bad_request_contains(result, "Eligibility points");
+    test_helpers::assert_api_error(result, ApiError::InvalidEligibilityPoints);
 
     // NaN and +inf can't reach the store at all: JSON has no representation
     // for them, so serde serializes them as `null` and the server rejects the
@@ -335,7 +338,7 @@ async fn space_eligibility_points_must_be_finite_non_negative()
         space_details: space_with_points(-1.0),
     };
     let result = app.client.update_space(&update).await;
-    test_helpers::assert_bad_request_contains(result, "Eligibility points");
+    test_helpers::assert_api_error(result, ApiError::InvalidEligibilityPoints);
 
     Ok(())
 }

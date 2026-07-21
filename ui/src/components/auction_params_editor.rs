@@ -53,7 +53,7 @@ pub fn AuctionParamsEditor(props: &Props) -> Html {
         params_error
             .as_ref()
             .filter(|_| matches)
-            .map(|e| e.error_message())
+            .map(|e| e.to_string())
     };
     let round_duration_error = error_message(matches!(
         params_error,
