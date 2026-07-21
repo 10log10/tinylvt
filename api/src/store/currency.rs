@@ -55,20 +55,12 @@ use payloads::{
     CurrencyMode, EntryType, JournalEntryId, UserId,
 };
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 
 use super::{IdempotencyKey, JournalEntry, StoreError};
 
-/// Scale for NUMERIC(20, 6) in the database. All amounts should be rounded to
-/// this scale before validation and storage to ensure consistency.
-const DB_DECIMAL_SCALE: u32 = 6;
-
-/// Round a decimal amount to match database precision (6 decimal places).
-/// This ensures calculations match what PostgreSQL will store.
-fn round_to_db_scale(amount: Decimal) -> Decimal {
-    amount.round_dp(DB_DECIMAL_SCALE)
-}
 use crate::time::TimeSource;
 
 /// Database-level Account struct that matches the accounts table schema
@@ -145,6 +137,46 @@ async fn get_account(
 ) -> Result<Account, StoreError> {
     let mut tx = pool.begin().await?;
     return get_account_tx(community_id, owner, &mut tx).await;
+}
+
+/// Reject a user-supplied amount finer than the community's minor units. Input
+/// validation at monetary entry points; together with the `create_entry`
+/// backstop this keeps every stored amount representable at the community's
+/// declared resolution.
+pub(crate) fn check_amount_quantized(
+    amount: Decimal,
+    minor_units: i16,
+) -> Result<(), StoreError> {
+    if payloads::is_quantized(amount, minor_units) {
+        Ok(())
+    } else {
+        Err(StoreError::AmountNotQuantized { minor_units })
+    }
+}
+
+/// Validate that a currency settings payload is self-consistent: minor_units in
+/// the supported range, and every configured amount (allowance, default credit
+/// limit) representable at that resolution. Shared by community creation and
+/// currency config updates.
+pub(crate) fn validate_currency_settings_quantization(
+    settings: &payloads::CurrencySettings,
+) -> Result<(), StoreError> {
+    if !(0..=6).contains(&settings.minor_units) {
+        return Err(StoreError::InvalidCurrencyConfiguration);
+    }
+    match &settings.mode_config {
+        payloads::CurrencyModeConfig::PointsAllocation(cfg) => {
+            check_amount_quantized(cfg.allowance_amount, settings.minor_units)?;
+        }
+        payloads::CurrencyModeConfig::DistributedClearing(cfg)
+        | payloads::CurrencyModeConfig::DeferredPayment(cfg) => {
+            if let Some(limit) = cfg.default_credit_limit {
+                check_amount_quantized(limit, settings.minor_units)?;
+            }
+        }
+        payloads::CurrencyModeConfig::PrepaidCredits(_) => {}
+    }
+    Ok(())
 }
 
 /// Get effective credit limit for an account, excluding any locked balance
@@ -692,14 +724,47 @@ async fn create_entry(
         locked.require(account_id)?;
     }
 
+    // Quantization backstop, all modes: every line must be representable at
+    // the community's minor units, so stored balances always match their
+    // displayed values. Input validation at the entry points should make
+    // this unreachable; it firing means a computed amount escaped a
+    // quantized path. RoundingAdjustment is exempt for the sake of the
+    // one-time dust migration, whose lines are finer than the declared
+    // minor units by nature — the dust predates enforcement, so there is
+    // no stored finer setting to create the entry under. (Coarsening
+    // adjustments don't rely on the exemption: they're created before the
+    // minor_units change commits, so their lines sit on the still-current
+    // finer grain.)
+    if params.entry_type != EntryType::RoundingAdjustment {
+        let minor_units: i16 = sqlx::query_scalar(
+            "SELECT currency_minor_units FROM communities WHERE id = $1",
+        )
+        .bind(params.community_id)
+        .fetch_one(&mut **locked.tx())
+        .await?;
+        for (_, amount) in &lines {
+            if !payloads::is_quantized(*amount, minor_units) {
+                return Err(StoreError::UnquantizedJournalLine {
+                    amount: *amount,
+                    minor_units,
+                });
+            }
+        }
+    }
+
     let now = time_source.now();
 
-    // Skip credit checks for auction settlement and balance reset
+    // Skip credit checks for auction settlement, balance reset, and rounding
+    // adjustment
     // - Auction settlement: locked balance already includes debits
     // - Balance reset: credit checks would trivially pass
+    // - Rounding adjustment: system-imposed dust movement must not fail on an
+    //   account already at its credit limit
     let skip_checks = matches!(
         params.entry_type,
-        EntryType::AuctionSettlement | EntryType::BalanceReset
+        EntryType::AuctionSettlement
+            | EntryType::BalanceReset
+            | EntryType::RoundingAdjustment
     );
 
     if !skip_checks {
@@ -847,9 +912,10 @@ pub async fn create_auction_settlement_entry(
     let idempotency_key =
         system_idempotency_key("auction_settlement", auction_id);
 
-    // Get community currency mode
-    let currency_mode: CurrencyMode = sqlx::query_scalar(
-        "SELECT currency_mode FROM communities WHERE id = $1",
+    // Get community currency mode and minor units (for distribution grain)
+    let (currency_mode, minor_units): (CurrencyMode, i16) = sqlx::query_as(
+        "SELECT currency_mode, currency_minor_units FROM communities \
+         WHERE id = $1",
     )
     .bind(community_id)
     .fetch_one(&mut **tx)
@@ -918,7 +984,8 @@ pub async fn create_auction_settlement_entry(
                 let distribution_lines = distribute_amount_evenly(
                     total_settled,
                     &active_member_account_ids,
-                );
+                    minor_units,
+                )?;
                 lines.extend(distribution_lines);
             }
         }
@@ -999,46 +1066,97 @@ async fn get_active_member_account_ids_tx(
     Ok(account_ids)
 }
 
-/// Distribute an amount evenly among a list of accounts
+/// Distribute an amount evenly among a list of accounts at the community's
+/// minor-unit grain.
 ///
-/// Uses careful decimal arithmetic to ensure the distributed amounts sum
-/// exactly to the total, with no rounding errors (see module docustring). The
-/// last recipient gets any remainder to guarantee exact balance.
-///
-/// # Arguments
-/// * `total_amount` - The total amount to distribute
-/// * `account_ids` - List of account IDs to distribute to
-///
-/// # Returns
-/// Vector of (AccountId, Decimal) tuples representing credit lines
+/// The ideal per-account share `total / n` is apportioned by largest remainder
+/// (see [`apportion_to_grain`]), so every recipient is within one grain unit of
+/// the ideal, single leftover units are spread across accounts rather than
+/// accumulating on one, and the amounts sum exactly to the total. The total
+/// must itself be on-grain.
 ///
 /// # Panics
 /// Panics if account_ids is empty (caller should check)
 fn distribute_amount_evenly(
     total_amount: Decimal,
     account_ids: &[AccountId],
-) -> Vec<(AccountId, Decimal)> {
+    minor_units: i16,
+) -> Result<Vec<(AccountId, Decimal)>, StoreError> {
     assert!(!account_ids.is_empty(), "Cannot distribute to empty list");
 
-    let num_recipients = Decimal::from(account_ids.len());
-    // Round to DB scale to match what will be stored
-    let base_amount = round_to_db_scale(total_amount / num_recipients);
-    let mut distributed_so_far = Decimal::ZERO;
-    let mut lines = Vec::with_capacity(account_ids.len());
+    let ideal = total_amount / Decimal::from(account_ids.len());
+    let targets: Vec<(AccountId, Decimal)> =
+        account_ids.iter().map(|id| (*id, ideal)).collect();
+    apportion_to_grain(&targets, total_amount, minor_units)
+}
 
-    for (idx, account_id) in account_ids.iter().enumerate() {
-        let amount = if idx == account_ids.len() - 1 {
-            // Last recipient gets exactly what's left to avoid rounding errors
-            total_amount - distributed_so_far
-        } else {
-            distributed_so_far += base_amount;
-            base_amount
-        };
-
-        lines.push((*account_id, amount));
+/// Quantize per-account target amounts to the community's minor-unit grain
+/// while summing exactly to `total`, by largest-remainder apportionment: floor
+/// every target to the grain (toward negative infinity, so residuals are
+/// uniform for negative amounts), then hand the leftover whole grain units to
+/// the largest residuals, ties broken by account id in canonical byte order for
+/// determinism. Each result is within one grain unit of its target, and
+/// largest-remainder makes the total movement minimal.
+///
+/// `total` is the intended exact sum, passed separately because the targets may
+/// carry division error (a repeating ideal share truncated by `Decimal`) that
+/// flooring absorbs. It must be on-grain — no on-grain decomposition of an
+/// off-grain total exists — and each target must be within one grain unit of an
+/// exact decomposition of `total`, or the leftover can't be placed; both
+/// violations err with [`StoreError::UnquantizedJournalLine`].
+fn apportion_to_grain(
+    targets: &[(AccountId, Decimal)],
+    total: Decimal,
+    minor_units: i16,
+) -> Result<Vec<(AccountId, Decimal)>, StoreError> {
+    if !payloads::is_quantized(total, minor_units) {
+        return Err(StoreError::UnquantizedJournalLine {
+            amount: total,
+            minor_units,
+        });
     }
 
-    lines
+    // Scale by 10^minor_units and floor; multiplication is exact for the
+    // NUMERIC(20,6)-bounded amounts involved.
+    let scale = Decimal::from(10i64.pow(minor_units as u32));
+    let grain = Decimal::ONE / scale;
+
+    let mut amounts: Vec<Decimal> = Vec::with_capacity(targets.len());
+    let mut residuals: Vec<Decimal> = Vec::with_capacity(targets.len());
+    let mut floored_sum = Decimal::ZERO;
+    for (_, target) in targets {
+        let floored = (target * scale).floor() / scale;
+        amounts.push(floored);
+        residuals.push(target - floored);
+        floored_sum += floored;
+    }
+
+    // The leftover is an exact whole number of grain units.
+    let leftover_units = ((total - floored_sum) * scale)
+        .to_usize()
+        .filter(|k| *k <= targets.len())
+        .ok_or(StoreError::UnquantizedJournalLine {
+            amount: total,
+            minor_units,
+        })?;
+
+    // Indices ranked by (residual desc, account id asc).
+    let mut order: Vec<usize> = (0..targets.len()).collect();
+    order.sort_by(|&a, &b| {
+        residuals[b].cmp(&residuals[a]).then_with(|| {
+            account_lock_sort_key(&targets[a].0)
+                .cmp(&account_lock_sort_key(&targets[b].0))
+        })
+    });
+    for &idx in order.iter().take(leftover_units) {
+        amounts[idx] += grain;
+    }
+
+    Ok(targets
+        .iter()
+        .zip(amounts)
+        .map(|((id, _), amount)| (*id, amount))
+        .collect())
 }
 
 /// Get currency information for a member
@@ -1493,8 +1611,9 @@ pub async fn update_credit_limit_override(
     }
 
     // Check if currency mode supports credit limits
-    let currency_mode: CurrencyMode = sqlx::query_scalar(
-        "SELECT currency_mode FROM communities WHERE id = $1",
+    let (currency_mode, minor_units): (CurrencyMode, i16) = sqlx::query_as(
+        "SELECT currency_mode, currency_minor_units FROM communities \
+         WHERE id = $1",
     )
     .bind(actor.0.community_id)
     .fetch_one(pool)
@@ -1505,6 +1624,10 @@ pub async fn update_credit_limit_override(
         CurrencyMode::DistributedClearing | CurrencyMode::DeferredPayment
     ) {
         return Err(StoreError::InvalidCreditLimitOperation);
+    }
+
+    if let Some(limit) = credit_limit_override {
+        check_amount_quantized(limit, minor_units)?;
     }
 
     let mut tx = pool.begin().await?;
@@ -1559,27 +1682,27 @@ pub async fn create_transfer(
     time_source: &TimeSource,
     pool: &PgPool,
 ) -> Result<(), StoreError> {
-    // Round to DB scale to ensure consistency
-    let amount = round_to_db_scale(amount);
-
     if amount <= Decimal::ZERO {
         return Err(StoreError::AmountMustBePositive);
     }
 
     let mut tx = pool.begin().await?;
 
-    // For treasury destinations, validate that the currency mode permits
-    // member-initiated transfers to the treasury.
-    if matches!(to, AccountOwner::Treasury) {
-        let currency_mode: CurrencyMode = sqlx::query_scalar(
-            "SELECT currency_mode FROM communities WHERE id = $1",
-        )
-        .bind(sender.0.community_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if currency_mode == CurrencyMode::DistributedClearing {
-            return Err(StoreError::InvalidTreasuryOperation);
-        }
+    // Amounts must land on the community's minor-unit grain; validate the
+    // transfer amount and the currency mode (treasury destinations only
+    // permitted where the treasury is a structural counterparty).
+    let (currency_mode, minor_units): (CurrencyMode, i16) = sqlx::query_as(
+        "SELECT currency_mode, currency_minor_units FROM communities \
+         WHERE id = $1",
+    )
+    .bind(sender.0.community_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    check_amount_quantized(amount, minor_units)?;
+    if matches!(to, AccountOwner::Treasury)
+        && currency_mode == CurrencyMode::DistributedClearing
+    {
+        return Err(StoreError::InvalidTreasuryOperation);
     }
 
     let from_account = get_account_tx(
@@ -1653,9 +1776,6 @@ pub async fn treasury_credit_operation(
         return Err(StoreError::RequiresColeaderPermissions);
     }
 
-    // Round to DB scale to ensure consistency
-    let amount_per_recipient = round_to_db_scale(amount_per_recipient);
-
     if amount_per_recipient == Decimal::ZERO {
         return Err(StoreError::AmountMustBeNonZero);
     }
@@ -1665,13 +1785,16 @@ pub async fn treasury_credit_operation(
 
     let mut tx = pool.begin().await?;
 
-    // Get community to determine currency mode
-    let currency_mode: CurrencyMode = sqlx::query_scalar(
-        "SELECT currency_mode FROM communities WHERE id = $1",
+    // Get community currency mode, validating the amount lands on the
+    // minor-unit grain
+    let (currency_mode, minor_units): (CurrencyMode, i16) = sqlx::query_as(
+        "SELECT currency_mode, currency_minor_units FROM communities \
+         WHERE id = $1",
     )
     .bind(community_id)
     .fetch_one(&mut *tx)
     .await?;
+    check_amount_quantized(amount_per_recipient, minor_units)?;
 
     // Negative amounts are only meaningful for distribution corrections that
     // redistribute a chore-settlement debt parked on the treasury back to
@@ -1846,9 +1969,11 @@ pub async fn resolve_orphaned_balance(
 
     let mut tx = pool.begin().await?;
 
-    // Get currency mode to determine resolution behavior
-    let currency_mode: CurrencyMode = sqlx::query_scalar(
-        "SELECT currency_mode FROM communities WHERE id = $1",
+    // Get currency mode (resolution behavior) and minor units (distribution
+    // grain)
+    let (currency_mode, minor_units): (CurrencyMode, i16) = sqlx::query_as(
+        "SELECT currency_mode, currency_minor_units FROM communities \
+         WHERE id = $1",
     )
     .bind(actor.0.community_id)
     .fetch_one(&mut *tx)
@@ -1938,7 +2063,7 @@ pub async fn resolve_orphaned_balance(
 
     // Credit recipients with evenly distributed amounts
     let distribution_lines =
-        distribute_amount_evenly(balance, &recipient_account_ids);
+        distribute_amount_evenly(balance, &recipient_account_ids, minor_units)?;
     lines.extend(distribution_lines);
 
     // Create journal entry
@@ -2163,6 +2288,131 @@ pub async fn reset_all_balances(
     })
 }
 
+/// One-time dust migration: quantize account balances for every community
+/// holding sub-minor-unit dust (see `quantize_community_balances_tx`). Runs at
+/// startup after schema migrations; a failure aborts startup so the invariant
+/// is established before the strict `create_entry` backstop can trip on dusty
+/// balances (orphan resolution and balance reset debit full balances).
+///
+/// Idempotent: communities with clean balances are skipped by the detection
+/// query, and the adjustment entry uses a deterministic idempotency key so
+/// concurrent starters race benignly. (If a community somehow re-accumulates
+/// dust after its entry exists — impossible while the backstop holds — the
+/// replay no-ops and this fn logs the community every startup, which is the
+/// desired alarm.)
+pub async fn run_quantization_migration(
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let communities: Vec<(CommunityId, i16)> = sqlx::query_as(
+        r#"
+        SELECT c.id, c.currency_minor_units
+        FROM communities c
+        WHERE EXISTS (
+            SELECT 1 FROM accounts a
+            WHERE a.community_id = c.id
+              AND a.balance_cached
+                  <> round(a.balance_cached, c.currency_minor_units)
+        )
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for (community_id, minor_units) in communities {
+        let mut tx = pool.begin().await?;
+        let adjusted = quantize_community_balances_tx(
+            &community_id,
+            minor_units,
+            system_idempotency_key("quantization_migration", community_id),
+            None,
+            None,
+            time_source,
+            &mut tx,
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(
+            %community_id,
+            minor_units,
+            accounts_adjusted = adjusted,
+            "quantized community balances to minor units"
+        );
+    }
+
+    Ok(())
+}
+
+/// Quantize every account balance in a community to the given minor units via
+/// a balanced `RoundingAdjustment` entry, returning the number of accounts
+/// adjusted (0 means all balances were already on-grain and no entry was
+/// created).
+///
+/// Locks all community accounts, floors each balance to the grain, and
+/// apportions the freed whole grain units back by largest remainder (see
+/// `apportion_to_grain`). The ledger sums to zero, so the deltas do too: the
+/// adjustment is itself a balanced entry, no treasury absorption involved —
+/// which is what lets one algorithm cover distributed_clearing (members sum to
+/// zero among themselves) and treasury modes alike. Every account moves
+/// strictly less than one grain unit.
+///
+/// A coarsening config edit calls this before writing the new minor_units.
+/// Nothing enforces that order — the backstop exempts RoundingAdjustment lines
+/// either way — but it keeps the record coherent: the adjustment lands under
+/// the outgoing (finer) setting whose grain its lines actually sit on, reading
+/// as the old grain's final entry rather than a sub-grain anomaly under the new
+/// one.
+pub(crate) async fn quantize_community_balances_tx(
+    community_id: &CommunityId,
+    minor_units: i16,
+    idempotency_key: IdempotencyKey,
+    initiated_by_id: Option<&UserId>,
+    note: Option<String>,
+    time_source: &TimeSource,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<usize, StoreError> {
+    let locked = lock_community_accounts_tx(community_id, tx).await?;
+
+    let targets: Vec<(AccountId, Decimal)> = locked
+        .accounts()
+        .iter()
+        .map(|a| (a.id, a.balance_cached))
+        .collect();
+    let total: Decimal = targets.iter().map(|(_, balance)| *balance).sum();
+    let quantized = apportion_to_grain(&targets, total, minor_units)?;
+
+    let lines: Vec<(AccountId, Decimal)> = quantized
+        .iter()
+        .zip(&targets)
+        .filter_map(|((id, new_balance), (_, old_balance))| {
+            let delta = new_balance - old_balance;
+            (delta != Decimal::ZERO).then_some((*id, delta))
+        })
+        .collect();
+
+    if lines.is_empty() {
+        return Ok(0);
+    }
+    let accounts_adjusted = lines.len();
+
+    create_entry(
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::RoundingAdjustment,
+            idempotency_key,
+            lines,
+            auction_id: None,
+            initiated_by_id,
+            note,
+        },
+        time_source,
+        locked,
+    )
+    .await?;
+
+    Ok(accounts_adjusted)
+}
+
 /// Get member currency info with permission checking
 ///
 /// If target_user_id is None, returns info for the actor.
@@ -2263,9 +2513,7 @@ pub async fn update_currency_config(
     if currency.symbol.chars().count() > 5 {
         return Err(StoreError::InvalidCurrencySymbol);
     }
-    if !(0..=6).contains(&currency.minor_units) {
-        return Err(StoreError::InvalidCurrencyConfiguration);
-    }
+    validate_currency_settings_quantization(currency)?;
 
     // Validate IOU mode configuration: if debts aren't callable,
     // must have finite credit limit
@@ -2282,7 +2530,40 @@ pub async fn update_currency_config(
     // Convert config to DB format
     let currency_db = currency_settings_to_db(currency);
 
-    // Update database
+    let mut tx = pool.begin().await?;
+
+    // Coarsening minor_units can strand existing balances below the new
+    // grain; re-quantize them with a balanced rounding adjustment,
+    // committing atomically with the settings change below. The adjustment
+    // runs BEFORE the settings row changes: its lines are deltas between
+    // old-grain and new-grain balances, both representable at the outgoing
+    // (finer) minor_units, so the entry passes the quantization backstop
+    // under the settings it was created under and the ledger reads as "last
+    // entry of the old grain collects the dust; everything after is on the
+    // new grain". No-ops when balances already fit the new grain, so
+    // refining (or leaving minor_units unchanged) creates no entry.
+    let adjusted = quantize_community_balances_tx(
+        &actor.0.community_id,
+        currency.minor_units,
+        IdempotencyKey(uuid::Uuid::new_v4()),
+        Some(&actor.0.user_id),
+        Some(format!(
+            "Balances re-quantized for {} minor units",
+            currency.minor_units
+        )),
+        time_source,
+        &mut tx,
+    )
+    .await?;
+    if adjusted > 0 {
+        tracing::info!(
+            community_id = %actor.0.community_id,
+            minor_units = currency.minor_units,
+            accounts_adjusted = adjusted,
+            "re-quantized balances for minor_units change"
+        );
+    }
+
     let result = sqlx::query(
         "UPDATE communities
          SET currency_mode = $1,
@@ -2318,12 +2599,86 @@ pub async fn update_currency_config(
     .bind(currency_db.new_members_default_active)
     .bind(time_source.now().to_sqlx())
     .bind(actor.0.community_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     if result.rows_affected() == 0 {
         return Err(StoreError::CommunityNotFound);
     }
 
+    tx.commit().await?;
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal::dec;
+
+    fn acc(byte: u8) -> AccountId {
+        let mut bytes = [0u8; 16];
+        bytes[0] = byte;
+        AccountId(uuid::Uuid::from_bytes(bytes))
+    }
+
+    #[test]
+    fn apportion_spreads_remainder_to_lowest_ids_on_ties() {
+        let (a, b, c) = (acc(1), acc(2), acc(3));
+        let ideal = Decimal::from(8) / Decimal::from(3);
+        // Input deliberately not in id order, to pin that the output
+        // preserves input order rather than allocation order.
+        let targets = vec![(c, ideal), (a, ideal), (b, ideal)];
+        let result = apportion_to_grain(&targets, Decimal::from(8), 0).unwrap();
+        // All residuals tie (0.66..), so the two leftover units go to the
+        // two lowest account ids: a and b get floor+1 = 3, c keeps the
+        // floor of 2.
+        assert_eq!(result, vec![(c, dec!(2)), (a, dec!(3)), (b, dec!(3))]);
+    }
+
+    #[test]
+    fn apportion_floors_negative_amounts_uniformly() {
+        let (a, b, c) = (acc(1), acc(2), acc(3));
+        let ideal = Decimal::from(-8) / Decimal::from(3);
+        let targets = vec![(a, ideal), (b, ideal), (c, ideal)];
+        let result =
+            apportion_to_grain(&targets, Decimal::from(-8), 0).unwrap();
+        // floor(-2.66..) = -3 for everyone; one unit comes back, tie
+        // broken by lowest id, so a gets -2.
+        assert_eq!(result, vec![(a, dec!(-2)), (b, dec!(-3)), (c, dec!(-3))]);
+    }
+
+    #[test]
+    fn apportion_gives_leftover_to_largest_residual() {
+        let (a, b, c) = (acc(1), acc(2), acc(3));
+        let targets =
+            vec![(a, dec!(1.234)), (b, dec!(-0.234)), (c, dec!(2.000))];
+        let result = apportion_to_grain(&targets, dec!(3.000), 2).unwrap();
+        // Residuals 0.004 / 0.006 / 0; the single leftover grain unit
+        // goes to b. Every amount moves less than one grain unit.
+        assert_eq!(
+            result,
+            vec![(a, dec!(1.23)), (b, dec!(-0.23)), (c, dec!(2.00))]
+        );
+        let sum: Decimal = result.iter().map(|(_, amount)| amount).sum();
+        assert_eq!(sum, dec!(3.00));
+    }
+
+    #[test]
+    fn apportion_is_identity_for_on_grain_targets() {
+        let (a, b) = (acc(1), acc(2));
+        let targets = vec![(a, dec!(1.25)), (b, dec!(-1.25))];
+        let result = apportion_to_grain(&targets, Decimal::ZERO, 2).unwrap();
+        assert_eq!(result, targets);
+    }
+
+    #[test]
+    fn apportion_rejects_off_grain_total() {
+        let a = acc(1);
+        let result = apportion_to_grain(&[(a, dec!(0.005))], dec!(0.005), 2);
+        assert!(matches!(
+            result,
+            Err(StoreError::UnquantizedJournalLine { .. })
+        ));
+    }
 }

@@ -119,12 +119,11 @@ async fn populate_users(
         sqlx::query(
             r#"
             UPDATE users
-            SET display_name = $1, email_verified = true, balance = $2, updated_at = $3
-            WHERE id = $4
+            SET display_name = $1, email_verified = true, updated_at = $2
+            WHERE id = $3
             "#,
         )
         .bind(format!("{role} user"))
-        .bind(dec!(1000.000000))
         .bind(time_source.now().to_sqlx())
         .bind(user.id)
         .execute(conn)

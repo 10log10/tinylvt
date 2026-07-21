@@ -160,6 +160,10 @@ fn determine_counterparty(
                         .unwrap_or(Counterparty::NMembers(0))
                 }
             }
+            // Community-wide balance quantization; no single counterparty
+            EntryType::RoundingAdjustment => {
+                Counterparty::NMembers(count_members())
+            }
         },
         // Transactions from the Treasury's perspective
         AccountOwner::Treasury => match txn.entry_type {
@@ -187,6 +191,10 @@ fn determine_counterparty(
             EntryType::OrphanedAccountTransfer => find_member()
                 .map(Counterparty::Member)
                 .unwrap_or(Counterparty::NMembers(0)),
+            // Community-wide balance quantization; no single counterparty
+            EntryType::RoundingAdjustment => {
+                Counterparty::NMembers(count_members())
+            }
         },
     }
 }
@@ -211,6 +219,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
         payloads::EntryType::OrphanedAccountTransfer => {
             "Orphaned Account Transfer"
         }
+        payloads::EntryType::RoundingAdjustment => "Rounding Adjustment",
     };
 
     // Determine counterparty

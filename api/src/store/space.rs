@@ -134,6 +134,8 @@ pub async fn create_space(
         });
     }
 
+    validate_reserve_price_quantized(&site.community_id, details, pool).await?;
+
     // Check storage limit before creating
     super::billing::check_storage_limit(
         pool,
@@ -160,6 +162,22 @@ pub async fn get_space(
             .await?;
 
     Ok(space.into())
+}
+
+/// Validate that a space's reserve price lands on the community's minor-unit
+/// grain. Reserve prices seed bid values and thus settlement journal lines.
+async fn validate_reserve_price_quantized(
+    community_id: &CommunityId,
+    details: &payloads::Space,
+    pool: &PgPool,
+) -> Result<(), StoreError> {
+    let minor_units: i16 = sqlx::query_scalar(
+        "SELECT currency_minor_units FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(pool)
+    .await?;
+    currency::check_amount_quantized(details.reserve_price.0, minor_units)
 }
 
 /// Check if a space has auction history (bids or round results).
@@ -232,6 +250,9 @@ async fn update_space_tx(
     let (old_space, _) =
         get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
             .await?;
+
+    let community_id = get_site_community_id(&old_space.site_id, pool).await?;
+    validate_reserve_price_quantized(&community_id, details, pool).await?;
 
     // Check for auction history and nontrivial changes
     let has_history = space_has_auction_history(space_id, tx).await?;

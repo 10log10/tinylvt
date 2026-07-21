@@ -213,6 +213,38 @@ pub async fn create_auction(
         return Err(StoreError::AuctionStartInPast);
     }
 
+    // Reserve prices seed bid values and thus settlement lines, so every
+    // space that can enter this auction must sit on the community's
+    // minor-unit grain. Spaces are validated at create/edit going forward;
+    // this catches spaces predating that validation. The coleader fixes the
+    // named spaces and retries.
+    let minor_units: i16 = sqlx::query_scalar(
+        "SELECT currency_minor_units FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(pool)
+    .await?;
+    let unquantized_spaces: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT name FROM spaces
+        WHERE site_id = $1
+          AND is_available
+          AND deleted_at IS NULL
+          AND reserve_price <> round(reserve_price, $2)
+        ORDER BY name
+        "#,
+    )
+    .bind(details.site_id)
+    .bind(minor_units)
+    .fetch_all(pool)
+    .await?;
+    if !unquantized_spaces.is_empty() {
+        return Err(StoreError::UnquantizedReservePrices {
+            minor_units,
+            space_names: unquantized_spaces.join(", "),
+        });
+    }
+
     // Check storage limit before creating auction
     super::billing::check_storage_limit(
         pool,
@@ -225,9 +257,13 @@ pub async fn create_auction(
     let mut tx = pool.begin().await?;
 
     // Create auction params first
-    let auction_params_id =
-        create_auction_params(&details.auction_params, &mut tx, time_source)
-            .await?;
+    let auction_params_id = create_auction_params(
+        &details.auction_params,
+        &community_id,
+        &mut tx,
+        time_source,
+    )
+    .await?;
 
     let auction_id = sqlx::query_as::<_, Auction>(
         "INSERT INTO auctions (

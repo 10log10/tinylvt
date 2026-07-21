@@ -2108,3 +2108,322 @@ async fn test_member_to_treasury_capped_by_balance() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_transfer_amount_must_be_quantized() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    // 0.005 is finer than the community's 2 minor units
+    let result = app
+        .client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Member(bob.user.user_id),
+            amount: Decimal::new(5, 3),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    // The on-grain control succeeds
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Member(bob.user.user_id),
+            amount: Decimal::new(1, 2),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_treasury_amount_must_be_quantized() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    app.set_points_allocation_mode(community_id).await?;
+
+    let result = app
+        .client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(10_005, 3),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::AllActiveMembers,
+            amount_per_recipient: Decimal::new(10, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_credit_limit_must_be_quantized() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    let result = app
+        .client
+        .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
+            community_id,
+            member_user_id: bob.user.user_id,
+            credit_limit_override: Some(Decimal::new(5_005, 3)),
+        })
+        .await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    app.client
+        .update_credit_limit_override(&requests::UpdateCreditLimitOverride {
+            community_id,
+            member_user_id: bob.user.user_id,
+            credit_limit_override: Some(Decimal::new(5, 0)),
+        })
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_currency_config_amounts_must_be_quantized() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    // default_credit_limit finer than minor_units is rejected
+    let body = requests::UpdateCurrencyConfig {
+        community_id,
+        currency: payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::DistributedClearing(
+                payloads::IOUConfig {
+                    default_credit_limit: Some(Decimal::new(100_005, 3)),
+                    debts_callable: true,
+                },
+            ),
+            name: "dollars".into(),
+            symbol: "$".into(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        },
+    };
+    let result = app.client.update_currency_config(&body).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reserve_price_must_be_quantized() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    let mut space = test_helpers::space_details_a(site.site_id);
+    space.reserve_price = payloads::ReservePrice(Decimal::new(1_005, 3));
+    let result = app.client.create_space(&space).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auction_rejects_pre_existing_unquantized_reserve()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    // Inject an off-grain reserve directly, modeling a space that predates
+    // input validation
+    sqlx::query("UPDATE spaces SET reserve_price = 1.005 WHERE id = $1")
+        .bind(space.space_id)
+        .execute(&app.db_pool)
+        .await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(app.time_source.now());
+    let result = app.client.create_auction(&auction_details).await;
+    assert_status_code(result, StatusCode::BAD_REQUEST);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_quantization_migration_adjusts_dust() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Inject sub-minor-unit dust directly, modeling pre-quantization data.
+    // The dust sums to zero, as any real ledger's balances do.
+    sqlx::query(
+        r#"
+        UPDATE accounts SET balance_cached = CASE
+            WHEN owner_id = (SELECT id FROM users WHERE username = 'alice')
+                THEN 10.005
+            WHEN owner_id = (SELECT id FROM users WHERE username = 'bob')
+                THEN -10.005
+            ELSE 0
+        END
+        WHERE community_id = $1
+        "#,
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
+
+    api::store::currency::run_quantization_migration(
+        &app.db_pool,
+        &app.time_source,
+    )
+    .await?;
+
+    // Every balance is on-grain, within one grain unit of its dusty value,
+    // and the ledger still sums to zero. Which member receives the freed
+    // grain unit depends on account id order, so both outcomes are allowed.
+    let (all_on_grain, sum): (bool, Decimal) = sqlx::query_as(
+        r#"
+        SELECT
+            bool_and(balance_cached = round(balance_cached, 2)),
+            sum(balance_cached)
+        FROM accounts WHERE community_id = $1
+        "#,
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert!(all_on_grain);
+    assert_eq!(sum, Decimal::ZERO);
+
+    let alice_balance: Decimal = sqlx::query_scalar(
+        "SELECT balance_cached FROM accounts
+         WHERE community_id = $1
+           AND owner_id = (SELECT id FROM users WHERE username = 'alice')",
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert!(
+        alice_balance == Decimal::new(1_000, 2)
+            || alice_balance == Decimal::new(1_001, 2),
+        "alice balance moved more than one grain unit: {alice_balance}"
+    );
+
+    let entry_count = |pool: sqlx::PgPool| async move {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM journal_entries
+             WHERE community_id = $1 AND entry_type = 'rounding_adjustment'",
+        )
+        .bind(community_id)
+        .fetch_one(&pool)
+        .await
+    };
+    assert_eq!(entry_count(app.db_pool.clone()).await?, 1);
+
+    // Re-running is a no-op: balances are clean, so no community matches
+    api::store::currency::run_quantization_migration(
+        &app.db_pool,
+        &app.time_source,
+    )
+    .await?;
+    assert_eq!(entry_count(app.db_pool.clone()).await?, 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_coarsening_minor_units_requantizes_balances() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    // Balances valid at 2 minor units but off the 1-minor-unit grain
+    sqlx::query(
+        r#"
+        UPDATE accounts SET balance_cached = CASE
+            WHEN owner_type = 'community_treasury' THEN -20.50
+            ELSE 10.25
+        END
+        WHERE community_id = $1
+        "#,
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
+
+    // Coarsen minor_units 2 -> 1; the config update re-quantizes in-tx
+    let mut currency = payloads::CurrencySettings {
+        mode_config: test_helpers::default_currency_config(),
+        name: "dollars".into(),
+        symbol: "$".into(),
+        minor_units: 1,
+        balances_visible_to_members: true,
+        new_members_default_active: true,
+    };
+    app.client
+        .update_currency_config(&requests::UpdateCurrencyConfig {
+            community_id,
+            currency: currency.clone(),
+        })
+        .await?;
+
+    let (all_on_grain, sum): (bool, Decimal) = sqlx::query_as(
+        r#"
+        SELECT
+            bool_and(balance_cached = round(balance_cached, 1)),
+            sum(balance_cached)
+        FROM accounts WHERE community_id = $1
+        "#,
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert!(all_on_grain);
+    assert_eq!(sum, Decimal::ZERO);
+
+    let count_entries = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM journal_entries
+             WHERE community_id = $1 AND entry_type = 'rounding_adjustment'",
+        )
+        .bind(community_id)
+        .fetch_one(&app.db_pool)
+        .await
+    };
+    assert_eq!(count_entries().await?, 1);
+
+    // Refining back to 2 minor units needs no adjustment
+    currency.minor_units = 2;
+    app.client
+        .update_currency_config(&requests::UpdateCurrencyConfig {
+            community_id,
+            currency,
+        })
+        .await?;
+    assert_eq!(count_entries().await?, 1);
+
+    Ok(())
+}

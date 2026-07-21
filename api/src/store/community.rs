@@ -30,6 +30,8 @@ pub async fn create_community(
     }
     let mut tx = pool.begin().await?;
 
+    currency::validate_currency_settings_quantization(&details.currency)?;
+
     // Validate and convert currency config enum to database columns
     // For IOU modes: if debts aren't callable, must have finite credit limit
     match &details.currency.mode_config {

@@ -774,25 +774,33 @@ impl CurrencySettings {
         format!("{}\u{2014}", self.symbol)
     }
 
-    /// Format an amount using the currency symbol and minor units
+    /// Format an amount using the currency symbol and minor units. Displays at
+    /// least `minor_units` decimal places (e.g. "$10.00", not "$10"), widened
+    /// when the value itself is finer — historical amounts predating
+    /// quantization enforcement, or a coarsening's rounding-adjustment dust —
+    /// so no stored amount is ever misrendered by display rounding.
     pub fn format_amount(&self, amount: rust_decimal::Decimal) -> String {
-        // Round to the appropriate number of decimal places
-        let rounded = amount.round_dp_with_strategy(
-            self.minor_units as u32,
-            rust_decimal::RoundingStrategy::MidpointNearestEven,
-        );
+        // Normalize to drop trailing zeros so scale reflects real precision
+        let normalized = amount.normalize();
+        let prec = (self.minor_units as u32).max(normalized.scale()) as usize;
 
-        // Format with fixed decimal places (e.g., "$10.00" not "$10")
         // Place negative sign before the symbol: "-$50" not "$-50"
-        let abs = rounded.abs();
-        let amount_str =
-            format!("{:.prec$}", abs, prec = self.minor_units as usize);
-        if rounded.is_sign_negative() && !rounded.is_zero() {
+        let abs = normalized.abs();
+        let amount_str = format!("{:.prec$}", abs, prec = prec);
+        if normalized.is_sign_negative() && !normalized.is_zero() {
             format!("-{}{}", self.symbol, amount_str)
         } else {
             format!("{}{}", self.symbol, amount_str)
         }
     }
+}
+
+/// Whether `amount` is representable at the given number of minor units, i.e.
+/// has no finer fractional component. Scale-insensitive: `1.10` is quantized at
+/// one minor unit. `minor_units` must be in `0..=6` (the validated range for
+/// community currency settings).
+pub fn is_quantized(amount: rust_decimal::Decimal, minor_units: i16) -> bool {
+    amount == amount.round_dp(minor_units as u32)
 }
 
 /// Database-level account owner type enum (used only for DB serialization)
@@ -875,6 +883,14 @@ pub enum EntryType {
     // Transfer from orphaned account (member who left) to treasury or
     // active members
     OrphanedAccountTransfer,
+    // Balanced per-community adjustment quantizing balances to the
+    // community's currency_minor_units: it collects each account's
+    // sub-grain dust so subsequent activity runs at the coarser grain.
+    // Written by the one-time dust migration at rollout (system-initiated)
+    // and when minor_units is coarsened (config-edit-initiated, before the
+    // settings change in the same transaction, so its lines sit on the
+    // outgoing finer grain).
+    RoundingAdjustment,
 }
 
 #[derive(

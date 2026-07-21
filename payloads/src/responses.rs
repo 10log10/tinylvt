@@ -195,7 +195,6 @@ pub struct UserProfile {
     pub email: String,
     pub display_name: Option<String>,
     pub email_verified: bool,
-    pub balance: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

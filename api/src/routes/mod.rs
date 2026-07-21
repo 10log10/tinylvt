@@ -184,6 +184,9 @@ impl From<StoreError> for APIError {
                 APIError::UnexpectedError(e.into())
             }
             StoreError::AccountNotLocked => APIError::UnexpectedError(e.into()),
+            StoreError::UnquantizedJournalLine { .. } => {
+                APIError::UnexpectedError(e.into())
+            }
 
             // Not found errors
             StoreError::MemberNotFound => APIError::AuthError(e.into()),

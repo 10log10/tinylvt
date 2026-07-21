@@ -314,7 +314,6 @@ pub async fn user_profile(
         email: user_data.email,
         display_name: user_data.display_name,
         email_verified: user_data.email_verified,
-        balance: user_data.balance,
     };
 
     Ok(HttpResponse::Ok().json(profile))
@@ -353,7 +352,6 @@ pub async fn update_profile(
         email: updated_user.email,
         display_name: updated_user.display_name,
         email_verified: updated_user.email_verified,
-        balance: updated_user.balance,
     };
 
     Ok(HttpResponse::Ok().json(profile))

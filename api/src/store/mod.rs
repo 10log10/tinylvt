@@ -114,7 +114,6 @@ pub struct User {
     pub password_hash: String,
     pub display_name: Option<String>,
     pub email_verified: bool,
-    pub balance: Decimal,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -699,6 +698,24 @@ pub enum StoreError {
     AccountNotLocked,
     #[error("Insufficient balance")]
     InsufficientBalance,
+    #[error(
+        "Amount has finer resolution than the currency's {minor_units} minor \
+         units"
+    )]
+    AmountNotQuantized { minor_units: i16 },
+    #[error(
+        "Spaces have reserve prices finer than the currency's {minor_units} \
+         minor units: {space_names}"
+    )]
+    UnquantizedReservePrices {
+        minor_units: i16,
+        space_names: String,
+    },
+    #[error(
+        "Internal invariant violation: journal line amount {amount} is finer \
+         than the currency's {minor_units} minor units"
+    )]
+    UnquantizedJournalLine { amount: Decimal, minor_units: i16 },
     #[error("Amount must be positive")]
     AmountMustBePositive,
     #[error("Amount must be non-zero")]

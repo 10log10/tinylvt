@@ -62,6 +62,7 @@ pub async fn create_site(
     };
     let auction_params_id = create_auction_params(
         &details.default_auction_params,
+        &details.community_id,
         &mut tx,
         time_source,
     )
@@ -144,6 +145,7 @@ async fn insert_open_hours_weekdays(
 
 pub(super) async fn create_auction_params(
     params: &payloads::AuctionParams,
+    community_id: &CommunityId,
     tx: &mut Transaction<'_, Postgres>,
     time_source: &TimeSource,
 ) -> Result<AuctionParamsId, StoreError> {
@@ -155,6 +157,16 @@ pub(super) async fn create_auction_params(
     params
         .validate()
         .map_err(|e| StoreError::InvalidAuctionParams(e.error_message()))?;
+
+    // The bid increment feeds every bid value and thus every settlement
+    // line; it must land on the community's minor-unit grain.
+    let minor_units: i16 = sqlx::query_scalar(
+        "SELECT currency_minor_units FROM communities WHERE id = $1",
+    )
+    .bind(community_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    currency::check_amount_quantized(params.bid_increment.0, minor_units)?;
 
     Ok(sqlx::query_as::<_, AuctionParamsId>(
         "INSERT INTO auction_params (
@@ -301,6 +313,7 @@ pub async fn update_site(
 
     let new_auction_params_id = create_auction_params(
         &details.default_auction_params,
+        &existing_site.community_id,
         &mut tx,
         time_source,
     )
