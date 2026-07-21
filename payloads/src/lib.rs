@@ -886,10 +886,10 @@ pub enum EntryType {
     // Balanced per-community adjustment quantizing balances to the
     // community's currency_minor_units: it collects each account's
     // sub-grain dust so subsequent activity runs at the coarser grain.
-    // Written by the one-time dust migration at rollout (system-initiated)
-    // and when minor_units is coarsened (config-edit-initiated, before the
-    // settings change in the same transaction, so its lines sit on the
-    // outgoing finer grain).
+    // Written when minor_units is coarsened (config-edit-initiated, before
+    // the settings change in the same transaction, so its lines sit on the
+    // outgoing finer grain); historical entries also exist from the
+    // since-retired one-time dust migration at the feature's rollout.
     RoundingAdjustment,
 }
 

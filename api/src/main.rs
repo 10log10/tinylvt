@@ -60,11 +60,6 @@ async fn main() -> std::io::Result<()> {
     #[cfg(feature = "mock-time")]
     let time_source = TimeSource::new(jiff::Timestamp::now());
 
-    // One-time data migration: quantize balances to community minor units
-    api::store::currency::run_quantization_migration(&pool, &time_source)
-        .await
-        .expect("Failed to run balance quantization migration");
-
     // Start the scheduler service
     let scheduler = Scheduler::new(
         pool.clone(),

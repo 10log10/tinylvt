@@ -111,12 +111,12 @@ CREATE TYPE ENTRY_TYPE AS ENUM (
     -- Balanced per-community adjustment quantizing balances to the
     -- community's currency_minor_units: it collects each account's
     -- sub-grain dust so subsequent activity runs at the coarser grain.
-    -- Written by the one-time dust migration at rollout, and again whenever
-    -- minor_units is coarsened (in the same transaction, before the
-    -- settings change, so a coarsening adjustment's lines sit on the
-    -- outgoing finer grain). Only the migration's entries carry lines finer
-    -- than the minor units declared at the time they were written -- that
-    -- dust predates quantization enforcement.
+    -- Written whenever minor_units is coarsened (in the same transaction,
+    -- before the settings change, so the adjustment's lines sit on the
+    -- outgoing finer grain), and once at the feature's rollout by the
+    -- since-retired dust migration -- only those historical entries carry
+    -- lines finer than the minor units declared at the time they were
+    -- written, since that dust predated quantization enforcement.
     'rounding_adjustment'
 );
 

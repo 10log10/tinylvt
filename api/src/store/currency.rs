@@ -724,31 +724,28 @@ async fn create_entry(
         locked.require(account_id)?;
     }
 
-    // Quantization backstop, all modes: every line must be representable at
-    // the community's minor units, so stored balances always match their
-    // displayed values. Input validation at the entry points should make
-    // this unreachable; it firing means a computed amount escaped a
-    // quantized path. RoundingAdjustment is exempt for the sake of the
-    // one-time dust migration, whose lines are finer than the declared
-    // minor units by nature — the dust predates enforcement, so there is
-    // no stored finer setting to create the entry under. (Coarsening
-    // adjustments don't rely on the exemption: they're created before the
-    // minor_units change commits, so their lines sit on the still-current
-    // finer grain.)
-    if params.entry_type != EntryType::RoundingAdjustment {
-        let minor_units: i16 = sqlx::query_scalar(
-            "SELECT currency_minor_units FROM communities WHERE id = $1",
-        )
-        .bind(params.community_id)
-        .fetch_one(&mut **locked.tx())
-        .await?;
-        for (_, amount) in &lines {
-            if !payloads::is_quantized(*amount, minor_units) {
-                return Err(StoreError::UnquantizedJournalLine {
-                    amount: *amount,
-                    minor_units,
-                });
-            }
+    // Quantization backstop, all modes and entry types: every line must be
+    // representable at the community's minor units, so stored balances
+    // always match their displayed values. Input validation at the entry
+    // points should make this unreachable; it firing means a computed
+    // amount escaped a quantized path. Rounding adjustments comply because
+    // a coarsening writes its adjustment before the minor_units change
+    // commits, so those lines sit on the still-current finer grain. (The
+    // retired one-time dust migration was the one writer that needed an
+    // exemption here — its dust predated enforcement, finer than any
+    // declared setting.)
+    let minor_units: i16 = sqlx::query_scalar(
+        "SELECT currency_minor_units FROM communities WHERE id = $1",
+    )
+    .bind(params.community_id)
+    .fetch_one(&mut **locked.tx())
+    .await?;
+    for (_, amount) in &lines {
+        if !payloads::is_quantized(*amount, minor_units) {
+            return Err(StoreError::UnquantizedJournalLine {
+                amount: *amount,
+                minor_units,
+            });
         }
     }
 
@@ -2288,61 +2285,6 @@ pub async fn reset_all_balances(
     })
 }
 
-/// One-time dust migration: quantize account balances for every community
-/// holding sub-minor-unit dust (see `quantize_community_balances_tx`). Runs at
-/// startup after schema migrations; a failure aborts startup so the invariant
-/// is established before the strict `create_entry` backstop can trip on dusty
-/// balances (orphan resolution and balance reset debit full balances).
-///
-/// Idempotent: communities with clean balances are skipped by the detection
-/// query, and the adjustment entry uses a deterministic idempotency key so
-/// concurrent starters race benignly. (If a community somehow re-accumulates
-/// dust after its entry exists — impossible while the backstop holds — the
-/// replay no-ops and this fn logs the community every startup, which is the
-/// desired alarm.)
-pub async fn run_quantization_migration(
-    pool: &PgPool,
-    time_source: &TimeSource,
-) -> Result<(), StoreError> {
-    let communities: Vec<(CommunityId, i16)> = sqlx::query_as(
-        r#"
-        SELECT c.id, c.currency_minor_units
-        FROM communities c
-        WHERE EXISTS (
-            SELECT 1 FROM accounts a
-            WHERE a.community_id = c.id
-              AND a.balance_cached
-                  <> round(a.balance_cached, c.currency_minor_units)
-        )
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
-
-    for (community_id, minor_units) in communities {
-        let mut tx = pool.begin().await?;
-        let adjusted = quantize_community_balances_tx(
-            &community_id,
-            minor_units,
-            system_idempotency_key("quantization_migration", community_id),
-            None,
-            None,
-            time_source,
-            &mut tx,
-        )
-        .await?;
-        tx.commit().await?;
-        tracing::info!(
-            %community_id,
-            minor_units,
-            accounts_adjusted = adjusted,
-            "quantized community balances to minor units"
-        );
-    }
-
-    Ok(())
-}
-
 /// Quantize every account balance in a community to the given minor units via
 /// a balanced `RoundingAdjustment` entry, returning the number of accounts
 /// adjusted (0 means all balances were already on-grain and no entry was
@@ -2356,12 +2298,12 @@ pub async fn run_quantization_migration(
 /// zero among themselves) and treasury modes alike. Every account moves
 /// strictly less than one grain unit.
 ///
-/// A coarsening config edit calls this before writing the new minor_units.
-/// Nothing enforces that order — the backstop exempts RoundingAdjustment lines
-/// either way — but it keeps the record coherent: the adjustment lands under
-/// the outgoing (finer) setting whose grain its lines actually sit on, reading
-/// as the old grain's final entry rather than a sub-grain anomaly under the new
-/// one.
+/// A coarsening config edit must call this before writing the new minor_units:
+/// the adjustment's lines sit on the outgoing (finer) grain, and
+/// `create_entry`'s backstop checks them against the currently stored setting —
+/// after the settings write they would be rejected as sub-grain. The ordering
+/// also keeps the record coherent, reading as the old grain's final entry
+/// rather than an anomaly under the new one.
 pub(crate) async fn quantize_community_balances_tx(
     community_id: &CommunityId,
     minor_units: i16,
