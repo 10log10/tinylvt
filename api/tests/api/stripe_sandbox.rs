@@ -377,12 +377,16 @@ async fn manual_capture_lifecycle() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Incremental authorization, which the phase-5 raise path leans on.
-/// `request_incremental_authorization=if_available` is soft per card
-/// but hard per account: confirm 400s ("not eligible for the requested
-/// card features") unless the account has Stripe's gated flexible
-/// acquiring features. Until eligibility is granted this test reports
-/// that state and passes; once granted it verifies the increment flow.
+/// Incremental authorization — NOT used by v1 (cut from the design:
+/// account eligibility sits behind volume-negotiated IC+ pricing; see
+/// the implementation plan's decision 5). Kept as verified knowledge
+/// for if that ever changes. `request_incremental_authorization=
+/// if_available` is soft per card but hard per account: confirm 400s
+/// ("not eligible for the requested card features") unless the account
+/// has Stripe's gated flexible acquiring features. Until eligibility
+/// is granted this test reports that state and passes; once granted
+/// (true of this sandbox since 2026-07) it verifies the increment
+/// flow.
 #[tokio::test]
 #[ignore = "needs STRIPE_SANDBOX_SECRET_KEY; hits Stripe test mode"]
 async fn incremental_authorization() -> anyhow::Result<()> {
