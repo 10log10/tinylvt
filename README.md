@@ -85,6 +85,10 @@ In trustful communities, the currency consists of simple IOUs. By winning a spac
 
 In trustless communities, users pre-fill their community balance, and can only bid up to their available funds. Funds are issued by the community treasury, controlled by community leadership. In this currency mode, auction payments return to the treasury and are not redistributed.
 
+## License
+
+TinyLVT is licensed per crate: the `payloads` crate (shared types and the API client) is MIT, so any software may build against TinyLVT instances, while all other crates are AGPL-3.0-only, so the auction mechanism stays inspectable in every fork and deployment. See [LICENSE.md](LICENSE.md) for details and [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution licensing policy.
+
 ## Notes
 
 [^spectrum_auction_wikipedia]: https://en.wikipedia.org/wiki/Spectrum_auction#Auction_structure
