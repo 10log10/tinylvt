@@ -51,9 +51,13 @@ pub struct TestApp {
     #[allow(unused)]
     pub port: u16,
     pub db_pool: PgPool,
+    /// The dedicated claim-tx pool (Stripe-spanning operations), as
+    /// production runs it. Mostly idle in tests.
+    pub worker_pool: api::WorkerPool,
     pub client: payloads::APIClient,
     pub time_source: TimeSource,
     pub stripe_service: std::sync::Arc<api::stripe_service::StripeService>,
+    pub email_service: std::sync::Arc<api::email::EmailService>,
     pub pubsub: api::pubsub::PubSub,
     /// Used in Drop to stop the actix server. Without this, the server's
     /// worker threads (one per CPU core, each running its own tokio runtime)
@@ -236,6 +240,33 @@ impl TestApp {
 
         Ok(())
     }
+
+    /// Wait until a session in this test's database is parked on a lock
+    /// with its query matching `query_pattern` (ILIKE). Race tests hold
+    /// a lock to park a concurrent request mid-flight, and use this to
+    /// commit the racing write only once the victim is observably
+    /// blocked, making the interleaving deterministic.
+    pub async fn wait_for_lock_waiter(
+        &self,
+        query_pattern: &str,
+    ) -> anyhow::Result<()> {
+        for _ in 0..500 {
+            let blocked: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity \
+                 WHERE datname = current_database() \
+                   AND wait_event_type = 'Lock' \
+                   AND query ILIKE $1",
+            )
+            .bind(query_pattern)
+            .fetch_one(&self.db_pool)
+            .await?;
+            if blocked > 0 {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        anyhow::bail!("no lock waiter matching {query_pattern:?} appeared");
+    }
 }
 
 /// Functions to populate test data
@@ -266,6 +297,37 @@ impl TestApp {
         self.client.create_account(&body).await?;
         self.mark_user_email_verified(&body.username).await?;
         Ok(())
+    }
+
+    /// Run one synchronous scheduler pass (round processing, proxy
+    /// bidding, intent worker), returning after all spawned work
+    /// completes — the deterministic way tests advance auction state
+    /// after moving the mock clock.
+    pub async fn tick(&self) {
+        api::scheduler::schedule_tick(
+            &self.db_pool,
+            &self.worker_pool,
+            &self.time_source,
+            &self.stripe_service,
+            &self.email_service,
+        )
+        .await;
+    }
+
+    /// Run one ungated reconciliation pass (invariant suite, orphaned-hold
+    /// sweep, live-PI cross-check) over all communities, returning the
+    /// report — the suite as a test oracle after complex scenarios.
+    pub async fn reconcile(
+        &self,
+    ) -> api::store::reconciliation::ReconciliationReport {
+        api::store::reconciliation::run_reconciliation_pass(
+            &self.db_pool,
+            &self.worker_pool,
+            &self.time_source,
+            &self.stripe_service,
+        )
+        .await
+        .expect("reconciliation pass failed")
     }
 
     pub async fn login_alice(&self) -> anyhow::Result<()> {
@@ -356,6 +418,26 @@ impl TestApp {
             },
         };
         Ok(self.client.create_community(&body).await?)
+    }
+
+    /// Switch a community to backed_credits with the USD denomination
+    /// (the full row shape the mode's CHECK constraints require).
+    pub async fn set_backed_credits_mode(
+        &self,
+        community_id: &CommunityId,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE communities SET currency_mode = 'backed_credits', \
+             default_credit_limit = 0, debts_callable = true, \
+             allowance_amount = NULL, allowance_period = NULL, \
+             allowance_start = NULL, currency_name = 'USD', \
+             currency_symbol = '$', currency_minor_units = 2 \
+             WHERE id = $1",
+        )
+        .bind(community_id)
+        .execute(&self.db_pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn create_two_person_community(
@@ -867,6 +949,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
 
     let (db_pool, new_db_name) = setup_database().await.unwrap();
     let db_url = format!("{}/{}", get_database_url_base(), new_db_name);
+    let worker_pool = api::create_worker_pool(&db_url).await.unwrap();
     let mut config = Config {
         database_url: db_url,
         ip: "127.0.0.1".into(),
@@ -884,6 +967,9 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         stripe_webhook_secret: secrecy::SecretBox::new(Box::new(
             "whsec_test_mock".to_string(),
         )),
+        stripe_connect_webhook_secret: secrecy::SecretBox::new(Box::new(
+            "whsec_test_mock_connect".to_string(),
+        )),
         stripe_monthly_price_id: "price_test_monthly".to_string(),
         stripe_annual_price_id: "price_test_annual".to_string(),
     };
@@ -895,6 +981,7 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
         .unwrap();
 
     let stripe_service = config.create_stripe_service();
+    let email_service = config.create_email_service();
     let pubsub = api::pubsub::PubSub::new();
 
     // Subscribe before `build` spawns the listener task. The listener calls
@@ -905,11 +992,15 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
     // listener's entry-reset and lose their receivers.
     let mut listener_ready_probe = pubsub.subscribe();
 
-    let (server, server_handle) = api::build(
+    // The listener task handle is dropped: a listener panic in tests
+    // surfaces as missing events in the subscribing test.
+    let (server, server_handle, _listener_task) = api::build(
         &mut config,
         db_pool.clone(),
+        worker_pool.clone(),
         time_source.clone(),
         stripe_service.clone(),
+        email_service.clone(),
         pubsub.clone(),
     )
     .await
@@ -950,12 +1041,14 @@ pub async fn spawn_app_on_port(port: u16) -> TestApp {
     TestApp {
         port: config.port,
         db_pool,
+        worker_pool,
         client: payloads::APIClient {
             address: format!("http://127.0.0.1:{}", config.port),
             inner_client: client,
         },
         time_source,
         stripe_service,
+        email_service,
         pubsub,
         server_handle,
     }

@@ -1,12 +1,13 @@
-use payloads::{CurrencySettings, SpaceId};
+use payloads::{CurrencyMode, CurrencySettings, SpaceId};
 use std::collections::HashSet;
 use yew::prelude::*;
 
 use crate::components::{
-    AuctionAdminControls, AuctionContext, AuctionPageWrapper, AuctionTabHeader,
-    AuctionToplineInfo, ConnectionStatusIndicator, CountdownTimer,
-    ProxyBiddingControls, ProxyBiddingParticipants, RoundIndicator,
-    SpaceListForBidding, UserEligibilityDisplay, auction_tab_header::ActiveTab,
+    AuctionAdminControls, AuctionContext, AuctionFundingSection,
+    AuctionPageWrapper, AuctionTabHeader, AuctionToplineInfo,
+    ConnectionStatusIndicator, CountdownTimer, ProxyBiddingControls,
+    ProxyBiddingParticipants, RoundIndicator, SpaceListForBidding,
+    UserEligibilityDisplay, auction_tab_header::ActiveTab,
 };
 use crate::hooks::{
     Fetch, ProxyBiddingSettingsHookReturn, UserSpaceValuesHookReturn,
@@ -37,6 +38,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
                         currency={ctx.currency().clone()}
                         current_user={ctx.current_user.clone()}
                         user_role={ctx.community.user_role}
+                        community_id={ctx.community.community.id}
                     />
                 </div>
             </div>
@@ -58,6 +60,7 @@ struct AuctionContentProps {
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
     user_role: payloads::Role,
+    community_id: payloads::CommunityId,
 }
 
 #[function_component]
@@ -109,6 +112,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                             site_timezone={props.site_timezone.clone()}
                             currency={props.currency.clone()}
                             user_role={props.user_role}
+                            community_id={props.community_id}
                             last_round={last_round_info.last_round.clone()}
                             previous_round_id={
                                 last_round_info
@@ -131,6 +135,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
                         user_role={props.user_role}
+                        community_id={props.community_id}
                         connection_status={connection_status}
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
@@ -235,6 +240,7 @@ struct AuctionNotStartedContentProps {
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
     user_role: payloads::Role,
+    community_id: payloads::CommunityId,
     connection_status: crate::hooks::ConnectionStatus,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
@@ -311,7 +317,29 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                 user_role={props.user_role}
             />
 
-            <ProxyBiddingControls settings={props.proxy_bidding.clone()} />
+            <ProxyBiddingControls
+                auction_id={props.auction.auction_id}
+                settings={props.proxy_bidding.clone()}
+                card_grant_community={
+                    (props.currency.mode() == CurrencyMode::BackedCredits)
+                        .then_some(props.community_id)
+                }
+            />
+
+            // Bid funding (card-backed backed credits): members can
+            // pre-authorize before the auction starts.
+            {if props.currency.mode() == CurrencyMode::BackedCredits {
+                html! {
+                    <AuctionFundingSection
+                        auction_id={props.auction.auction_id}
+                        community_id={props.community_id}
+                        currency={props.currency.clone()}
+                        ended={false}
+                    />
+                }
+            } else {
+                html! {}
+            }}
 
             // Space list for setting values (bidding disabled). The auction
             // hasn't started, so no prices or bids exist; gate on spaces +
@@ -360,6 +388,7 @@ struct AuctionRoundContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     user_role: payloads::Role,
+    community_id: payloads::CommunityId,
     last_round: payloads::responses::AuctionRound,
     /// Round id of the round before `last_round`, used to fetch prices.
     /// `None` when `last_round` is round 0 (no previous round exists).
@@ -525,8 +554,27 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
 
             // Proxy bidding controls
             <ProxyBiddingControls
+                auction_id={props.auction.auction_id}
                 settings={props.proxy_bidding.clone()}
+                card_grant_community={
+                    (props.currency.mode() == CurrencyMode::BackedCredits)
+                        .then_some(props.community_id)
+                }
             />
+
+            // Bid funding (card-backed backed credits)
+            {if props.currency.mode() == CurrencyMode::BackedCredits {
+                html! {
+                    <AuctionFundingSection
+                        auction_id={props.auction.auction_id}
+                        community_id={props.community_id}
+                        currency={props.currency.clone()}
+                        ended={props.auction.end_at.is_some()}
+                    />
+                }
+            } else {
+                html! {}
+            }}
 
             // Bid action error
             {if let Some(error) = &*bid_error {

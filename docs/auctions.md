@@ -133,6 +133,11 @@ flow reverses: the winner is paid rather than charged. Who pays the
 compensation depends on the currency mode — see
 [Currency Modes](/docs/currency) for details.
 
+In Backed Credits communities with card payments enabled, winners' card
+holds are charged for the part their credit balance doesn't cover, and
+losers' holds are released. See [Card Payments](/docs/card-payments) for
+details.
+
 ---
 
 *Learn about payment options in [Currency Modes](/docs/currency).*

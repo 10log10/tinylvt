@@ -31,9 +31,10 @@ for you automatically.
 ### Currency Modes
 
 TinyLVT supports multiple ways to handle auction payments—from internal points
-(no real money) to IOUs between members to prepaid credits. The currency mode
-you choose determines whether your community operates as a common-ownership
-collective or something closer to a traditional rental market.
+(no real money) to IOUs between members to card-backed bidding through Stripe.
+The currency mode you choose determines whether your community operates as a
+common-ownership collective or something closer to a traditional rental
+market.
 
 **Important:** Currency mode cannot be changed after creating a community.
 

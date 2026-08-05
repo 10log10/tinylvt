@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use api::scheduler;
 use jiff::Span;
 use payloads::{auction_sim, requests, responses};
 use rust_decimal::Decimal;
@@ -69,13 +68,13 @@ async fn test_simulation_matches_full_system() -> anyhow::Result<()> {
         .await?;
 
     // Run auction to completion via scheduler
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     loop {
         let rounds = app.client.list_auction_rounds(&auction_id).await?;
         let latest_round = rounds.last().unwrap();
         app.time_source
             .set(latest_round.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;

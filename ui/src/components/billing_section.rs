@@ -5,6 +5,7 @@ use payloads::{
 use yew::prelude::*;
 
 use crate::get_api_client;
+use crate::utils::checkout::{redirect_to_checkout, use_checkout_busy};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -14,7 +15,7 @@ pub struct Props {
 
 #[function_component]
 pub fn BillingSection(props: &Props) -> Html {
-    let is_loading = use_state(|| false);
+    let is_loading = use_checkout_busy();
     let error = use_state(|| None::<String>);
 
     html! {
@@ -119,33 +120,17 @@ fn UpgradeView(props: &UpgradeViewProps) -> Html {
         let set_error = props.set_error.clone();
 
         move |interval: BillingInterval| {
-            let set_loading = set_loading.clone();
-            let set_error = set_error.clone();
-
-            set_loading.set(true);
-            set_error.set(None);
-
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = get_api_client();
-                let request = requests::CreateCheckoutSession {
-                    community_id,
-                    billing_interval: interval,
-                };
-
-                match client.create_checkout_session(&request).await {
-                    Ok(response) => {
-                        if let Some(window) = web_sys::window() {
-                            let _ = window
-                                .location()
-                                .set_href(&response.checkout_url);
-                        }
-                    }
-                    Err(e) => {
-                        set_error.set(Some(e.to_string()));
-                        set_loading.set(false);
-                    }
-                }
-            });
+            redirect_to_checkout(
+                set_loading.clone(),
+                set_error.clone(),
+                async move {
+                    let request = requests::CreateCheckoutSession {
+                        community_id,
+                        billing_interval: interval,
+                    };
+                    get_api_client().create_checkout_session(&request).await
+                },
+            );
         }
     };
 
@@ -374,28 +359,13 @@ fn make_portal_callback(
     set_error: UseStateHandle<Option<String>>,
 ) -> Callback<MouseEvent> {
     Callback::from(move |_: MouseEvent| {
-        let set_loading = set_loading.clone();
-        let set_error = set_error.clone();
-
-        set_loading.set(true);
-        set_error.set(None);
-
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = get_api_client();
-            let request = requests::CreatePortalSession { community_id };
-
-            match client.create_portal_session(&request).await {
-                Ok(response) => {
-                    if let Some(window) = web_sys::window() {
-                        let _ =
-                            window.location().set_href(&response.checkout_url);
-                    }
-                }
-                Err(e) => {
-                    set_error.set(Some(e.to_string()));
-                    set_loading.set(false);
-                }
-            }
-        });
+        redirect_to_checkout(
+            set_loading.clone(),
+            set_error.clone(),
+            async move {
+                let request = requests::CreatePortalSession { community_id };
+                get_api_client().create_portal_session(&request).await
+            },
+        );
     })
 }

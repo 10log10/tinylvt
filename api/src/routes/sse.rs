@@ -134,7 +134,14 @@ fn event_matches(
             auction_id: a,
             user_id: u,
             ..
+        }
+        | AuctionEvent::FundingChanged {
+            auction_id: a,
+            user_id: u,
         } => *a == auction_id && *u == user_id,
+        // Community-wide rather than auction-scoped: deliver on every
+        // auction stream the user has open.
+        AuctionEvent::CardChargeGrantChanged { user_id: u } => *u == user_id,
     }
 }
 

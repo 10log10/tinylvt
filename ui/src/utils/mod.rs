@@ -1,4 +1,7 @@
+pub mod checkout;
+pub mod styles;
 pub mod time;
+pub mod url;
 
 /// Returns true if the application is running in development mode.
 /// Checks if BACKEND_URL contains "localhost".

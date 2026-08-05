@@ -4,7 +4,6 @@ use jiff::Span;
 use secrecy::SecretBox;
 use sqlx::PgPool;
 
-use crate::AppConfig;
 use crate::password::{
     AuthError, Credentials, NewUserDetails, change_password, create_user,
     validate_credentials,
@@ -64,7 +63,6 @@ pub async fn create_account(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = create_user(new_user_details.0, &pool, &time_source).await?;
 
@@ -88,7 +86,6 @@ pub async fn create_account(
             &user.email,
             &user.username,
             &token_id.0.to_string(),
-            &config.base_url,
         )
         .await
     {
@@ -137,7 +134,6 @@ pub async fn forgot_password(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, RouteError> {
     // Always return success to prevent email enumeration
     let response = payloads::responses::SuccessMessage {
@@ -175,7 +171,6 @@ pub async fn forgot_password(
                 &user.email,
                 &user.username,
                 &token_id.0.to_string(),
-                &config.base_url,
             )
             .await
         {
@@ -206,7 +201,6 @@ pub async fn resend_verification_email(
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
     time_source: web::Data<TimeSource>,
-    config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&identity)?;
     let user = store::read_user(&pool, &user_id).await?;
@@ -237,7 +231,6 @@ pub async fn resend_verification_email(
             &user.email,
             &user.username,
             &token_id.0.to_string(),
-            &config.base_url,
         )
         .await
         .map_err(|e| {

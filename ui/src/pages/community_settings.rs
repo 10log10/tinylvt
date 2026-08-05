@@ -5,6 +5,7 @@ use yew::prelude::*;
 use crate::components::{
     ActiveTab, CommunityPageWrapper, CommunityTabHeader, ConfirmationModal,
     CurrencyConfigEditor, LeaveCommunityButton, MarkdownEditor, MarkdownText,
+    StripeConnectSection,
 };
 use crate::hooks::{use_communities, use_push_route};
 use crate::{Route, get_api_client};
@@ -542,6 +543,16 @@ fn CommunitySettingsContent(props: &ContentProps) -> Html {
                         </div>
                     }
                 </div>
+
+                // Stripe Connect Section (coleader+, backed credits only)
+                if is_coleader_plus
+                    && props.community.community.currency.mode()
+                        == payloads::CurrencyMode::BackedCredits
+                {
+                    <StripeConnectSection
+                        community_id={props.community_id}
+                    />
+                }
 
                 // Leave Community Section (non-leaders)
                 if !is_leader {

@@ -9,7 +9,6 @@
 
 use crate::TestApp;
 use anyhow::Result;
-use api::scheduler;
 use jiff::{Span, Timestamp};
 use jiff_sqlx::ToSqlx;
 use payloads::{CommunityId, SiteId, requests, responses};
@@ -461,7 +460,7 @@ async fn create_desk_auction_with_bidding(
     // Process rounds
     let round_duration = auction_details.auction_params.round_duration;
     for round_num in 0..num_rounds_to_process {
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         // Advance time by round_duration
         let current_time = app.time_source.now();
         app.time_source.set(current_time + round_duration);

@@ -1,4 +1,4 @@
-use crate::components::{ConfirmationModal, RequireAuth};
+use crate::components::{ConfirmationModal, PaymentMethodSection, RequireAuth};
 use crate::get_api_client;
 use crate::hooks::{render_section, use_communities, use_logout, use_title};
 use crate::{AuthState, State};
@@ -271,6 +271,9 @@ fn ProfilePageInner(props: &ProfilePageInnerProps) -> Html {
                     </div>
                 </div>
             </div>
+
+            // Payment Method Section
+            <PaymentMethodSection />
 
             // Danger Zone Section
             <div class="bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-200 dark:border-red-800 p-6">

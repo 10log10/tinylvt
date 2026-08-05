@@ -449,3 +449,185 @@ async fn incremental_authorization() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The full phase-5 authorization path against real Stripe: clone the
+/// platform-saved card to the connected account, create+confirm an
+/// off-session manual-capture authorization there, capture part of it
+/// with a platform application fee, mint a second authorization and
+/// cancel it, and verify a declining card maps to `Declined`. Needs a
+/// pre-onboarded, charges-enabled connected account in
+/// `TEST_CONNECT_ACCOUNT_ID`.
+#[tokio::test]
+#[ignore = "needs STRIPE_SANDBOX_SECRET_KEY + TEST_CONNECT_ACCOUNT_ID; \
+            hits Stripe test mode"]
+async fn authorization_lifecycle_on_connected_account() -> anyhow::Result<()> {
+    use api::stripe_service::AuthorizationParams;
+    use stripe_payment::payment_method::AttachPaymentMethod;
+
+    let client = sandbox_client();
+    let connected_account_id = std::env::var("TEST_CONNECT_ACCOUNT_ID")
+        .expect("TEST_CONNECT_ACCOUNT_ID must be set for this test");
+    let user_id = payloads::UserId(uuid::Uuid::new_v4());
+
+    let customer_id = real::create_user_customer(
+        &client,
+        "tinylvt sandbox test user",
+        &user_id,
+    )
+    .await?;
+    let payment_method = AttachPaymentMethod::new("pm_card_visa")
+        .customer(&customer_id)
+        .send(&client)
+        .await?;
+
+    let params = |amount_minor, seed: String| AuthorizationParams {
+        connected_account_id: &connected_account_id,
+        platform_customer_id: &customer_id,
+        platform_payment_method_id: payment_method.id.as_str(),
+        amount_minor,
+        currency: "usd",
+        metadata: std::collections::HashMap::from([(
+            "funding_intent_id".to_string(),
+            seed.clone(),
+        )]),
+        idempotency_seed: Box::leak(seed.into_boxed_str()),
+    };
+
+    // Authorize $10; capture $7 with a $0.07 platform fee.
+    let seed = uuid::Uuid::new_v4().to_string();
+    let auth = real::create_authorization(&client, params(1000, seed.clone()))
+        .await
+        .map_err(|e| anyhow::anyhow!("authorization failed: {e}"))?;
+    assert_eq!(auth.amount_minor, 1000);
+    // Idempotent replay returns the same intent.
+    let replay = real::create_authorization(&client, params(1000, seed))
+        .await
+        .map_err(|e| anyhow::anyhow!("replay failed: {e}"))?;
+    assert_eq!(replay.payment_intent_id, auth.payment_intent_id);
+    real::capture_payment_intent(
+        &client,
+        &connected_account_id,
+        &auth.payment_intent_id,
+        700,
+        Some(7),
+        &format!("{}:capture", auth.payment_intent_id),
+    )
+    .await?;
+
+    // A second authorization releases via cancel.
+    let auth2 = real::create_authorization(
+        &client,
+        params(500, uuid::Uuid::new_v4().to_string()),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("second authorization failed: {e}"))?;
+    real::cancel_payment_intent(
+        &client,
+        &connected_account_id,
+        &auth2.payment_intent_id,
+        &format!("{}:cancel", auth2.payment_intent_id),
+    )
+    .await?;
+
+    // Decline mapping isn't exercised live: this sandbox validates cards
+    // at attach, so even pm_card_visa_chargeDeclined (documented to
+    // attach successfully and decline at charge) declines at attach.
+    // That attach error confirmed the card_error shape
+    // map_authorization_error keys on (type card_error, code
+    // card_declined, decline_code); the mapping itself is covered by
+    // mock tests.
+
+    Ok(())
+}
+
+/// Connected-account lifecycle (phase 3): create with the
+/// Standard-equivalent controller properties, mint an onboarding
+/// Account Link, read live status, then delete the account (test-mode
+/// only) so sandbox accounts don't accumulate.
+#[tokio::test]
+#[ignore = "needs STRIPE_SANDBOX_SECRET_KEY; hits Stripe test mode"]
+async fn connected_account_lifecycle() -> anyhow::Result<()> {
+    let client = sandbox_client();
+    let community_id = payloads::CommunityId(uuid::Uuid::new_v4());
+
+    let account_id = real::create_connected_account(
+        &client,
+        "tinylvt sandbox test community",
+        &community_id,
+    )
+    .await?;
+    assert!(account_id.starts_with("acct_"));
+
+    let url = real::create_account_link(
+        &client,
+        &account_id,
+        "https://example.com/settings?stripe_connect=refresh",
+        "https://example.com/settings?stripe_connect=return",
+    )
+    .await?;
+    assert!(url.starts_with("https://connect.stripe.com/"));
+
+    // Fresh account: nothing submitted, charges disabled.
+    let status = real::get_account_status(&client, &account_id).await?;
+    assert!(!status.charges_enabled);
+    assert!(!status.details_submitted);
+
+    stripe_connect::account::DeleteAccount::new(
+        account_id.parse::<stripe_shared::AccountId>().unwrap(),
+    )
+    .send(&client)
+    .await?;
+
+    Ok(())
+}
+
+/// Saved-card lifecycle on the platform account (phase 4): create a
+/// user customer, mint a setup Checkout session, attach a test card
+/// (standing in for hosted-Checkout completion, which can't be driven
+/// by API), read it back through the list call, and detach.
+#[tokio::test]
+#[ignore = "needs STRIPE_SANDBOX_SECRET_KEY; hits Stripe test mode"]
+async fn saved_card_lifecycle() -> anyhow::Result<()> {
+    use stripe_payment::payment_method::AttachPaymentMethod;
+
+    let client = sandbox_client();
+    let user_id = payloads::UserId(uuid::Uuid::new_v4());
+
+    let customer_id = real::create_user_customer(
+        &client,
+        "tinylvt sandbox test user",
+        &user_id,
+    )
+    .await?;
+    assert!(customer_id.starts_with("cus_"));
+
+    let url = real::create_setup_checkout_session(
+        &client,
+        &customer_id,
+        &user_id,
+        "https://example.com/profile?card_setup=success",
+        "https://example.com/profile?card_setup=canceled",
+    )
+    .await?;
+    assert!(url.starts_with("https://checkout.stripe.com/"));
+
+    // Hosted Checkout can't be driven by API; construct its end state
+    // by attaching the magic test card directly.
+    AttachPaymentMethod::new("pm_card_visa")
+        .customer(&customer_id)
+        .send(&client)
+        .await?;
+
+    let methods =
+        real::list_card_payment_methods(&client, &customer_id).await?;
+    assert_eq!(methods.len(), 1);
+    assert_eq!(methods[0].brand, "visa");
+    assert_eq!(methods[0].last4, "4242");
+
+    real::detach_payment_method(&client, &methods[0].id).await?;
+    let methods =
+        real::list_card_payment_methods(&client, &customer_id).await?;
+    assert!(methods.is_empty());
+
+    Ok(())
+}

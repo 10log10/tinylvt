@@ -87,9 +87,9 @@ pub async fn update_user_profile(
 /// Delete a user account.
 ///
 /// Attempts a hard delete first. If that fails due to foreign key constraints
-/// (user has bids, round_space_results, or user_eligibilities), falls back to
-/// anonymizing PII and setting `deleted_at` to preserve referential integrity
-/// for auction history.
+/// (user has bids, round_space_results, user_eligibilities, or payment rows),
+/// falls back to anonymizing PII and setting `deleted_at` to preserve
+/// referential integrity for auction and payment history.
 ///
 /// On anonymization, also removes: user_values, use_proxy_bidding, tokens, and
 /// community_members entries.
@@ -139,6 +139,9 @@ pub async fn delete_user(
             // - auction_results.winning_user_id → user won auction rounds
             // - entry_lines.account_id (via accounts cascade) → user has
             //   transaction history
+            // - funding_intents.user_id / credit_purchases.user_id → user has
+            //   payment history (possibly live: a hold with no bid, or an
+            //   in-flight ACH purchase)
             //
             // In these cases, anonymize the user instead of deleting.
             let now = time_source.now().to_sqlx();
@@ -184,6 +187,16 @@ pub async fn delete_user(
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
+
+            // Their memberships are gone, so release any card
+            // authorizations still holding their money (all communities).
+            super::funding::release_member_intents_tx(
+                None,
+                id,
+                time_source,
+                &mut tx,
+            )
+            .await?;
 
             // Anonymize PII and mark as unverified to block community actions.
             //

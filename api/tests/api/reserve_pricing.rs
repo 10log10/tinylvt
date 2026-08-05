@@ -1,6 +1,5 @@
 //! Tests for per-space reserve prices, including negative reserves (chores).
 
-use api::scheduler;
 use jiff::Span;
 use payloads::{ReservePrice, TreasuryRecipient, requests};
 use rust_decimal::Decimal;
@@ -26,7 +25,7 @@ async fn round_zero_positive_reserve_sets_value() -> anyhow::Result<()> {
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -36,7 +35,7 @@ async fn round_zero_positive_reserve_sets_value() -> anyhow::Result<()> {
     // Advance past round end so round 0 resolves.
     app.time_source
         .set(round_0.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let results = app
         .client
@@ -67,7 +66,7 @@ async fn round_zero_negative_reserve_settles_to_winner() -> anyhow::Result<()> {
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -75,7 +74,7 @@ async fn round_zero_negative_reserve_settles_to_winner() -> anyhow::Result<()> {
     app.login_bob().await?;
     app.client.create_bid(&space_id, &round_0.round_id).await?;
 
-    // The pending chore bid must not contribute negative locked balance --
+    // The pending chore bid must not contribute a negative commitment --
     // Bob hasn't won yet, and a later round could displace him, so the
     // bid shouldn't let him pre-spend the chore compensation.
     let bob_info = app
@@ -85,7 +84,7 @@ async fn round_zero_negative_reserve_settles_to_winner() -> anyhow::Result<()> {
             member_user_id: None,
         })
         .await?;
-    assert_eq!(bob_info.locked_balance, Decimal::ZERO);
+    assert_eq!(bob_info.commitment, Decimal::ZERO);
 
     // Round 0 ends with Bob's chore bid, round 1 has no bids, settlement
     // triggers.
@@ -94,7 +93,7 @@ async fn round_zero_negative_reserve_settles_to_winner() -> anyhow::Result<()> {
         let current = rounds.last().unwrap().clone();
         app.time_source
             .set(current.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;
@@ -150,13 +149,13 @@ async fn negative_reserve_no_bidders_creates_no_result() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Run rounds with no bids until the auction concludes.
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     loop {
         let rounds = app.client.list_auction_rounds(&auction_id).await?;
         let current = rounds.last().unwrap().clone();
         app.time_source
             .set(current.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;
@@ -220,7 +219,7 @@ async fn reserve_price_update_triggers_copy_on_write() -> anyhow::Result<()> {
         test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = Some(start_time);
     let _ = app.client.create_auction(&auction_details).await?;
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let auctions = app.client.list_auctions(&site.site_id).await?;
     let rounds = app
@@ -284,7 +283,7 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -299,7 +298,7 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
         let current = rounds.last().unwrap().clone();
         app.time_source
             .set(current.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;
@@ -398,7 +397,7 @@ async fn chore_settlement_deferred_payment() -> anyhow::Result<()> {
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -410,7 +409,7 @@ async fn chore_settlement_deferred_payment() -> anyhow::Result<()> {
         let current = rounds.last().unwrap().clone();
         app.time_source
             .set(current.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;
@@ -438,15 +437,15 @@ async fn chore_settlement_deferred_payment() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// (m) Chore settlement in prepaid_credits: treasury goes negative,
+/// (m) Chore settlement in backed_credits: treasury goes negative,
 /// winner is credited. The credits are spendable on later auctions.
 #[tokio::test]
-async fn chore_settlement_prepaid_credits() -> anyhow::Result<()> {
+async fn chore_settlement_backed_credits() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
     sqlx::query(
         "UPDATE communities \
-            SET currency_mode = 'prepaid_credits', default_credit_limit = 0 \
+            SET currency_mode = 'backed_credits', default_credit_limit = 0 \
             WHERE id = $1",
     )
     .bind(community_id)
@@ -464,7 +463,7 @@ async fn chore_settlement_prepaid_credits() -> anyhow::Result<()> {
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -476,7 +475,7 @@ async fn chore_settlement_prepaid_credits() -> anyhow::Result<()> {
         let current = rounds.last().unwrap().clone();
         app.time_source
             .set(current.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let auction = app.client.get_auction(&auction_id).await?;
         if auction.end_at.is_some() {
             break;

@@ -76,6 +76,17 @@ pub fn CurrencyPage() -> Html {
 }
 
 #[function_component]
+pub fn CardPaymentsPage() -> Html {
+    html! {
+        <DocsLayout title="Card Payments">
+            <div class="max-w-4xl mx-auto px-4 py-8">
+                <MarkdownContent html={markdown_html!(file: "docs/card-payments.md")} />
+            </div>
+        </DocsLayout>
+    }
+}
+
+#[function_component]
 pub fn AuctionsPage() -> Html {
     html! {
         <DocsLayout title="Auctions">

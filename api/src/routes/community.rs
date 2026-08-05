@@ -43,7 +43,6 @@ pub async fn invite_community_member(
     details: web::Json<requests::InviteCommunityMember>,
     pool: web::Data<PgPool>,
     email_service: web::Data<crate::email::EmailService>,
-    config: web::Data<crate::AppConfig>,
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
@@ -69,7 +68,6 @@ pub async fn invite_community_member(
                 email,
                 &community.name,
                 &invite_id.to_string(),
-                &config.base_url,
             )
             .await
         {
@@ -310,12 +308,13 @@ pub async fn leave_community(
     user: Identity,
     details: web::Json<requests::LeaveCommunity>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
 
-    store::leave_community(&member, &pool).await?;
+    store::leave_community(&member, &pool, &time_source).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

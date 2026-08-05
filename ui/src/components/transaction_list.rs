@@ -147,7 +147,7 @@ fn determine_counterparty(
                     }
                     CurrencyMode::PointsAllocation
                     | CurrencyMode::DeferredPayment
-                    | CurrencyMode::PrepaidCredits => Counterparty::Treasury,
+                    | CurrencyMode::BackedCredits => Counterparty::Treasury,
                 }
             }
             // Transfer can be member->member or member->treasury
@@ -164,6 +164,8 @@ fn determine_counterparty(
             EntryType::RoundingAdjustment => {
                 Counterparty::NMembers(count_members())
             }
+            // Stripe card payment: always member <-> treasury
+            EntryType::StripePayment => Counterparty::Treasury,
         },
         // Transactions from the Treasury's perspective
         AccountOwner::Treasury => match txn.entry_type {
@@ -195,6 +197,10 @@ fn determine_counterparty(
             EntryType::RoundingAdjustment => {
                 Counterparty::NMembers(count_members())
             }
+            // Stripe card payment from a single member
+            EntryType::StripePayment => find_member()
+                .map(Counterparty::Member)
+                .unwrap_or(Counterparty::NMembers(0)),
         },
     }
 }
@@ -220,6 +226,7 @@ fn TransactionRow(props: &TransactionRowProps) -> Html {
             "Orphaned Account Transfer"
         }
         payloads::EntryType::RoundingAdjustment => "Rounding Adjustment",
+        payloads::EntryType::StripePayment => "Card Payment",
     };
 
     // Determine counterparty

@@ -61,11 +61,8 @@ pub enum ApiError {
     LeaderMustTransferFirst,
     #[error("Orphaned account not found")]
     OrphanedAccountNotFound,
-    #[error(
-        "Cannot resolve orphaned account with locked balance from \
-         outstanding bids"
-    )]
-    OrphanedAccountHasLockedBalance,
+    #[error("Cannot resolve orphaned account with outstanding bid commitments")]
+    OrphanedAccountHasCommitments,
     #[error("No active members to distribute balance to")]
     NoActiveMembersForDistribution,
     #[error("Span too large: {0}")]
@@ -193,6 +190,8 @@ pub enum ApiError {
     },
     #[error("Amount must be positive")]
     AmountMustBePositive,
+    #[error("Amount exceeds the card-charge maximum of {max}")]
+    AmountTooLarge { max: Decimal },
     #[error("Amount must be non-zero")]
     AmountMustBeNonZero,
     #[error(
@@ -206,8 +205,77 @@ pub enum ApiError {
     InvalidCreditLimitOperation,
     #[error("Currency mode cannot be changed after community creation")]
     CurrencyModeImmutable,
-    #[error("This mode is under construction")]
-    CurrencyModeUnderConstruction,
+    #[error(
+        "Backed credits communities must use a supported denomination: \
+         currency name is the ISO code, with its listed symbol and minor \
+         units"
+    )]
+    UnsupportedDenomination,
+    #[error(
+        "Currency name, symbol, and minor units cannot be changed in \
+         backed credits mode"
+    )]
+    CurrencyDenominationImmutable,
+    #[error(
+        "Member-to-member transfers are not available in backed credits \
+         mode"
+    )]
+    MemberTransfersNotAllowed,
+    #[error(
+        "Connecting a Stripe account requires the backed credits currency \
+         mode"
+    )]
+    StripeConnectRequiresBackedCredits,
+    #[error("No saved payment method")]
+    NoSavedPaymentMethod,
+    #[error("Bidding beyond your balance requires a saved card")]
+    SavedCardRequired,
+    #[error(
+        "Bidding beyond your balance requires granting this community \
+         permission to place card holds"
+    )]
+    CardChargeGrantRequired,
+    #[error("Card payments are not enabled for this community")]
+    CardPaymentsNotEnabled,
+    #[error("Your card was declined")]
+    CardDeclined { code: Option<String> },
+    #[error(
+        "Too early to place a card hold for this auction; you can \
+         authorize starting {authorize_from}"
+    )]
+    PreauthNotYetOpen { authorize_from: jiff::Timestamp },
+    #[error("Credit purchases are not yet available")]
+    CreditPurchasesDisabled,
+    #[error("Invalid purchase amount")]
+    InvalidPurchaseAmount,
+    #[error("Your outstanding balance changed; refresh and try again")]
+    DebtAmountMismatch,
+    #[error("A settlement payment is already processing")]
+    SettlementAlreadyProcessing,
+    #[error(
+        "A checkout authorization for this auction is already being \
+         processed"
+    )]
+    CheckoutAlreadyProcessing,
+    #[error(
+        "A replacement card authorization must raise your current hold \
+         of {current}, or stay at or above {floor} so your committed \
+         bids stay backed"
+    )]
+    HoldReplacementTooSmall { current: Decimal, floor: Decimal },
+    #[error(
+        "Cannot delete the community while card payments are in flight; \
+         wait for outstanding card holds, captures, and purchases to \
+         finish"
+    )]
+    CommunityHasActivePayments,
+    #[error(
+        "Cannot delete the auction while card payments are in flight; \
+         wait for outstanding card holds to finish releasing"
+    )]
+    AuctionHasActivePayments,
+    #[error("Available balance changed while processing; please try again")]
+    BalanceChangedDuringProcessing,
     #[error("Invalid currency name (max 50 characters)")]
     InvalidCurrencyName,
     #[error("Invalid currency symbol (max 5 characters)")]

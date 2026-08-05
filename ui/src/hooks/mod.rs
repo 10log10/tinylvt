@@ -145,13 +145,17 @@ impl<T> FetchData<T> {
 
 pub mod auction_subscription;
 pub mod use_auction_detail;
+pub mod use_auction_funding;
 pub mod use_auction_round_results;
 pub mod use_auction_rounds;
 pub mod use_auction_user_bids;
 pub mod use_auctions;
 pub mod use_authentication;
+pub mod use_card_charge_grant;
 pub mod use_communities;
 pub mod use_community_images;
+pub mod use_community_stripe_status;
+pub mod use_credit_purchases;
 pub mod use_fetch;
 pub mod use_issued_invites;
 pub mod use_last_round;
@@ -161,6 +165,7 @@ pub mod use_member_currency_info;
 pub mod use_member_transactions;
 pub mod use_members;
 pub mod use_orphaned_accounts;
+pub mod use_payment_profile;
 pub mod use_platform_stats;
 pub mod use_proxy_bidding_participants;
 pub mod use_proxy_bidding_settings;
@@ -182,13 +187,17 @@ pub mod use_user_space_values;
 
 pub use auction_subscription::{ConnectionStatus, SubscribedEvent};
 pub use use_auction_detail::use_auction_detail;
+pub use use_auction_funding::use_auction_funding;
 pub use use_auction_round_results::use_auction_round_results;
 pub use use_auction_rounds::use_auction_rounds;
 pub use use_auction_user_bids::use_auction_user_bids;
 pub use use_auctions::use_auctions;
 pub use use_authentication::use_authentication;
+pub use use_card_charge_grant::use_card_charge_grant;
 pub use use_communities::use_communities;
 pub use use_community_images::use_community_images;
+pub use use_community_stripe_status::use_community_stripe_status;
+pub use use_credit_purchases::use_credit_purchases;
 #[allow(unused_imports)]
 pub use use_fetch::render_cell;
 pub use use_fetch::{
@@ -203,6 +212,7 @@ pub use use_member_currency_info::use_member_currency_info;
 pub use use_member_transactions::use_member_transactions;
 pub use use_members::use_members;
 pub use use_orphaned_accounts::use_orphaned_accounts;
+pub use use_payment_profile::use_payment_profile;
 pub use use_platform_stats::use_platform_stats;
 pub use use_proxy_bidding_participants::use_proxy_bidding_participants;
 pub use use_proxy_bidding_settings::{

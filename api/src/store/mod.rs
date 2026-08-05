@@ -33,6 +33,15 @@
 //!   (`.0`).
 //! - **UserId binding**: Similar pattern for all ID types to ensure type safety
 //!   at the query level.
+//!
+//! ### Scope
+//! Store holds transactional DB logic plus the Stripe-sandwich orchestration
+//! that owns those transactions (`funding_flow`, `funding_checkout`,
+//! `purchases`, `convergence`, `connect`): sequences that sandwich a Stripe
+//! call between transactions live here, next to the state they manage. Routes
+//! and the scheduler stay thin — they validate/select and dispatch into
+//! store. Functions callable inside a transaction take an
+//! executor/connection/TrackedTx; only entry points take `&PgPool`.
 
 use derive_more::Display;
 use jiff::Span;
@@ -56,11 +65,31 @@ use crate::time::TimeSource;
 pub mod auction;
 pub mod billing;
 pub mod community;
+pub mod connect;
+pub mod convergence;
 pub mod currency;
+pub mod funding;
+pub mod funding_checkout;
+pub mod funding_flow;
+pub mod locks;
 pub mod login;
+pub mod notifications;
+pub mod payment_profile;
 pub mod proxy_bidding;
+pub mod purchases;
+pub mod reconciliation;
 pub mod site;
 pub mod space;
+
+/// SQL expression for the retry backoff after `count_col` failures: 1
+/// second after the first failure, doubling to a ~2.3-hour cap. The base
+/// must stay well under the minimum round duration (5 seconds) — a failed
+/// item backing off past the round would sit out the retry that could
+/// still matter, and both auction processing and proxy items are pure-DB
+/// work where transient failures resolve quickly.
+pub(crate) fn backoff_interval_sql(count_col: &str) -> String {
+    format!("INTERVAL '1 second' * POW(2, LEAST({count_col}, 14) - 1)")
+}
 
 pub use auction::*;
 pub use community::*;
@@ -146,6 +175,10 @@ pub struct CommunityMember {
     pub user_id: UserId,
     pub role: Role,
     pub is_active: bool,
+    /// When set, the member has granted this community permission to
+    /// charge their saved card (backed_credits mode).
+    #[sqlx(try_from = "payloads::OptionalTimestamp")]
+    pub card_charges_granted_at: Option<Timestamp>,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -477,6 +510,10 @@ struct DbCommunity {
     allowance_period: Option<jiff::Span>,
     #[sqlx(try_from = "payloads::OptionalTimestamp")]
     allowance_start: Option<Timestamp>,
+    stripe_account_id: Option<String>,
+    stripe_charges_enabled: bool,
+    #[sqlx(try_from = "payloads::OptionalTimestamp")]
+    stripe_deauthorized_at: Option<Timestamp>,
 }
 
 impl TryFrom<DbCommunity> for Community {
@@ -507,6 +544,13 @@ impl TryFrom<DbCommunity> for Community {
             created_at: db.created_at,
             updated_at: db.updated_at,
             currency,
+            card_payments_enabled: db.currency_mode
+                == payloads::CurrencyMode::BackedCredits
+                && connect::connected_account_operational(
+                    db.stripe_account_id.as_deref(),
+                    db.stripe_charges_enabled,
+                    db.stripe_deauthorized_at,
+                ),
         })
     }
 }
@@ -539,6 +583,13 @@ pub enum StoreError {
     )]
     AccountNotLocked,
     #[error(
+        "Internal invariant violation: account snapshot consumed by a \
+         balance-updating entry"
+    )]
+    AccountSnapshotInvalid,
+    #[error("Internal invariant violation: required {0} lock not held")]
+    CoordLockNotHeld(&'static str),
+    #[error(
         "Internal invariant violation: journal line amount {amount} is finer \
          than the currency's {minor_units} minor units"
     )]
@@ -549,6 +600,14 @@ pub enum StoreError {
     InvalidCurrencyConfiguration,
     #[error("Stripe error: {0}")]
     StripeError(String),
+}
+
+impl StoreError {
+    /// A failed Stripe call, rendered with its full context chain
+    /// (`{:#}`) — the constructor for every wrap-and-propagate site.
+    pub(crate) fn stripe(e: impl std::fmt::Display) -> Self {
+        StoreError::StripeError(format!("{e:#}"))
+    }
 }
 
 /// Convert a space name unique constraint violation into a more specific error.

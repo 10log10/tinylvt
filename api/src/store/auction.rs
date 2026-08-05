@@ -1,3 +1,4 @@
+use super::locks::TrackedTx;
 use super::*;
 use jiff_sqlx::ToSqlx;
 use payloads::{
@@ -12,12 +13,12 @@ use crate::time::TimeSource;
 /// Calculate the total eligibility points required for a set of spaces
 async fn calculate_total_eligibility_points(
     spaces: &[SpaceId],
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
 ) -> Result<f64, StoreError> {
     let spaces =
         sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = ANY($1)")
             .bind(spaces)
-            .fetch_all(pool)
+            .fetch_all(executor)
             .await?;
 
     Ok(spaces.iter().map(|space| space.eligibility_points).sum())
@@ -150,7 +151,7 @@ pub async fn list_eligibility(
 /// Get an auction and validate that the user has the required permission
 /// level in the site's community. Returns both the auction and the
 /// validated member if successful.
-pub(super) async fn get_validated_auction(
+pub(crate) async fn get_validated_auction(
     auction_id: &AuctionId,
     user_id: &UserId,
     required_permission: PermissionLevel,
@@ -342,65 +343,76 @@ pub async fn delete_auction(
         return Err(ApiError::AuctionNotCanceled.into());
     }
 
+    let mut tx = pool.begin().await?;
+
+    // Wind-down guard: refuse while any card payment on this auction is in
+    // flight — the cascade (auctions → funding_intents) would erase the
+    // record of live Stripe holds before the intent worker cancels them at
+    // Stripe, silently leaving them to ride out the multi-day expiry. The
+    // non-terminal set mirrors FundingIntentStatus::is_terminal.
+    //
+    // An activated hold can't be stranded by a racing mint: activation updates
+    // a pending row committed before its Stripe round trip, so the row is
+    // either visible to this check (refused) or cascaded first, failing the
+    // activation. The accepted residual is a mint whose pending row commits in
+    // the instant between this check and the DELETE's FK row locks: its execute
+    // can read the row before this transaction commits and land the
+    // create+confirm at Stripe after the cascade, stranding an unrecorded
+    // authorization to expire on its own (~7 days; uncapturable — no row means
+    // nothing can capture it).
+    //
+    // Terminal rows cascade away with the auction: only canceled auctions reach
+    // here pre-settlement, so no captures (and no dispute linkage) exist.
+    let payments_in_flight: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM funding_intents
+            WHERE auction_id = $1
+                AND status IN ('pending', 'checkout_created', 'authorized',
+                               'capture_pending', 'release_pending',
+                               'superseded')
+        )",
+    )
+    .bind(auction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if payments_in_flight {
+        return Err(ApiError::AuctionHasActivePayments.into());
+    }
+
     sqlx::query("DELETE FROM auctions WHERE id = $1")
         .bind(auction_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
 
     tracing::info!(%auction_id, "permanently deleted canceled auction");
 
     Ok(())
 }
 
-/// SQL expression computing the advisory lock key that coordinates auction
-/// processing between the scheduler and lifecycle mutations. `id_expr` is a
-/// SQL expression yielding the auction id.
-pub(crate) fn auction_processing_lock_key(id_expr: &str) -> String {
-    format!("hashtextextended('auction_processing:' || {id_expr}::text, 0)")
-}
-
-/// SQL expression computing the advisory lock key serializing one user's
-/// bidding state in one auction (the `auction_user` pair-lock namespace).
-/// Held by proxy work-item claims; disjoint from the auction-processing
-/// namespace — no code path holds both an auction-processing lock and a
-/// pair lock. `auction_expr`/`user_expr` are SQL expressions yielding the
-/// respective ids.
-pub(crate) fn auction_user_lock_key(
-    auction_expr: &str,
-    user_expr: &str,
-) -> String {
-    format!(
-        "hashtextextended('auction_user:' || {auction_expr}::text \
-         || ':' || {user_expr}::text, 0)"
-    )
-}
-
 /// Take the same transaction-scoped advisory lock the scheduler holds while
 /// processing an auction (see `scheduler::lock_next_auction_needing_update`),
 /// blocking until it's available, then re-read the auction so state checks
-/// can't race round creation or settlement.
+/// can't race round creation or settlement. Returns the fresh auction row.
 async fn lock_auction_for_update(
     auction_id: &AuctionId,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locks: &mut TrackedTx<'_, '_>,
 ) -> Result<Auction, StoreError> {
-    sqlx::query(&format!(
-        "SELECT pg_advisory_xact_lock({})",
-        auction_processing_lock_key("$1")
-    ))
-    .bind(auction_id)
-    .execute(&mut **tx)
-    .await?;
+    locks.acquire_processing(auction_id).await?;
 
-    sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
-        .bind(auction_id)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => {
-                StoreError::Api(ApiError::AuctionNotFound)
-            }
-            e => e.into(),
-        })
+    let auction =
+        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
+            .bind(auction_id)
+            .fetch_one(&mut **locks.tx())
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => {
+                    StoreError::Api(ApiError::AuctionNotFound)
+                }
+                e => e.into(),
+            })?;
+    Ok(auction)
 }
 
 /// Set, change, or clear the auction's scheduled start time. Only valid
@@ -424,8 +436,9 @@ pub async fn schedule_auction(
         return Err(ApiError::AuctionStartNotInFuture.into());
     }
 
-    let mut tx = pool.begin().await?;
-    let auction = lock_auction_for_update(&details.auction_id, &mut tx).await?;
+    let mut locks = TrackedTx::begin(pool).await?;
+    let auction =
+        lock_auction_for_update(&details.auction_id, &mut locks).await?;
 
     if auction.end_at.is_some() {
         return Err(ApiError::AuctionAlreadyEnded.into());
@@ -442,18 +455,18 @@ pub async fn schedule_auction(
     .bind(details.start_at.map(|t| t.to_sqlx()))
     .bind(now.to_sqlx())
     .bind(details.auction_id)
-    .execute(&mut *tx)
+    .execute(&mut **locks.tx())
     .await?;
 
     crate::pubsub::emit(
-        &mut tx,
+        locks.tx(),
         &payloads::AuctionEvent::AuctionScheduleChanged {
             auction_id: details.auction_id,
         },
     )
     .await?;
 
-    tx.commit().await?;
+    locks.commit().await?;
 
     tracing::info!(
         auction_id = %details.auction_id,
@@ -469,6 +482,10 @@ pub async fn schedule_auction(
 /// is ever created) and was_canceled so the cancellation is visible to
 /// bidders. The auction row is kept for transparency; a canceled auction
 /// can be hard-deleted afterwards via `delete_auction`.
+///
+/// Lock contract: acquires the auction-processing lock (blocking) before any
+/// row writes, excluding concurrent scheduler processing and intent
+/// activations.
 pub async fn cancel_auction(
     auction_id: &AuctionId,
     user_id: &UserId,
@@ -483,39 +500,60 @@ pub async fn cancel_auction(
     )
     .await?;
 
-    let now = time_source.now();
-    let mut tx = pool.begin().await?;
     // Holding the scheduler's advisory lock means we can't race a
     // concluding round's settlement: either we commit first and the
     // scheduler's `end_at IS NULL` predicate excludes the auction forever,
     // or the scheduler settles first and the re-read sees end_at set.
-    let auction = lock_auction_for_update(auction_id, &mut tx).await?;
+    let mut locks = TrackedTx::begin(pool).await?;
+    let auction = lock_auction_for_update(auction_id, &mut locks).await?;
 
     if auction.end_at.is_some() {
         return Err(ApiError::AuctionAlreadyEnded.into());
     }
 
+    cancel_auction_tx(auction_id, time_source, &mut locks).await?;
+
+    locks.commit().await?;
+
+    tracing::info!(%auction_id, "auction canceled");
+
+    Ok(())
+}
+
+/// Terminalize an auction as canceled on the caller's transaction: set
+/// `end_at` and `was_canceled`, emit `AuctionEnded`, and mark the auction's
+/// card authorizations for release. No settlement entry is ever created — a
+/// canceled auction has no valid allocation, and the posted `end_at` drops it
+/// from every derived-backing aggregation, so no commitment survives (the
+/// release is a no-op outside backed_credits). Shared by the member cancel
+/// ([`cancel_auction`]) and the scheduler's runaway cancels.
+///
+/// Lock contract: caller holds the auction-processing lock.
+pub(crate) async fn cancel_auction_tx(
+    auction_id: &AuctionId,
+    time_source: &TimeSource,
+    locks: &mut TrackedTx<'_, '_>,
+) -> Result<(), StoreError> {
     sqlx::query(
         "UPDATE auctions
         SET end_at = $1, was_canceled = TRUE, updated_at = $1
         WHERE id = $2",
     )
-    .bind(now.to_sqlx())
+    .bind(time_source.now().to_sqlx())
     .bind(auction_id)
-    .execute(&mut *tx)
+    .execute(&mut **locks.tx())
     .await?;
 
     crate::pubsub::emit(
-        &mut tx,
+        locks.tx(),
         &payloads::AuctionEvent::AuctionEnded {
             auction_id: *auction_id,
         },
     )
     .await?;
 
-    tx.commit().await?;
-
-    tracing::info!(%auction_id, "auction canceled");
+    super::funding::release_auction_intents_tx(auction_id, time_source, locks)
+        .await?;
 
     Ok(())
 }
@@ -721,25 +759,68 @@ pub async fn create_bid(
     pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
-    let mut tx = pool.begin().await?;
-    create_bid_tx(space_id, round_id, user_id, &mut tx, time_source, pool)
-        .await?;
-    tx.commit().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
+    create_bid_tx(space_id, round_id, user_id, &mut ttx, time_source).await?;
+    ttx.commit().await?;
     Ok(())
+}
+
+/// The amount the next bid on `space` in `round` will lock: the previous
+/// round's winning value plus the increment, or the reserve price for a
+/// space with no prior value.
+pub(crate) async fn planned_bid_amount_tx(
+    space: &Space,
+    round: &AuctionRound,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Decimal, StoreError> {
+    let auction_params = sqlx::query_as::<_, AuctionParams>(
+        "SELECT ap.* FROM auction_params ap
+        JOIN auctions a ON ap.id = a.auction_params_id
+        WHERE a.id = $1",
+    )
+    .bind(round.auction_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let prev_value: Option<Decimal> = if round.round_num > 0 {
+        sqlx::query_scalar(
+            "SELECT rsr.value FROM round_space_results rsr
+            JOIN auction_rounds ar ON rsr.round_id = ar.id
+            WHERE ar.auction_id = $1 AND ar.round_num = $2
+                AND rsr.space_id = $3",
+        )
+        .bind(round.auction_id)
+        .bind(round.round_num - 1)
+        .bind(space.id)
+        .fetch_optional(&mut **tx)
+        .await?
+    } else {
+        None
+    };
+
+    Ok(payloads::next_bid_amount(
+        prev_value,
+        auction_params.bid_increment,
+        space.reserve_price,
+    ))
 }
 
 pub async fn create_bid_tx(
     space_id: &SpaceId,
     round_id: &AuctionRoundId,
     user_id: &UserId,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ttx: &mut TrackedTx<'_, '_>,
     time_source: &TimeSource,
-    pool: &PgPool, // for get_validated_space
 ) -> Result<(), StoreError> {
     // Get the space to validate user permissions and check availability
-    let (space, _) =
-        get_validated_space(space_id, user_id, PermissionLevel::Member, pool)
-            .await?;
+    let (space, _) = get_validated_space_conn(
+        space_id,
+        user_id,
+        PermissionLevel::Member,
+        ttx.tx(),
+    )
+    .await?;
+    let tx = ttx.tx();
 
     // Ensure the space is available for bidding
     if !space.is_available {
@@ -754,7 +835,7 @@ pub async fn create_bid_tx(
     // Check if the site has been deleted
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
         .bind(space.site_id)
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await?;
 
     if site.deleted_at.is_some() {
@@ -852,7 +933,7 @@ pub async fn create_bid_tx(
             // the total within a zero budget; positive points do not.
             let mut total_points = space.eligibility_points;
             total_points +=
-                calculate_total_eligibility_points(&active_spaces, pool)
+                calculate_total_eligibility_points(&active_spaces, &mut **tx)
                     .await?;
 
             if total_points > budget {
@@ -865,77 +946,57 @@ pub async fn create_bid_tx(
         }
     }
 
-    // Get bid increment from auction params
-    let auction =
-        sqlx::query_as::<_, Auction>("SELECT * FROM auctions WHERE id = $1")
-            .bind(round.auction_id)
-            .fetch_one(&mut **tx)
-            .await?;
-
-    let auction_params = sqlx::query_as::<_, AuctionParams>(
-        "SELECT * FROM auction_params WHERE id = $1",
-    )
-    .bind(auction.auction_params_id)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    // Calculate the amount this bid will lock
-    // Get previous round's value for this space (if any)
-    let prev_value: Option<Decimal> = if round.round_num > 0 {
-        let prev_round_id: Option<payloads::AuctionRoundId> =
-            sqlx::query_scalar(
-                "SELECT id FROM auction_rounds
-                WHERE auction_id = $1 AND round_num = $2",
-            )
-            .bind(round.auction_id)
-            .bind(round.round_num - 1)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-        if let Some(prev_id) = prev_round_id {
-            sqlx::query_scalar(
-                "SELECT value FROM round_space_results
-                WHERE round_id = $1 AND space_id = $2",
-            )
-            .bind(prev_id)
-            .bind(space_id)
-            .fetch_optional(&mut **tx)
-            .await?
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let bid_amount = payloads::next_bid_amount(
-        prev_value,
-        auction_params.bid_increment,
-        space.reserve_price,
-    );
+    let bid_amount = planned_bid_amount_tx(&space, &round, tx).await?;
 
     // Check if user has sufficient credit for this bid. Skip when the bid
     // amount is non-positive: a chore bid doesn't put the bidder on the
-    // hook for anything (and the locked-balance computation similarly
-    // clamps chore bids to zero rather than treating them as freed
-    // credit).
+    // hook for anything (and the commitment computation similarly clamps chore
+    // bids to zero rather than treating them as freed credit).
     if bid_amount > Decimal::ZERO {
+        let backed =
+            super::funding::is_backed_mode(&site.community_id, &mut **tx)
+                .await?;
         // Lock the bidder's account row for the credit check; without it,
         // a settlement or transfer committing mid-check could tear the
-        // balance/locked-balance read and overstate available credit.
-        let mut locked = currency::lock_account_tx(
+        // balance/commitment read and overstate available credit.
+        ttx.lock_account(
             &site.community_id,
             payloads::AccountOwner::Member(*user_id),
-            tx,
         )
         .await?;
-        let account_id = locked.accounts()[0].id;
-        currency::check_sufficient_credit_tx(
-            &account_id,
-            bid_amount,
-            &mut locked,
-        )
-        .await?;
+        // Re-check liveness now that the lock is held: the conclusion
+        // transaction holds no lock a bid claim shares (processing vs
+        // pair), so this account row — which conclusion's settlement
+        // entry locks for winners — is where a claim that passed the
+        // check above can block behind conclusion and resume after the
+        // auction settled. Reject here to keep bid rows out of
+        // concluded rounds.
+        if time_source.now() >= round.end_at {
+            return Err(ApiError::RoundEnded.into());
+        }
+        if backed {
+            // Backed credits: gate on the auction's derived backing
+            // (live card authorization plus unclaimed balance) instead
+            // of the community-wide credit check.
+            super::funding::check_bid_backing_tx(
+                &site.community_id,
+                &round.auction_id,
+                user_id,
+                bid_amount,
+                time_source,
+                ttx,
+            )
+            .await?;
+        } else {
+            let account_id = ttx.locked_accounts()?[0].id;
+            currency::check_sufficient_credit_tx(
+                &account_id,
+                bid_amount,
+                time_source.now(),
+                ttx,
+            )
+            .await?;
+        }
     }
 
     // Create the bid
@@ -946,11 +1007,11 @@ pub async fn create_bid_tx(
     .bind(round_id)
     .bind(user_id)
     .bind(time_source.now().to_sqlx())
-    .execute(&mut **tx)
+    .execute(&mut **ttx.tx())
     .await?;
 
     crate::pubsub::emit(
-        tx,
+        ttx.tx(),
         &payloads::AuctionEvent::BidsChanged {
             auction_id: round.auction_id,
             round_id: *round_id,

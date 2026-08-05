@@ -14,7 +14,9 @@ and whether real money is involved.
 | **Points Allowance**     | Internal allocation without money   | No  |
 | **Distributed Clearing** | True common ownership with trusted members | Yes |
 | **Deferred Payment** | Treasury-controlled funds | Yes |
-| **Prepaid Credits**      | Untrusted members or commercial use | Yes |
+| **Backed Credits**      | Card-backed bidding or commercial use | Yes |
+
+Modes that support real money can represent external currencies, though **backed credits** is the only mode that integrates payment handling.
 
 ## Points Allowance
 
@@ -84,23 +86,43 @@ members. The community decides how to use the funds.
 Employees are trusted to settle their IOUs through payroll deduction, and the
 revenue offsets the office lease.
 
-## Prepaid Credits
+## Backed Credits (Card-Backed Bidding)
 
-Members purchase credits from the treasury before they can bid. This is the
-most restrictive mode, suitable when members aren't trusted to honor IOUs.
+Every bid must be backed by real funds: either a credit balance the member
+already holds, or a hold on their card. This is the most restrictive mode,
+suitable when members aren't trusted to honor IOUs.
+
+Backing is not the same as prepaying, and members usually don't prepay
+anything. When a community connects a Stripe account, members bid with their
+cards: bids beyond their credit balance place card holds, and the card is
+only charged if they win. A held card is money committed but not yet
+collected, which is enough to make the bid good. See
+[Card Payments](/docs/card-payments) for how card-backed bidding works in
+detail.
 
 **How it works:**
-- Members buy credits from treasury (payment handled outside TinyLVT)
-- Only credited funds can be used for bidding
-- Winning bids transfer credits back to treasury
+- The community's currency is a real ISO currency (USD, EUR, or GBP)
+- Community leaders can grant credits directly (for cash paid in person,
+  work performed, or other arrangements), and chore auction wins credit the
+  winner's balance
+- With a connected Stripe account, bids beyond a member's balance place card
+  holds; winners are charged at settlement, losers' holds are released
+- Without a Stripe account, bidding is capped at each member's credit
+  balance
+- Buying credits by card through TinyLVT is planned but not yet available
+  (pending Stripe approval for stored value)
 
 **Use when:**
 - Members may not honor debts
 - You're running a commercial operation
 - You need guaranteed payment before resource access
 
-**Example:** A marina allocating boat slips. Slip holders prepay for credits
-and bid for their preferred locations. No credit risk for the marina.
+**Example:** A marina allocating boat slips. Slip holders bid for their
+preferred locations with card-backed bids. No credit risk for the marina.
+
+**Restrictions:** the currency must be a real ISO currency chosen at
+creation, and member-to-member transfers are not available (credits can only
+move between members and the treasury).
 
 ## Chore Auctions (Negative Reserves)
 
@@ -108,7 +130,7 @@ Spaces with a negative reserve price represent chores: the winner is
 *compensated* rather than charged. The currency mode determines where that
 compensation comes from.
 
-- **Points Allowance, Deferred Payment, Prepaid Credits:** The treasury pays
+- **Points Allowance, Deferred Payment, Backed Credits:** The treasury pays
   the winner. At settlement, the winner's balance is credited and the
   treasury's balance is debited by the same amount. This is the reverse of a
   normal auction (where the winner is debited and the treasury is credited).
@@ -135,17 +157,17 @@ The currency modes exist on a spectrum:
   shares equally in the resource value, whether they use it or not.
 
 **Medium equal (leadership-controlled funds)**
-- *Deferred Payment* / *Prepaid Credits* - Treasury funds managed by the
+- *Deferred Payment* / *Backed Credits* - Treasury funds managed by the
   community leadership. Member benefit depends on how the funds are spent.
 
 **Least equal (landlord model):**
-- *Deferred Payment* / *Prepaid Credits* — All proceeds go to one person (the
+- *Deferred Payment* / *Backed Credits* — All proceeds go to one person (the
   "landlord"). Useful when someone owns the resource and wants market-based
   pricing.
 
 Communities pick the model that matches their goals. A housing co-op might use
 Distributed Clearing for true shared ownership. A commercial coworking space
-might use Prepaid Credits with revenue going to cover operating costs.
+might use Backed Credits with revenue going to cover operating costs.
 
 ## Credit Limits
 

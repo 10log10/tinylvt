@@ -1,4 +1,3 @@
-use api::scheduler;
 use jiff::Span;
 use payloads::requests;
 use payloads::{
@@ -25,7 +24,7 @@ async fn run_simple_auction(
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let mut round_index = 0;
     loop {
@@ -50,7 +49,7 @@ async fn run_simple_auction(
         // Advance time past round end
         app.time_source
             .set(current_round.round_details.end_at + Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
 
         // Check if auction concluded
         let auction = app.client.get_auction(&auction_id).await?;
@@ -1450,7 +1449,7 @@ async fn test_reset_all_balances_member_permission_denied() -> anyhow::Result<()
 }
 
 #[tokio::test]
-async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
+async fn test_commitment_during_auction() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
     app.set_points_allocation_mode(community_id).await?;
@@ -1480,7 +1479,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Create initial round (round 0)
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
@@ -1498,7 +1497,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     app.login_bob().await?;
     app.client.create_bid(&space_b, &round_0.round_id).await?;
 
-    // Check locked balances during round 0 (first round, no previous prices)
+    // Check commitments during round 0 (first round, no previous prices)
     // Bid amount for round 0 is 0 (no previous price)
     app.login_alice().await?;
     let alice_info = app
@@ -1508,7 +1507,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: Some(alice.user.user_id),
         })
         .await?;
-    assert_eq!(alice_info.locked_balance, Decimal::ZERO);
+    assert_eq!(alice_info.commitment, Decimal::ZERO);
 
     app.login_bob().await?;
     let bob_info = app
@@ -1518,12 +1517,12 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: None,
         })
         .await?;
-    assert_eq!(bob_info.locked_balance, Decimal::ZERO);
+    assert_eq!(bob_info.commitment, Decimal::ZERO);
 
     // Advance time to end of round 0 and process
     app.time_source
         .set(round_0.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Get round 1
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1538,7 +1537,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     app.login_alice().await?;
     app.client.create_bid(&space_b, &round_1.round_id).await?;
 
-    // Check locked balances during round 1
+    // Check commitments during round 1
     // After round 0, space prices are 0
     // So bid amount for round 1 = 0 + bid_increment (1.0) = 1.0
     app.login_alice().await?;
@@ -1550,8 +1549,8 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
         })
         .await?;
     // Alice has a bid on space_b at price 1.0
-    assert_eq!(alice_info.locked_balance, Decimal::new(1, 0));
-    // Available credit = balance - locked + limit = 100 - 1 + 0 = 99
+    assert_eq!(alice_info.commitment, Decimal::new(1, 0));
+    // Available credit = balance - commitment + limit = 100 - 1 + 0 = 99
     assert_eq!(alice_info.available_credit, Some(Decimal::new(99, 0)));
 
     app.login_bob().await?;
@@ -1563,13 +1562,13 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
         })
         .await?;
     // Bob has a bid on space_a at price 1.0
-    assert_eq!(bob_info.locked_balance, Decimal::new(1, 0));
+    assert_eq!(bob_info.commitment, Decimal::new(1, 0));
     assert_eq!(bob_info.available_credit, Some(Decimal::new(99, 0)));
 
     // Advance time to end of round 1 and process
     app.time_source
         .set(round_1.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Get round 2
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1582,12 +1581,12 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
         .create_bid(&space_a.space_id, &round_2.round_id)
         .await?;
 
-    // Check Alice's locked balance
+    // Check Alice's commitment
     // After round 1, space_a price = 1.0, space_b price = 1.0
     // Alice has:
-    // - Standing high bid on space_b from round 1: 1.0 (locked)
-    // - New bid on space_a in round 2: 1.0 + 1.0 = 2.0 (locked)
-    // Total locked: 1.0 + 2.0 = 3.0
+    // - Standing high bid on space_b from round 1: 1.0 (committed)
+    // - New bid on space_a in round 2: 1.0 + 1.0 = 2.0 (committed)
+    // Total commitment: 1.0 + 2.0 = 3.0
     let alice_info = app
         .client
         .get_member_currency_info(&requests::GetMemberCurrencyInfo {
@@ -1595,7 +1594,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: Some(alice.user.user_id),
         })
         .await?;
-    assert_eq!(alice_info.locked_balance, Decimal::new(3, 0));
+    assert_eq!(alice_info.commitment, Decimal::new(3, 0));
     // Available = 100 - 3 + 0 = 97
     assert_eq!(alice_info.available_credit, Some(Decimal::new(97, 0)));
 
@@ -1609,14 +1608,14 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: None,
         })
         .await?;
-    // Bob's winning bid from round 1 on space_a is still locked (price 1.0)
+    // Bob's winning bid from round 1 on space_a is still committed (price 1.0)
     // even though Alice outbid him in round 2 (round 2 not yet processed)
-    assert_eq!(bob_info.locked_balance, Decimal::new(1, 0));
+    assert_eq!(bob_info.commitment, Decimal::new(1, 0));
 
     // Advance to end of round 2 and process
     app.time_source
         .set(round_2.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Get round 3
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -1626,13 +1625,13 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
     // Advance to end of round 3 and process
     app.time_source
         .set(round_3.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Verify auction concluded
     let auction = app.client.get_auction(&auction_id).await?;
     assert!(auction.end_at.is_some());
 
-    // After settlement, locked balances should be zero
+    // After settlement, commitments should be zero
     app.login_alice().await?;
     let alice_info = app
         .client
@@ -1641,7 +1640,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: Some(alice.user.user_id),
         })
         .await?;
-    assert_eq!(alice_info.locked_balance, Decimal::ZERO);
+    assert_eq!(alice_info.commitment, Decimal::ZERO);
 
     app.login_bob().await?;
     let bob_info = app
@@ -1651,7 +1650,7 @@ async fn test_locked_balance_during_auction() -> anyhow::Result<()> {
             member_user_id: None,
         })
         .await?;
-    assert_eq!(bob_info.locked_balance, Decimal::ZERO);
+    assert_eq!(bob_info.commitment, Decimal::ZERO);
 
     Ok(())
 }
@@ -1886,35 +1885,209 @@ async fn create_community_deferred_payment_mode() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Creation of prepaid_credits communities is temporarily blocked while
-/// the mode is extended with Stripe-backed payments
-/// (docs/plans/stripe-auction-payments.md). Existing tests that exercise
-/// prepaid_credits behavior set the mode via direct UPDATE, which stays
-/// possible.
-#[tokio::test]
-async fn create_community_prepaid_credits_mode_blocked() -> anyhow::Result<()> {
-    let app = spawn_app().await;
-    app.create_alice_user().await?;
-
-    let body = requests::CreateCommunity {
-        name: "Prepaid Credits Community".to_string(),
+fn backed_create_community_body(
+    name: &str,
+    symbol: &str,
+    minor_units: i16,
+) -> requests::CreateCommunity {
+    requests::CreateCommunity {
+        name: "Backed Credits Community".to_string(),
         description: None,
         currency: payloads::CurrencySettings {
-            mode_config: payloads::CurrencyModeConfig::PrepaidCredits(
-                payloads::PrepaidCreditsConfig {
+            mode_config: payloads::CurrencyModeConfig::BackedCredits(
+                payloads::BackedCreditsConfig {
                     debts_callable: false,
                 },
             ),
-            name: "tokens".to_string(),
-            symbol: "T".to_string(),
-            minor_units: 0,
+            name: name.to_string(),
+            symbol: symbol.to_string(),
+            minor_units,
             balances_visible_to_members: false,
             new_members_default_active: true,
         },
-    };
-    let result = app.client.create_community(&body).await;
+    }
+}
 
-    assert_api_error(result, ApiError::CurrencyModeUnderConstruction);
+/// Creating a backed_credits community with a valid denomination
+/// succeeds and round-trips the currency settings.
+#[tokio::test]
+async fn create_community_backed_credits() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    let body = backed_create_community_body("USD", "$", 2);
+    let community_id = app.client.create_community(&body).await?;
+
+    let communities = app.client.get_communities().await?;
+    let community = communities
+        .iter()
+        .find(|c| c.community.id == community_id)
+        .unwrap();
+    assert_eq!(community.community.currency, body.currency);
+
+    Ok(())
+}
+
+/// Backed credits communities must use an allow-listed real-currency
+/// denomination exactly: currency name is the ISO code, with the listed
+/// symbol and minor units.
+#[tokio::test]
+async fn create_community_backed_denomination_validated() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+
+    // Name not an allow-listed ISO code
+    let result = app
+        .client
+        .create_community(&backed_create_community_body("tokens", "T", 0))
+        .await;
+    assert_api_error(result, ApiError::UnsupportedDenomination);
+
+    // Right ISO code, wrong symbol
+    let result = app
+        .client
+        .create_community(&backed_create_community_body("USD", "€", 2))
+        .await;
+    assert_api_error(result, ApiError::UnsupportedDenomination);
+
+    // Right ISO code and symbol, wrong minor units
+    let result = app
+        .client
+        .create_community(&backed_create_community_body("USD", "$", 3))
+        .await;
+    assert_api_error(result, ApiError::UnsupportedDenomination);
+
+    Ok(())
+}
+
+/// Closed-loop rule: in backed_credits mode, member->member transfers
+/// are rejected (credits would become transferable stored value);
+/// member->treasury stays allowed.
+#[tokio::test]
+async fn backed_credits_member_transfer_ban() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+
+    sqlx::query(
+        "UPDATE communities SET currency_mode = 'backed_credits', \
+         default_credit_limit = 0, debts_callable = true, \
+         allowance_amount = NULL, allowance_period = NULL, \
+         allowance_start = NULL, currency_name = 'USD', \
+         currency_symbol = '$', currency_minor_units = 2 \
+         WHERE id = $1",
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
+
+    // Treasury credits Bob so he has balance to send.
+    app.client
+        .treasury_credit_operation(&requests::TreasuryCreditOperation {
+            community_id,
+            recipient: TreasuryRecipient::SingleMember(bob.user.user_id),
+            amount_per_recipient: Decimal::new(50, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    // Bob -> Alice is rejected.
+    app.login_bob().await?;
+    let result = app
+        .client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Member(alice.user.user_id),
+            amount: Decimal::new(10, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await;
+    assert_api_error(result, ApiError::MemberTransfersNotAllowed);
+
+    // Bob -> Treasury still allowed.
+    app.client
+        .create_transfer(&requests::CreateTransfer {
+            community_id,
+            to: AccountOwner::Treasury,
+            amount: Decimal::new(10, 0),
+            note: None,
+            idempotency_key: requests::ClientIdempotencyKey::new(),
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// In backed_credits mode the denomination (currency name, symbol,
+/// minor units) is fixed at creation: balances denominate real money
+/// that members' cards are charged in. Policy fields remain editable.
+#[tokio::test]
+async fn backed_credits_denomination_immutable() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    sqlx::query(
+        "UPDATE communities SET currency_mode = 'backed_credits', \
+         default_credit_limit = 0, debts_callable = true, \
+         allowance_amount = NULL, allowance_period = NULL, \
+         allowance_start = NULL, currency_name = 'USD', \
+         currency_symbol = '$', currency_minor_units = 2 \
+         WHERE id = $1",
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
+
+    let settings = |name: &str, symbol: &str, minor_units: i16| {
+        payloads::CurrencySettings {
+            mode_config: payloads::CurrencyModeConfig::BackedCredits(
+                payloads::BackedCreditsConfig {
+                    debts_callable: true,
+                },
+            ),
+            name: name.to_string(),
+            symbol: symbol.to_string(),
+            minor_units,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        }
+    };
+
+    for changed in [
+        settings("EUR", "$", 2),
+        settings("USD", "€", 2),
+        settings("USD", "$", 0),
+    ] {
+        let result = app
+            .client
+            .update_currency_config(&requests::UpdateCurrencyConfig {
+                community_id,
+                currency: changed,
+            })
+            .await;
+        assert_api_error(result, ApiError::CurrencyDenominationImmutable);
+    }
+
+    // Policy fields (debts_callable and the like) stay editable with the
+    // denomination unchanged.
+    let mut policy_change = settings("USD", "$", 2);
+    policy_change.mode_config = payloads::CurrencyModeConfig::BackedCredits(
+        payloads::BackedCreditsConfig {
+            debts_callable: false,
+        },
+    );
+    app.client
+        .update_currency_config(&requests::UpdateCurrencyConfig {
+            community_id,
+            currency: policy_change,
+        })
+        .await?;
 
     Ok(())
 }
@@ -1924,7 +2097,7 @@ async fn create_community_prepaid_credits_mode_blocked() -> anyhow::Result<()> {
 // ============================================================================
 
 /// In every mode where the treasury is the structural counterparty
-/// (points_allocation, deferred_payment, prepaid_credits), a member can
+/// (points_allocation, deferred_payment, backed_credits), a member can
 /// transfer balance back to the treasury. The motion is the same in all
 /// three: the treasury credits the member, the member transfers some or
 /// all of it back, and the two balances move toward zero in lockstep.
@@ -1948,7 +2121,7 @@ async fn test_member_to_treasury_transfer_round_trip() -> anyhow::Result<()> {
             Decimal::new(100, 0),
             Decimal::new(100, 0),
         ),
-        ("prepaid_credits", Decimal::new(50, 0), Decimal::new(20, 0)),
+        ("backed_credits", Decimal::new(50, 0), Decimal::new(20, 0)),
     ];
 
     for (mode, issued, returned) in modes {

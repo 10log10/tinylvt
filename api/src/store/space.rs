@@ -7,17 +7,36 @@ use crate::time::TimeSource;
 
 /// Get a space and validate that the user has the required permission
 /// level in the site's community. Returns both the space and the
-/// validated member if successful.
-pub(super) async fn get_validated_space(
+/// validated member if successful. Acquires one pool connection and
+/// delegates to [`get_validated_space_conn`]; callers already holding
+/// a transaction use that variant directly so they never wait on a
+/// second pool connection while holding locks.
+pub(crate) async fn get_validated_space(
     space_id: &SpaceId,
     user_id: &UserId,
     required_permission: PermissionLevel,
     pool: &PgPool,
 ) -> Result<(Space, ValidatedMember), StoreError> {
+    let mut conn = pool.acquire().await?;
+    get_validated_space_conn(space_id, user_id, required_permission, &mut conn)
+        .await
+}
+
+/// [`get_validated_space`] on an existing connection; transactional
+/// callers pass their transaction (deref coercion applies). Concrete
+/// `&mut PgConnection` rather than a connection-source generic: a
+/// borrow-generic async fn here fails the scheduler's spawned-task
+/// `Send` check ("implementation of `Send` is not general enough").
+pub(crate) async fn get_validated_space_conn(
+    space_id: &SpaceId,
+    user_id: &UserId,
+    required_permission: PermissionLevel,
+    conn: &mut sqlx::PgConnection,
+) -> Result<(Space, ValidatedMember), StoreError> {
     let space =
         sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = $1")
             .bind(space_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(|e| match e {
                 sqlx::Error::RowNotFound => ApiError::SpaceNotFound.into(),
@@ -26,14 +45,15 @@ pub(super) async fn get_validated_space(
 
     let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
         .bind(space.site_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ApiError::SiteNotFound.into(),
             e => StoreError::Database(e),
         })?;
 
-    let actor = get_validated_member(user_id, &site.community_id, pool).await?;
+    let actor =
+        get_validated_member(user_id, &site.community_id, &mut *conn).await?;
 
     if !required_permission.validate(actor.0.role) {
         return Err(ApiError::InsufficientPermissions {
@@ -173,13 +193,13 @@ pub async fn get_space(
 async fn validate_reserve_price_quantized(
     community_id: &CommunityId,
     details: &payloads::Space,
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
 ) -> Result<(), StoreError> {
     let minor_units: i16 = sqlx::query_scalar(
         "SELECT currency_minor_units FROM communities WHERE id = $1",
     )
     .bind(community_id)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     currency::check_amount_quantized(details.reserve_price.0, minor_units)
 }
@@ -226,7 +246,6 @@ async fn update_space_tx(
     details: &payloads::Space,
     user_id: &UserId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    pool: &PgPool,
     time_source: &TimeSource,
 ) -> Result<payloads::responses::UpdateSpaceResult, StoreError> {
     // Validate name length
@@ -253,12 +272,17 @@ async fn update_space_tx(
     // copy-on-write path soft-deletes the old space.
     validate_eligibility_points(details)?;
 
-    let (old_space, _) =
-        get_validated_space(space_id, user_id, PermissionLevel::Coleader, pool)
-            .await?;
+    let (old_space, _) = get_validated_space_conn(
+        space_id,
+        user_id,
+        PermissionLevel::Coleader,
+        tx,
+    )
+    .await?;
 
-    let community_id = get_site_community_id(&old_space.site_id, pool).await?;
-    validate_reserve_price_quantized(&community_id, details, pool).await?;
+    let community_id =
+        get_site_community_id(&old_space.site_id, &mut **tx).await?;
+    validate_reserve_price_quantized(&community_id, details, &mut **tx).await?;
 
     // Check for auction history and nontrivial changes
     let has_history = space_has_auction_history(space_id, tx).await?;
@@ -329,7 +353,7 @@ pub async fn update_space(
 ) -> Result<payloads::responses::UpdateSpaceResult, StoreError> {
     let mut tx = pool.begin().await?;
     let result =
-        update_space_tx(space_id, details, user_id, &mut tx, pool, time_source)
+        update_space_tx(space_id, details, user_id, &mut tx, time_source)
             .await?;
     tx.commit().await?;
     Ok(result)
@@ -357,7 +381,6 @@ pub async fn update_spaces(
             &update.space_details,
             user_id,
             &mut tx,
-            pool,
             time_source,
         )
         .await?;

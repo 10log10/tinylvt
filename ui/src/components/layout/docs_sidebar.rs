@@ -20,6 +20,10 @@ pub const DOC_NAV_ITEMS: &[DocNavItem] = &[
         route: Route::DocsCurrency,
     },
     DocNavItem {
+        title: "Card Payments",
+        route: Route::DocsCardPayments,
+    },
+    DocNavItem {
         title: "Community Setup",
         route: Route::DocsSetup,
     },

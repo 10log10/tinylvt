@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use markdown_html::markdown_html;
 use payloads::{
-    CurrencyModeConfig, CurrencySettings, IOUConfig, PrepaidCreditsConfig,
+    BackedCreditsConfig, CurrencyModeConfig, CurrencySettings, IOUConfig,
     SpaceId, UserId,
 };
 use rust_decimal::Decimal;
@@ -18,9 +18,9 @@ use crate::hooks::use_title;
 use crate::components::AuctionScenarioPlayer;
 use crate::pages::docs::MarkdownContent;
 
-fn prepaid_config() -> CurrencySettings {
+fn backed_config() -> CurrencySettings {
     CurrencySettings {
-        mode_config: CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
+        mode_config: CurrencyModeConfig::BackedCredits(BackedCreditsConfig {
             debts_callable: true,
         }),
         name: "dollars".into(),
@@ -62,7 +62,7 @@ fn bike_auction() -> Scenario {
             ]),
             bid_increment: Decimal::new(10, 0),
         },
-        currency: prepaid_config(),
+        currency: backed_config(),
         item_term: "item",
     }
 }

@@ -37,6 +37,14 @@ pub async fn create_or_update_user_value(
 
     flag_proxy_rows_for_space(&details.space_id, user_id, &mut tx).await?;
 
+    // Values size the budget hold preview, so the funding view changed.
+    super::funding::emit_funding_changed_for_space(
+        &details.space_id,
+        user_id,
+        &mut tx,
+    )
+    .await?;
+
     tx.commit().await?;
 
     Ok(())
@@ -118,6 +126,10 @@ pub async fn delete_user_value(
     // deleted row has no updated_at to compare.)
     flag_proxy_rows_for_space(space_id, user_id, &mut tx).await?;
 
+    // And it shrinks the budget hold preview just like an edit does.
+    super::funding::emit_funding_changed_for_space(space_id, user_id, &mut tx)
+        .await?;
+
     tx.commit().await?;
 
     Ok(())
@@ -164,6 +176,8 @@ pub async fn create_or_update_proxy_bidding(
     )
     .await?;
 
+    let mut tx = pool.begin().await?;
+
     // needs_processing = TRUE (the insert default, re-asserted on update)
     // marks the item dirty in this same statement, so the proxy processor
     // re-selects it even if this write straddles a processing pass.
@@ -179,8 +193,18 @@ pub async fn create_or_update_proxy_bidding(
     .bind(details.auction_id)
     .bind(details.max_items)
     .bind(time_source.now().to_sqlx())
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    // max_items sizes the budget hold preview, so the funding view changed.
+    super::funding::emit_funding_changed_if_live_backed(
+        &details.auction_id,
+        user_id,
+        &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -279,13 +303,24 @@ pub async fn delete_proxy_bidding(
     )
     .await?;
 
+    let mut tx = pool.begin().await?;
+
     sqlx::query(
         "DELETE FROM use_proxy_bidding WHERE auction_id = $1 AND user_id = $2",
     )
     .bind(auction_id)
     .bind(user_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    // Without a proxy row the budget assumes max_items = 1, so deleting
+    // resizes the hold preview like an edit does.
+    super::funding::emit_funding_changed_if_live_backed(
+        auction_id, user_id, &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }

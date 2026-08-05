@@ -60,20 +60,58 @@ async fn main() -> std::io::Result<()> {
     #[cfg(feature = "mock-time")]
     let time_source = TimeSource::new(jiff::Timestamp::now());
 
+    let worker_pool = api::create_worker_pool(&config.database_url)
+        .await
+        .expect("Failed to create worker pool");
+    let stripe_service = config.create_stripe_service();
+    let email_service = config.create_email_service();
+
     // Start the scheduler service
     let scheduler = Scheduler::new(
         pool.clone(),
+        worker_pool.clone(),
         time_source.clone(),
+        stripe_service.clone(),
+        email_service.clone(),
         Duration::from_secs(1),
     );
-    tokio::spawn(async move {
+    let scheduler_task = tokio::spawn(async move {
         scheduler.run().await;
     });
 
-    let stripe_service = config.create_stripe_service();
     let pubsub = PubSub::new();
 
-    let (server, _handle) =
-        build(&mut config, pool, time_source, stripe_service, pubsub).await?;
-    server.await
+    let (server, _handle, listener_task) = build(
+        &mut config,
+        pool,
+        worker_pool,
+        time_source,
+        stripe_service,
+        email_service,
+        pubsub,
+    )
+    .await?;
+
+    // The scheduler and pubsub listener tasks loop forever, so either
+    // completing means a panic. Exit so the orchestrator restarts the
+    // process: a live API with dead scheduling would silently stop all
+    // round and payment processing, and a dead listener would leave SSE
+    // clients on healthy-looking streams that never receive events.
+    tokio::select! {
+        result = server => result,
+        join_result = scheduler_task => {
+            tracing::error!(
+                "scheduler task exited unexpectedly: {join_result:?}; \
+                 aborting process"
+            );
+            std::process::exit(1);
+        }
+        join_result = listener_task => {
+            tracing::error!(
+                "pubsub listener task exited unexpectedly: \
+                 {join_result:?}; aborting process"
+            );
+            std::process::exit(1);
+        }
+    }
 }

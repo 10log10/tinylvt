@@ -46,30 +46,19 @@ struct ContentProps {
     pub community_id: CommunityId,
 }
 
-/// Parse checkout status from URL query string.
+/// Parse checkout status from the URL's `checkout` query parameter.
 fn parse_checkout_status() -> Option<CheckoutStatus> {
-    let search = web_sys::window()?.location().search().unwrap_or_default();
-    if search.contains("checkout=success") {
-        Some(CheckoutStatus::Success)
-    } else if search.contains("checkout=canceled") {
-        Some(CheckoutStatus::Canceled)
-    } else {
-        None
+    match crate::utils::url::query_param("checkout").as_deref() {
+        Some("success") => Some(CheckoutStatus::Success),
+        Some("canceled") => Some(CheckoutStatus::Canceled),
+        _ => None,
     }
 }
 
-/// Remove query parameters from the current URL.
+/// Remove the `checkout` return parameter from the URL, preserving any
+/// other query params and the fragment.
 fn clean_query_params() {
-    if let Some(window) = web_sys::window() {
-        let _ = window.history().map(|h| {
-            let path = window.location().pathname().unwrap_or_default();
-            let _ = h.replace_state_with_url(
-                &wasm_bindgen::JsValue::NULL,
-                "",
-                Some(&path),
-            );
-        });
-    }
+    crate::utils::url::remove_query_param("checkout");
 }
 
 #[function_component]

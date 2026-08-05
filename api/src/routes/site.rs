@@ -30,7 +30,8 @@ pub async fn get_site(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
-    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let community_id =
+        store::get_site_community_id(&site_id, pool.get_ref()).await?;
     get_validated_member(&user_id, &community_id, &pool).await?;
     let site = store::get_site(&site_id, &pool).await?;
     // return the community id so we can start using for other things
@@ -46,7 +47,7 @@ pub async fn update_site(
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let community_id =
-        store::get_site_community_id(&details.site_id, &pool).await?;
+        store::get_site_community_id(&details.site_id, pool.get_ref()).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
     let site =
         store::update_site(&details, &actor, &pool, &time_source).await?;
@@ -60,7 +61,8 @@ pub async fn delete_site(
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
-    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let community_id =
+        store::get_site_community_id(&site_id, pool.get_ref()).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
     store::delete_site(&site_id, &actor, &pool).await?;
     Ok(HttpResponse::Ok().finish())
@@ -74,7 +76,8 @@ pub async fn soft_delete_site(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
-    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let community_id =
+        store::get_site_community_id(&site_id, pool.get_ref()).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
     store::soft_delete_site(&site_id, &actor, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())
@@ -88,7 +91,8 @@ pub async fn restore_site(
     time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
-    let community_id = store::get_site_community_id(&site_id, &pool).await?;
+    let community_id =
+        store::get_site_community_id(&site_id, pool.get_ref()).await?;
     let actor = get_validated_member(&user_id, &community_id, &pool).await?;
     store::restore_site(&site_id, &actor, &pool, &time_source).await?;
     Ok(HttpResponse::Ok().finish())

@@ -1,8 +1,10 @@
 pub mod auction;
 pub mod billing;
 pub mod community;
+pub mod connect;
 pub mod currency;
 pub mod login;
+pub mod payment_profile;
 pub mod proxy_bidding;
 pub mod site;
 pub mod sse;
@@ -76,6 +78,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(site::list_spaces)
         .service(auction::create_auction)
         .service(auction::get_auction)
+        .service(auction::get_auction_funding)
         .service(auction::delete_auction)
         .service(auction::schedule_auction)
         .service(auction::cancel_auction)
@@ -87,6 +90,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::get_eligibility)
         .service(auction::list_eligibility)
         .service(auction::create_bid)
+        .service(auction::authorize_funding)
+        .service(auction::checkout_funding)
         .service(auction::get_bid)
         .service(auction::list_bids)
         .service(auction::delete_bid)
@@ -108,11 +113,22 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(currency::treasury_credit_operation)
         .service(currency::reset_all_balances)
         .service(currency::update_currency_config)
+        .service(currency::create_credit_purchase)
+        .service(currency::list_credit_purchases)
         .service(billing::get_community_storage_usage)
         .service(billing::get_subscription_info)
         .service(billing::create_checkout_session)
         .service(billing::create_portal_session)
         .service(billing::stripe_webhook)
+        .service(connect::connect_community_stripe)
+        .service(connect::get_community_stripe_status)
+        .service(connect::stripe_connect_webhook)
+        .service(payment_profile::create_card_setup_session)
+        .service(payment_profile::get_payment_profile)
+        .service(payment_profile::remove_payment_method)
+        .service(payment_profile::update_card_charge_grant)
+        .service(payment_profile::get_card_charge_grant)
+        .service(payment_profile::update_hold_strategy)
         .service(sse::sse_auction)
 }
 
@@ -212,6 +228,8 @@ impl From<StoreError> for RouteError {
             | StoreError::InvalidAccountOwnership
             | StoreError::InvalidCurrencyConfiguration
             | StoreError::AccountNotLocked
+            | StoreError::AccountSnapshotInvalid
+            | StoreError::CoordLockNotHeld(_)
             | StoreError::UnquantizedJournalLine { .. } => {
                 RouteError::UnexpectedError(e.into())
             }

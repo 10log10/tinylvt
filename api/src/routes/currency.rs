@@ -57,6 +57,7 @@ pub async fn get_member_currency_info(
     user: Identity,
     details: web::Json<requests::GetMemberCurrencyInfo>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
@@ -65,6 +66,7 @@ pub async fn get_member_currency_info(
     let info = store::currency::get_member_currency_info_with_permissions(
         &validated_member,
         details.member_user_id.as_ref(),
+        &time_source,
         &pool,
     )
     .await?;
@@ -280,4 +282,54 @@ pub async fn resolve_orphaned_balance(
     .await?;
 
     Ok(HttpResponse::Ok().json(result))
+}
+
+// Phase 8: Credit Purchases
+
+/// Start a credit purchase (top-up or debt settlement); responds with
+/// the Checkout URL to redirect the member to.
+#[post("/create_credit_purchase")]
+pub async fn create_credit_purchase(
+    user: Identity,
+    details: web::Json<requests::CreateCreditPurchase>,
+    pool: web::Data<PgPool>,
+    stripe_service: web::Data<crate::stripe_service::StripeService>,
+    app_config: web::Data<crate::AppConfig>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+
+    let url = store::purchases::create_credit_purchase(
+        &validated_member,
+        details.kind,
+        details.amount,
+        &stripe_service,
+        &app_config,
+        &time_source,
+        &pool,
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok()
+        .json(payloads::billing::CheckoutSessionResponse { checkout_url: url }))
+}
+
+/// The requesting member's credit purchases in a community.
+#[post("/credit_purchases")]
+pub async fn list_credit_purchases(
+    user: Identity,
+    community_id: web::Json<CommunityId>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &community_id, &pool).await?;
+
+    let purchases =
+        store::purchases::list_credit_purchases(&validated_member, &pool)
+            .await?;
+
+    Ok(HttpResponse::Ok().json(purchases))
 }

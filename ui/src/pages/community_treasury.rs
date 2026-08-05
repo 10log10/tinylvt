@@ -157,11 +157,11 @@ fn CommunityTreasuryContent(props: &ContentProps) -> Html {
                                         </p>
                                     </>
                                 },
-                                payloads::CurrencyMode::PrepaidCredits => html! {
+                                payloads::CurrencyMode::BackedCredits => html! {
                                     <>
                                         <p class="mb-2">
                                             {"Treasury operations in "}
-                                            <span class="font-semibold">{"Prepaid Credits"}</span>
+                                            <span class="font-semibold">{"Backed Credits"}</span>
                                             {" mode are used to record credit purchases."}
                                         </p>
                                         <p>

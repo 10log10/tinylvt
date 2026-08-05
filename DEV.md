@@ -156,10 +156,127 @@ docker run -d -p 8080:80 \
     tinylvt-ui
 ```
 
+## Stripe webhook endpoints (production)
+
+The API requires two webhook endpoints, created via the Stripe API
+rather than the dashboard so their `api_version` matches the version
+pinned by async-stripe (`async-stripe-shared`'s `version::VERSION`,
+currently `2026-04-22.dahlia`). `api_version` is a creation-time
+property: changing it (e.g. after a crate upgrade) means creating a
+replacement endpoint and deleting the old one. Overlap while both
+exist is safe — duplicate deliveries are absorbed by the handlers'
+upsert guards.
+
+The event lists below mirror the handlers in `store/billing.rs`
+(platform) and `store/connect.rs` (Connect). A new webhook-driven
+feature must add its event types here and to the endpoint, and to
+the local-forwarding filter below.
+
+Platform endpoint:
+
+```
+curl https://api.stripe.com/v1/webhook_endpoints \
+  -u "$STRIPE_API_KEY:" \
+  -d url="https://api.tinylvt.com/api/stripe_webhook" \
+  -d api_version="2026-04-22.dahlia" \
+  -d "enabled_events[]=customer.subscription.created" \
+  -d "enabled_events[]=customer.subscription.updated" \
+  -d "enabled_events[]=customer.subscription.deleted" \
+  -d "enabled_events[]=checkout.session.completed" \
+  -d "enabled_events[]=payment_method.detached"
+```
+
+Connect endpoint (`connect=true` makes it receive events from
+connected accounts):
+
+```
+curl https://api.stripe.com/v1/webhook_endpoints \
+  -u "$STRIPE_API_KEY:" \
+  -d url="https://api.tinylvt.com/api/stripe_connect_webhook" \
+  -d connect=true \
+  -d api_version="2026-04-22.dahlia" \
+  -d "enabled_events[]=account.updated" \
+  -d "enabled_events[]=account.application.deauthorized" \
+  -d "enabled_events[]=payment_intent.amount_capturable_updated" \
+  -d "enabled_events[]=payment_intent.canceled" \
+  -d "enabled_events[]=payment_intent.payment_failed" \
+  -d "enabled_events[]=payment_intent.processing" \
+  -d "enabled_events[]=payment_intent.succeeded" \
+  -d "enabled_events[]=checkout.session.completed" \
+  -d "enabled_events[]=checkout.session.expired"
+```
+
+Each create response contains the signing secret (`"secret":
+"whsec_..."`), returned only at creation. Set it as
+`STRIPE_WEBHOOK_SECRET` (platform) or
+`STRIPE_CONNECT_WEBHOOK_SECRET` (Connect).
+
+To list existing endpoints and delete a superseded one:
+
+```
+curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_API_KEY:"
+curl -X DELETE "https://api.stripe.com/v1/webhook_endpoints/we_..." \
+  -u "$STRIPE_API_KEY:"
+```
+
 ## Local Stripe testing
+
+Real Stripe calls require the API binary (`cd api && cargo run`), not
+dev-server: dev-server builds with the `mock-stripe` feature via
+test-helpers' `spawn_app`, which also hardcodes its config (mock keys,
+fresh throwaway database) and never reads the Stripe entries in `.env`.
 
 ```
 stripe listen --forward-to localhost:8000/api/stripe_webhook
 ```
 
-Then add the printed key to .env
+Then add the printed key to .env (`STRIPE_WEBHOOK_SECRET`). For Connect
+events (account status, funding PaymentIntents, and credit-purchase
+Checkout sessions), forward separately and put that session's key in
+`STRIPE_CONNECT_WEBHOOK_SECRET`:
+
+```
+stripe listen --events account.updated,\
+account.application.deauthorized,\
+payment_intent.amount_capturable_updated,\
+payment_intent.canceled,payment_intent.payment_failed,\
+payment_intent.processing,payment_intent.succeeded,\
+checkout.session.completed,checkout.session.expired \
+    --forward-to localhost:8000/api/stripe_connect_webhook
+```
+
+Note the first session (no filter, no `--forward-connect-to`) also
+receives Connect events and delivers them to the platform endpoint,
+which ignores them — harmless, but it makes its log look like Connect
+events are being handled when they aren't. Only the filtered session
+feeds the Connect handler, so new webhook-driven features must add
+their event types to the filter above.
+
+Without forwarding, Connect state still converges: the status endpoint
+re-reads the live account on each fetch and reconciles
+`stripe_charges_enabled`.
+
+### Testing with the Stripe API
+
+```
+export STRIPE_SANDBOX_SECRET_KEY=$(rg -o '^STRIPE_API_KEY=(.*)' -r '$1' .env)
+export TEST_CONNECT_ACCOUNT_ID=$(rg -o '^TEST_CONNECT_ACCOUNT_ID=(.*)' -r '$1' .env)
+cargo test --test api stripe_sandbox -- --ignored --test-threads=4 --nocapture
+```
+
+### Creating a charge-ready connected account via the API
+
+Accounts our code creates must be onboarded through the Stripe-hosted flow, gauntlet included (phone OTP, SSN, captcha), because `create_connected_account` sets `controller.requirement_collection = stripe`, which makes the platform forbidden from writing `business_profile`, `external_account`, `tos_acceptance`, and the person fields.
+
+To skip it for a sandbox fixture, create the account with all four controller properties application-controlled: `requirement_collection = application`, `fees.payer = application`, `losses.payments = application`, `stripe_dashboard.type = none`. Stripe rejects the first unless the other three accompany it. Then prefill everything in that one create call (business profile, individual, external account, ToS, requested capabilities) using the magic values from [Stripe's testing guide](https://docs.stripe.com/connect/testing); a follow-up update hits the same permission rules. `business_profile[url]` rejects `example.com`. Finally, clear the pending document requirement by uploading any image with `purpose=identity_document` and attaching its file id to `individual[verification][document][front]` — the `file_identity_document_success` token isn't accepted there. The account should then report `charges_enabled: true` and empty `currently_due`.
+
+Point a community at it by setting `stripe_account_id` and `stripe_charges_enabled = true` on its row. The account's `default_currency` must match the community's `currency_name`.
+
+Because fees and losses fall on the platform and there's no connected dashboard, these accounts are fine for exercising payments but misleading for onboarding, account standing, or fee accounting — use the hosted flow to test those.
+
+Deauthorization in the sandbox is one-way since it involves deleting the connected account.
+
+### Test cards
+
+- Always succeeds: 4242 4242 4242 4242
+- 3DS required: 4000 0027 6000 3184

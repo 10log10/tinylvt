@@ -618,7 +618,7 @@ pub async fn create_checkout_session(
             let id = stripe_service
                 .create_customer(&community_name, &community_id)
                 .await
-                .map_err(|e| StoreError::StripeError(format!("{e:#}")))?;
+                .map_err(StoreError::stripe)?;
 
             // Persist immediately. WHERE stripe_customer_id IS
             // NULL guards against a concurrent checkout race.
@@ -689,7 +689,7 @@ pub async fn create_checkout_session(
             &cancel_url,
         )
         .await
-        .map_err(|e| StoreError::StripeError(format!("{e:#}")))?;
+        .map_err(StoreError::stripe)?;
 
     Ok(checkout_url)
 }
@@ -728,7 +728,7 @@ pub async fn create_portal_session(
     let portal_url = stripe_service
         .create_portal_session(&stripe_customer_id, &return_url)
         .await
-        .map_err(|e| StoreError::StripeError(format!("{e:#}")))?;
+        .map_err(StoreError::stripe)?;
 
     Ok(portal_url)
 }
@@ -752,6 +752,31 @@ pub async fn handle_webhook_event(
         | "customer.subscription.updated"
         | "customer.subscription.deleted" => {
             handle_subscription_upsert(pool, stripe_service, obj, now).await?;
+        }
+        // Card setup completion (subscription-mode sessions need no
+        // handling here — the subscription events above cover them).
+        "checkout.session.completed"
+            if obj["mode"].as_str() == Some("setup") =>
+        {
+            super::payment_profile::handle_setup_session_completed(
+                pool,
+                time_source,
+                stripe_service,
+                obj,
+            )
+            .await?;
+        }
+        // A saved card detached outside our remove flow (e.g. the
+        // platform operator from the Stripe dashboard) — without this
+        // the stored display row goes stale, since the profile sync
+        // no-ops on an empty method list.
+        "payment_method.detached" => {
+            super::payment_profile::handle_payment_method_detached(
+                pool,
+                time_source,
+                obj,
+            )
+            .await?;
         }
         _ => {
             tracing::trace!(
@@ -915,7 +940,7 @@ async fn handle_subscription_upsert(
     let community_id = stripe_service
         .get_customer_community_id(customer_id)
         .await
-        .map_err(|e| StoreError::StripeError(format!("{e:#}")))?;
+        .map_err(StoreError::stripe)?;
 
     // If the community has been deleted, this webhook is for
     // a subscription we already canceled during deletion.

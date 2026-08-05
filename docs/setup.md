@@ -7,6 +7,11 @@ This guide walks through creating and configuring a TinyLVT community.
 **Choose your currency mode first.** This cannot be changed after community
 creation. See [Currency Modes](/docs/currency) to understand your options.
 
+If you choose Backed Credits, you also select the currency's denomination
+(USD, EUR, or GBP) at creation, and it too cannot be changed later. See
+[Card Payments](/docs/card-payments) for connecting a Stripe account and
+enabling card-backed bidding.
+
 ## Creating a Community
 
 1. Log in to TinyLVT
@@ -107,6 +112,11 @@ See [Auctions](/docs/auctions) for how reserves shape bidding.
    - Possession period
 4. Members can enter proxy bids before the auction starts
 5. The auction runs automatically at the scheduled time
+
+In Backed Credits communities with card payments enabled, auctions must
+finish within 48 hours of starting, and members place card holds in the 24
+hours before the start. See
+[Card Payments](/docs/card-payments) for how this shapes scheduling.
 
 ---
 

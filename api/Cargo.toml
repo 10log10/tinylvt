@@ -24,8 +24,11 @@ argon2 = { version = "0.5.3", features = ["std"] }
 async-stripe = "=1.0.0-rc.6"
 async-stripe-billing = { version = "=1.0.0-rc.6", default-features = false, features = ["subscription", "billing_portal_session"] }
 async-stripe-checkout = { version = "=1.0.0-rc.6", default-features = false, features = ["checkout_session"] }
-async-stripe-core = { version = "=1.0.0-rc.6", default-features = false, features = ["customer"] }
+async-stripe-connect = { version = "=1.0.0-rc.6", default-features = false, features = ["account", "account_link"] }
+async-stripe-core = { version = "=1.0.0-rc.6", default-features = false, features = ["customer", "payment_intent"] }
+async-stripe-payment = { version = "=1.0.0-rc.6", default-features = false, features = ["payment_method"] }
 async-stripe-shared = "=1.0.0-rc.6"
+async-stripe-types = "=1.0.0-rc.6"
 base64 = "0.22"
 derive_more = { workspace = true }
 dotenvy = { workspace = true }
@@ -56,8 +59,5 @@ uuid = { workspace = true }
 [dev-dependencies]
 api = { path = "." }
 async-stripe-billing = { version = "=1.0.0-rc.6", default-features = false, features = ["billing_portal_configuration"] }
-async-stripe-core = { version = "=1.0.0-rc.6", default-features = false, features = ["payment_intent"] }
-async-stripe-payment = { version = "=1.0.0-rc.6", default-features = false, features = ["payment_method"] }
 async-stripe-product = { version = "=1.0.0-rc.6", default-features = false, features = ["price"] }
-async-stripe-types = "=1.0.0-rc.6"
 test-helpers = { path = "../test-helpers" }  # enables mocking for api

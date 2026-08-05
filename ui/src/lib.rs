@@ -73,6 +73,8 @@ pub enum Route {
     Docs,
     #[at("/docs/currency")]
     DocsCurrency,
+    #[at("/docs/card-payments")]
+    DocsCardPayments,
     #[at("/docs/setup")]
     DocsSetup,
     #[at("/docs/auctions")]
@@ -144,6 +146,7 @@ fn switch(routes: Route) -> Html {
         Route::Pricing => html! { <PricingPage /> },
         Route::Docs => html! { <docs::DocsPage /> },
         Route::DocsCurrency => html! { <docs::CurrencyPage /> },
+        Route::DocsCardPayments => html! { <docs::CardPaymentsPage /> },
         Route::DocsSetup => html! { <docs::SetupPage /> },
         Route::DocsAuctions => html! { <docs::AuctionsPage /> },
         Route::DocsDeskAllocation => html! { <docs::DeskAllocationPage /> },

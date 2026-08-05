@@ -466,6 +466,75 @@ impl APIClient {
         ok_body(response).await
     }
 
+    /// The current user's funding state in an auction (backed_credits
+    /// mode).
+    pub async fn get_auction_funding(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<responses::AuctionFunding, ClientError> {
+        let response = self.post("auction_funding", &auction_id).await?;
+        ok_body(response).await
+    }
+
+    /// Authorize card funding for an auction (member-present
+    /// pre-authorize; backed_credits mode).
+    pub async fn authorize_funding(
+        &self,
+        request: &requests::AuthorizeFunding,
+    ) -> Result<(), ClientError> {
+        let response = self.post("authorize_funding", request).await?;
+        ok_empty(response).await
+    }
+
+    /// Authorize funding without a saved card: mints a Checkout session
+    /// for the auction and returns its URL to redirect to.
+    pub async fn checkout_funding(
+        &self,
+        request: &requests::CheckoutFunding,
+    ) -> Result<crate::billing::CheckoutSessionResponse, ClientError> {
+        let response = self.post("checkout_funding", request).await?;
+        ok_body(response).await
+    }
+
+    /// Grant or revoke a community's permission to charge the current
+    /// user's saved card.
+    pub async fn update_card_charge_grant(
+        &self,
+        request: &requests::UpdateCardChargeGrant,
+    ) -> Result<(), ClientError> {
+        let response = self.post("update_card_charge_grant", request).await?;
+        ok_empty(response).await
+    }
+
+    /// Whether the current user has granted a community permission to
+    /// charge their saved card.
+    pub async fn get_card_charge_grant(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<bool, ClientError> {
+        let response = self.post("get_card_charge_grant", community_id).await?;
+        ok_body(response).await
+    }
+
+    /// Start a credit purchase (top-up or debt settlement); returns the
+    /// Checkout URL to redirect to.
+    pub async fn create_credit_purchase(
+        &self,
+        request: &requests::CreateCreditPurchase,
+    ) -> Result<crate::billing::CheckoutSessionResponse, ClientError> {
+        let response = self.post("create_credit_purchase", request).await?;
+        ok_body(response).await
+    }
+
+    /// The current user's credit purchases in a community, newest first.
+    pub async fn list_credit_purchases(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::CreditPurchase>, ClientError> {
+        let response = self.post("credit_purchases", community_id).await?;
+        ok_body(response).await
+    }
+
     pub async fn delete_auction(
         &self,
         auction_id: &AuctionId,
@@ -822,6 +891,61 @@ impl APIClient {
     ) -> Result<crate::CheckoutSessionResponse, ClientError> {
         let response = self.post("create_portal_session", request).await?;
         ok_body(response).await
+    }
+
+    /// Connect a community's Stripe account (coleader+); returns the
+    /// Stripe-hosted onboarding URL to redirect to.
+    pub async fn connect_community_stripe(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<crate::CheckoutSessionResponse, ClientError> {
+        let response =
+            self.post("connect_community_stripe", community_id).await?;
+        ok_body(response).await
+    }
+
+    /// The community's Stripe Connect standing (coleader+).
+    pub async fn get_community_stripe_status(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<responses::CommunityStripeStatus, ClientError> {
+        let response = self
+            .post("get_community_stripe_status", community_id)
+            .await?;
+        ok_body(response).await
+    }
+
+    /// Start a Checkout session for saving a card; returns the
+    /// Stripe-hosted URL to redirect to.
+    pub async fn create_card_setup_session(
+        &self,
+    ) -> Result<crate::CheckoutSessionResponse, ClientError> {
+        let response = self.post("create_card_setup_session", &()).await?;
+        ok_body(response).await
+    }
+
+    /// The current user's payment settings (saved card + hold
+    /// strategy).
+    pub async fn get_payment_profile(
+        &self,
+    ) -> Result<responses::UserPaymentProfile, ClientError> {
+        let response = self.post("get_payment_profile", &()).await?;
+        ok_body(response).await
+    }
+
+    /// Remove the saved card (detaches it in Stripe).
+    pub async fn remove_payment_method(&self) -> Result<(), ClientError> {
+        let response = self.post("remove_payment_method", &()).await?;
+        ok_empty(response).await
+    }
+
+    /// Update the authorization sizing strategy.
+    pub async fn update_hold_strategy(
+        &self,
+        request: &requests::UpdateHoldStrategy,
+    ) -> Result<(), ClientError> {
+        let response = self.post("update_hold_strategy", request).await?;
+        ok_empty(response).await
     }
 }
 

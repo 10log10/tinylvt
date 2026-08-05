@@ -56,7 +56,7 @@ pub fn TreasuryCreditForm(props: &Props) -> Html {
         CurrencyMode::PointsAllocation => "Allowance",
         CurrencyMode::DistributedClearing => "Distribution Correction",
         CurrencyMode::DeferredPayment => "Debt Settlement",
-        CurrencyMode::PrepaidCredits => "Credit Purchase",
+        CurrencyMode::BackedCredits => "Credit Purchase",
     };
 
     // Validate amount on change

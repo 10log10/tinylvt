@@ -42,11 +42,11 @@ pub async fn create_community(
                 return Err(StoreError::InvalidCurrencyConfiguration);
             }
         }
-        // Temporarily blocked while the mode is extended with Stripe-backed
-        // payments (docs/plans/stripe-auction-payments.md), so the schema
-        // can change freely with no live communities in this mode.
-        payloads::CurrencyModeConfig::PrepaidCredits(_) => {
-            return Err(ApiError::CurrencyModeUnderConstruction.into());
+        payloads::CurrencyModeConfig::BackedCredits(_) => {
+            // Real-currency denominations come from the allow-list and are
+            // fixed at creation (update_currency_config enforces
+            // immutability).
+            currency::validate_backed_denomination(&details.currency)?;
         }
         _ => {}
     }
@@ -69,8 +69,12 @@ pub async fn create_community(
             allowance_period,
             allowance_start,
             created_at,
-            updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+            updated_at,
+            -- A new community has nothing to reconcile, so it starts
+            -- current rather than tripping the global staleness gate
+            -- into an unscheduled full pass.
+            last_reconciliation_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $14)
         RETURNING *;",
     )
     .bind(&details.name)
@@ -131,7 +135,7 @@ pub async fn create_community(
 pub async fn get_validated_member(
     user_id: &UserId,
     community_id: &CommunityId,
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
 ) -> Result<ValidatedMember, StoreError> {
     let Some(member) = sqlx::query_as::<_, CommunityMember>(
         "SELECT * FROM community_members WHERE
@@ -139,7 +143,7 @@ pub async fn get_validated_member(
     )
     .bind(community_id)
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     else {
         return Err(ApiError::MemberNotFound.into());
@@ -555,7 +559,7 @@ pub async fn remove_member(
     actor: &ValidatedMember,
     member_user_id: &UserId,
     pool: &PgPool,
-    _time_source: &TimeSource,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Permission check: Moderator+
     if !actor.0.role.is_ge_moderator() {
@@ -603,6 +607,14 @@ pub async fn remove_member(
     delete_proxy_bidding_for_community(
         &actor.0.community_id,
         member_user_id,
+        &mut tx,
+    )
+    .await?;
+
+    super::funding::release_member_intents_tx(
+        Some(&actor.0.community_id),
+        member_user_id,
+        time_source,
         &mut tx,
     )
     .await?;
@@ -697,6 +709,7 @@ pub async fn change_member_role(
 pub async fn leave_community(
     member: &ValidatedMember,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Early check for leader (avoids unnecessary delete attempt)
     if member.0.role.is_leader() {
@@ -726,6 +739,14 @@ pub async fn leave_community(
     delete_proxy_bidding_for_community(
         &member.0.community_id,
         &member.0.user_id,
+        &mut tx,
+    )
+    .await?;
+
+    super::funding::release_member_intents_tx(
+        Some(&member.0.community_id),
+        &member.0.user_id,
+        time_source,
         &mut tx,
     )
     .await?;
@@ -1006,6 +1027,20 @@ pub async fn delete_community(
         return Err(ApiError::RequiresLeaderPermissions.into());
     }
 
+    // Wind-down guard, fast-fail pass: refuse while any card payment
+    // is in flight — deletion would cascade away the local record of
+    // live Stripe holds and uncollected captures. Checked before the
+    // subscription cancel below, which is an irreversible Stripe call
+    // that must not run when the delete is refused. This read is not
+    // atomic with the delete; the authoritative re-check runs inside
+    // the delete transaction under the community row lock. An
+    // abandoned 'created' purchase can block deletion for up to a day
+    // until checkout.session.expired retires it; the error message
+    // tells the leader to wait.
+    if payments_in_flight(community_id, pool).await? {
+        return Err(ApiError::CommunityHasActivePayments.into());
+    }
+
     // Cancel any active Stripe subscription before deleting
     // the community (which cascade-deletes the subscription
     // row and the stripe_subscription_id with it).
@@ -1017,6 +1052,26 @@ pub async fn delete_community(
     .await?;
 
     let mut tx = pool.begin().await?;
+
+    // Wind-down guard, authoritative pass. FOR UPDATE conflicts with
+    // the FOR KEY SHARE every payment-mint transaction holds on this
+    // row until it commits (implicitly via the credit_purchases FK,
+    // explicitly in ensure_pending_intent_tx), so once this lock is
+    // acquired every committed mint is visible to the re-check below
+    // and any later mint blocks here and fails on the missing row
+    // after the delete commits — before its Stripe call. See
+    // CONCURRENCY.md, "communities row".
+    let locked: Option<(payloads::CommunityId,)> =
+        sqlx::query_as("SELECT id FROM communities WHERE id = $1 FOR UPDATE")
+            .bind(community_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if locked.is_none() {
+        return Err(ApiError::CommunityNotFound.into());
+    }
+    if payments_in_flight(community_id, &mut *tx).await? {
+        return Err(ApiError::CommunityHasActivePayments.into());
+    }
 
     // Delete journal_entries first to unblock cascade deletions.
     // The ledger uses RESTRICT on auction_id and account_id FKs to preserve
@@ -1035,14 +1090,10 @@ pub async fn delete_community(
     // - site_images
     // - sites (which cascades to spaces, auctions, etc.)
     // - accounts
-    let result = sqlx::query("DELETE FROM communities WHERE id = $1")
+    sqlx::query("DELETE FROM communities WHERE id = $1")
         .bind(community_id)
         .execute(&mut *tx)
         .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::CommunityNotFound.into());
-    }
 
     tx.commit().await?;
 
@@ -1050,6 +1101,35 @@ pub async fn delete_community(
     cleanup_unused_auction_params(pool).await;
 
     Ok(())
+}
+
+/// Whether any card payment is in flight for the community: a live
+/// funding intent or a non-terminal credit purchase. The funding
+/// literal set mirrors FundingIntentStatus::is_terminal; the purchase
+/// set derives from PurchaseStatus::non_terminal.
+async fn payments_in_flight<'e>(
+    community_id: &payloads::CommunityId,
+    executor: impl sqlx::PgExecutor<'e>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM funding_intents fi
+            JOIN auctions a ON fi.auction_id = a.id
+            JOIN sites s ON a.site_id = s.id
+            WHERE s.community_id = $1
+                AND fi.status IN ('pending', 'checkout_created',
+                                  'authorized', 'capture_pending',
+                                  'release_pending', 'superseded')
+        ) OR EXISTS (
+            SELECT 1 FROM credit_purchases
+            WHERE community_id = $1
+                AND status = ANY($2)
+        )",
+    )
+    .bind(community_id)
+    .bind(payloads::PurchaseStatus::non_terminal())
+    .fetch_one(executor)
+    .await
 }
 
 /// Update community name and description (coleader+ only).

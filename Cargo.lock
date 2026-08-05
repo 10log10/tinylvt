@@ -374,6 +374,7 @@ dependencies = [
  "async-stripe",
  "async-stripe-billing",
  "async-stripe-checkout",
+ "async-stripe-connect",
  "async-stripe-core",
  "async-stripe-payment",
  "async-stripe-product",
@@ -490,6 +491,21 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "thiserror 2.0.12",
+ "tracing",
+]
+
+[[package]]
+name = "async-stripe-connect"
+version = "1.0.0-rc.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecf55fcf7e4ef8174a80af33586342a20eef7bdbe86c6d77f0459747c6e5561a"
+dependencies = [
+ "async-stripe-client-core",
+ "async-stripe-shared",
+ "async-stripe-types",
+ "miniserde",
+ "serde",
+ "smol_str",
  "tracing",
 ]
 
@@ -1114,6 +1130,7 @@ dependencies = [
  "test-helpers",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -30,6 +30,24 @@ pub async fn get_auction(
     Ok(HttpResponse::Ok().json(auction))
 }
 
+#[post("/auction_funding")]
+pub async fn get_auction_funding(
+    user: Identity,
+    auction_id: web::Json<payloads::AuctionId>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let funding = store::funding::get_auction_funding(
+        &auction_id,
+        &user_id,
+        &time_source,
+        &pool,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(funding))
+}
+
 #[post("/delete_auction")]
 pub async fn delete_auction(
     user: Identity,
@@ -155,13 +173,74 @@ pub async fn create_bid(
     user: Identity,
     params: web::Json<(SpaceId, AuctionRoundId)>,
     pool: web::Data<PgPool>,
+    worker_pool: web::Data<crate::WorkerPool>,
     time_source: web::Data<TimeSource>,
+    stripe_service: web::Data<crate::stripe_service::StripeService>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let (space_id, round_id) = params.into_inner();
-    store::create_bid(&space_id, &round_id, &user_id, &pool, &time_source)
-        .await?;
+    store::funding_flow::create_bid_with_funding(
+        &space_id,
+        &round_id,
+        &user_id,
+        &pool,
+        store::funding_flow::FlowDeps {
+            worker_pool: &worker_pool,
+            time_source: &time_source,
+            stripe_service: &stripe_service,
+        },
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
+}
+
+#[post("/authorize_funding")]
+pub async fn authorize_funding(
+    user: Identity,
+    request: web::Json<payloads::requests::AuthorizeFunding>,
+    pool: web::Data<PgPool>,
+    worker_pool: web::Data<crate::WorkerPool>,
+    time_source: web::Data<TimeSource>,
+    stripe_service: web::Data<crate::stripe_service::StripeService>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    store::funding_flow::authorize_funding(
+        &request.auction_id,
+        &user_id,
+        request.amount,
+        &pool,
+        store::funding_flow::FlowDeps {
+            worker_pool: &worker_pool,
+            time_source: &time_source,
+            stripe_service: &stripe_service,
+        },
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[post("/checkout_funding")]
+pub async fn checkout_funding(
+    user: Identity,
+    request: web::Json<payloads::requests::CheckoutFunding>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+    stripe_service: web::Data<crate::stripe_service::StripeService>,
+    app_config: web::Data<crate::AppConfig>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let url = store::funding_checkout::create_funding_checkout(
+        &request.auction_id,
+        &user_id,
+        request.amount,
+        &app_config,
+        &stripe_service,
+        &time_source,
+        &pool,
+    )
+    .await?;
+    Ok(HttpResponse::Ok()
+        .json(payloads::billing::CheckoutSessionResponse { checkout_url: url }))
 }
 
 #[post("/bid")]

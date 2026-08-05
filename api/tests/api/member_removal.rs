@@ -1,4 +1,3 @@
-use api::scheduler;
 use payloads::{AccountOwner, ApiError, requests};
 use rust_decimal::Decimal;
 use test_helpers::{assert_api_error, spawn_app};
@@ -586,18 +585,18 @@ async fn rejoin_after_leaving() -> anyhow::Result<()> {
 }
 
 // ============================================================================
-// Orphaned Balance vs. Locked Funds
+// Orphaned Balance vs. Committed Funds
 // ============================================================================
 
 /// Set up an active auction in which Bob has placed a winning bid, leave the
 /// community as Bob, and return the community id and the space id. Bob's bid
 /// remains an outstanding commitment (the auction has not settled), so his
-/// orphaned account has a non-zero locked balance.
+/// orphaned account has a non-zero commitment.
 ///
 /// Uses a space with a non-zero reserve price so that Bob's round-0 win has a
 /// positive value (a zero-reserve single-bidder win would settle at 0 and
-/// clamp to a zero locked balance).
-async fn setup_bob_left_with_locked_bid(
+/// clamp to a zero commitment).
+async fn setup_bob_left_with_committed_bid(
     app: &test_helpers::TestApp,
 ) -> anyhow::Result<(payloads::CommunityId, payloads::SiteId)> {
     let community_id = app.create_two_person_community().await?;
@@ -644,7 +643,7 @@ async fn setup_bob_left_with_locked_bid(
         test_helpers::auction_details_a(site.site_id, &app.time_source);
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Bob bids on the reserved space in round 0.
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -654,13 +653,14 @@ async fn setup_bob_left_with_locked_bid(
         .create_bid(&space.space_id, &round_0.round_id)
         .await?;
 
-    // Advance past round 0 so the bid becomes a winning result (locked > 0),
-    // but leave the auction active (further rounds could still displace it).
+    // Advance past round 0 so the bid becomes a winning result (commitment >
+    // 0), but leave the auction active (further rounds could still displace
+    // it).
     app.time_source
         .advance(auction_details.auction_params.round_duration);
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
-    // The auction must still be live for the funds to remain locked.
+    // The auction must still be live for the commitment to stand.
     let auction = app.client.get_auction(&auction_id).await?;
     assert!(
         auction.end_at.is_none(),
@@ -677,17 +677,18 @@ async fn setup_bob_left_with_locked_bid(
 }
 
 /// A coleader cannot resolve an orphaned balance while the departed member's
-/// bid is still locking funds in a live auction.
+/// bid is still committing funds in a live auction.
 #[tokio::test]
-async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
+async fn resolve_blocked_while_balance_committed() -> anyhow::Result<()> {
     let app = spawn_app().await;
-    let (community_id, _site_id) = setup_bob_left_with_locked_bid(&app).await?;
+    let (community_id, _site_id) =
+        setup_bob_left_with_committed_bid(&app).await?;
 
     app.login_alice().await?;
     let orphaned = app.client.get_orphaned_accounts(&community_id).await?;
     let orphaned_account = &orphaned.orphaned_accounts[0];
 
-    // Attempting to resolve the locked balance is rejected.
+    // Attempting to resolve the committed balance is rejected.
     let result = app
         .client
         .resolve_orphaned_balance(&requests::ResolveOrphanedBalance {
@@ -697,7 +698,7 @@ async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
             idempotency_key: requests::ClientIdempotencyKey::new(),
         })
         .await;
-    assert_api_error(result, ApiError::OrphanedAccountHasLockedBalance);
+    assert_api_error(result, ApiError::OrphanedAccountHasCommitments);
 
     // The balance is untouched, still available to back the winning bid.
     let orphaned_after =
@@ -711,11 +712,12 @@ async fn resolve_blocked_while_balance_locked() -> anyhow::Result<()> {
 }
 
 /// Once the auction settles, the departed member's funds are no longer
-/// locked and the (now free) remaining balance resolves normally.
+/// committed and the (now free) remaining balance resolves normally.
 #[tokio::test]
 async fn resolve_allowed_after_auction_settles() -> anyhow::Result<()> {
     let app = spawn_app().await;
-    let (community_id, site_id) = setup_bob_left_with_locked_bid(&app).await?;
+    let (community_id, site_id) =
+        setup_bob_left_with_committed_bid(&app).await?;
 
     // No further bids arrive (Bob left; the manual path rejects non-members
     // and there is no proxy bidding configured), so advancing time settles
@@ -732,7 +734,7 @@ async fn resolve_allowed_after_auction_settles() -> anyhow::Result<()> {
         let latest = rounds.last().unwrap();
         app.time_source
             .set(latest.round_details.end_at + jiff::Span::new().seconds(1));
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
     }
     let auction = app.client.get_auction(&auction_id).await?;
     assert!(auction.end_at.is_some(), "auction should have settled");

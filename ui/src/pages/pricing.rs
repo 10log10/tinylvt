@@ -201,6 +201,28 @@ pub fn PricingPage() -> Html {
                 </p>
             </div>
 
+            // Card payment fees
+            <div class="max-w-2xl mx-auto space-y-4">
+                <h2 class="text-xl font-semibold \
+                           text-neutral-900 \
+                           dark:text-neutral-100">
+                    {"Card payment fees"}
+                </h2>
+                <p class="text-neutral-600 \
+                          dark:text-neutral-400">
+                    {"Communities that connect a Stripe \
+                      account to accept card payments \
+                      from members pay Stripe's standard \
+                      processing fees plus a 1% TinyLVT \
+                      platform fee on card charges, both \
+                      deducted from the community's \
+                      Stripe proceeds. Members always \
+                      pay face value. Communities that \
+                      don't take card payments pay no \
+                      fees beyond the plans above."}
+                </p>
+            </div>
+
             // CTA
             <div class="text-center space-y-4">
                 <p class="text-neutral-600 \

@@ -32,51 +32,260 @@
 //! round concludes
 //! update round results; auction concluded
 //! ```
+//!
+//! # Proxy bidding processing
+//!
+//! Proxy bidding is processed as per-(round, user) work items, each
+//! flowing through these functions in order:
+//!
+//! 1. [`process_due_proxy_items`] — the per-tick selector pass: lists due items
+//!    lock-free (`list_due_proxy_items`), processes informal-mode items inline,
+//!    and spawns backed-mode items as concurrent tasks (`ProxyTasks`), since
+//!    those may carry a Stripe call.
+//! 2. [`process_proxy_item`] — funding cycles: run the bidding claim; when it
+//!    commits an authorization order, execute the order and re-enter the claim
+//!    against the enlarged backing, until a claim completes without ordering.
+//! 3. `run_proxy_bid_claim` — the bidding claim, always on the shared pool (it
+//!    never carries a Stripe call): take the `auction_user` pair lock, clear
+//!    the `use_proxy_bidding.needs_processing` dirty flag under that row's
+//!    lock, re-verify the item is still due, run `run_proxy_item_work` in a
+//!    savepoint (delete the member's bids for the round and re-place them,
+//!    surplus-ordered `create_bid_tx` calls; a card-backed bid failing on funds
+//!    sizes an authorization for that exact bid and commits the
+//!    `funding_intents` pending row — the authorization order, via
+//!    `funding_flow::order_proxy_bid_auth_tx` — and stops the walk), and write
+//!    the outcome to the `proxy_round_processing` marker (success, or
+//!    failure_count for backoff re-selection). Flag-clear, bids, order, and
+//!    marker land atomically in its single commit.
+//! 4. `funding_flow::execute_auth_order` (when the claim ordered) — a
+//!    pair-locked claim on the worker pool, carrying only the Stripe work:
+//!    replay the order's committed parameters (create+confirm+activate via
+//!    `authorize_and_activate`; see `funding_flow`'s module docs). Commits
+//!    immediately — the authorization is durable before any re-bidding, and
+//!    needs no atomicity with it.
+//!
+//! A related loop, [`process_intent_work`], works off intent rows owing
+//! a Stripe call: canceling the predecessor authorizations swap-reauth
+//! raises leave behind (`superseded`), releasing holds settlement or
+//! cancellation marked `release_pending`, capturing winners'
+//! `capture_pending` authorizations, and canceling aged `pending`
+//! orders whose execute never ran — the per-row claims live in
+//! `funding_flow` (`cancel_worker_intent`, `capture_intent`,
+//! `cancel_aged_pending_order`); this loop only selects and dispatches.
 
 use anyhow::Context;
 use jiff::tz::TimeZone;
 use jiff_sqlx::ToSqlx;
 use payloads::{ApiError, SpaceId};
 use rust_decimal::Decimal;
-use sqlx::{Acquire, PgPool};
-use std::collections::HashMap;
+use sqlx::PgPool;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 
-use crate::{pubsub, store, telemetry::log_error, time::TimeSource};
+use crate::{
+    WorkerPool,
+    email::EmailService,
+    pubsub, store,
+    store::funding_flow::{
+        AuthOrderOutcome, FlowDeps, Presence, WorkerIntent,
+        cancel_aged_pending_order, cancel_worker_intent, capture_intent,
+    },
+    stripe_service::StripeService,
+    telemetry::log_error,
+    time::TimeSource,
+};
+use store::locks::{LockWait, TrackedTx};
 
 pub struct Scheduler {
     pool: PgPool,
+    worker_pool: WorkerPool,
     time_source: TimeSource,
+    stripe_service: Arc<StripeService>,
+    email_service: Arc<EmailService>,
     tick_interval: Duration,
 }
 
 impl Scheduler {
     pub fn new(
         pool: PgPool,
+        worker_pool: WorkerPool,
         time_source: TimeSource,
+        stripe_service: Arc<StripeService>,
+        email_service: Arc<EmailService>,
         tick_interval: Duration,
     ) -> Self {
         Self {
             pool,
+            worker_pool,
             time_source,
+            stripe_service,
+            email_service,
             tick_interval,
         }
     }
 
+    /// Run the scheduler's loops forever (production entry point;
+    /// spawned once from main). Tests drive everything synchronously
+    /// through `schedule_tick` instead.
+    ///
+    /// Round processing is pure-DB and must tick reliably; the
+    /// proxy-funding and intent workers carry Stripe latency, so they
+    /// run as separate loops that can never delay it. The proxy loop
+    /// keeps one `ProxyTasks` across iterations and never awaits its
+    /// spawned items, so a slow card task delays nothing but itself.
+    /// Reconciliation runs in its own loop for the same reason one
+    /// level up: its hourly pass makes unbounded serial Stripe
+    /// retrieves, and captures, cancels, and scheduled pre-auths must
+    /// not queue behind it.
+    ///
+    /// A panic in any loop unwinds through the `join!` and out of this
+    /// future; main observes the task's exit and aborts the process, so
+    /// a bug can't leave a live API with scheduling silently dead.
     pub async fn run(&self) {
-        let mut interval = time::interval(self.tick_interval);
-        loop {
-            interval.tick().await;
-            schedule_tick(&self.pool, &self.time_source).await;
-        }
+        let rounds = async {
+            let mut interval = time::interval(self.tick_interval);
+            loop {
+                interval.tick().await;
+                round_tick(&self.pool, &self.time_source).await;
+            }
+        };
+        let proxy = async {
+            let mut tasks = ProxyTasks::new();
+            let mut interval = time::interval(self.tick_interval);
+            loop {
+                interval.tick().await;
+                let _ = process_due_proxy_items(
+                    &self.pool,
+                    &self.worker_pool,
+                    &self.time_source,
+                    &self.stripe_service,
+                    &mut tasks,
+                )
+                .await
+                .map_err(log_error);
+            }
+        };
+        let intents = async {
+            let mut interval = time::interval(self.tick_interval);
+            loop {
+                interval.tick().await;
+                let _ = process_scheduled_preauths(
+                    &self.pool,
+                    &self.worker_pool,
+                    &self.time_source,
+                    &self.stripe_service,
+                )
+                .await
+                .map_err(log_error);
+                let _ = process_intent_work(
+                    &self.pool,
+                    &self.worker_pool,
+                    &self.time_source,
+                    &self.stripe_service,
+                )
+                .await
+                .map_err(log_error);
+                let _ = process_notification_outbox(
+                    &self.pool,
+                    &self.worker_pool,
+                    &self.time_source,
+                    &self.email_service,
+                )
+                .await
+                .map_err(log_error);
+            }
+        };
+        let reconciliation = async {
+            let mut interval = time::interval(self.tick_interval);
+            loop {
+                interval.tick().await;
+                let _ = run_reconciliation_if_due(
+                    &self.pool,
+                    &self.worker_pool,
+                    &self.time_source,
+                    &self.stripe_service,
+                )
+                .await
+                .map_err(log_error);
+            }
+        };
+        tokio::join!(rounds, proxy, intents, reconciliation);
     }
 }
-/// Main scheduler tick function.
-/// Runs all periodic tasks and logs any errors without propagating them,
-/// ensuring one task failure doesn't prevent other tasks from running.
+
+/// Run one synchronous pass of every scheduler task, returning once all
+/// work — including spawned proxy card tasks — has completed: the
+/// deterministic entry point tests drive (via `TestApp::tick`). Errors
+/// are logged without propagating so one task's failure doesn't prevent
+/// the others from running.
+#[tracing::instrument(skip_all)]
+pub async fn schedule_tick(
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    stripe_service: &Arc<StripeService>,
+    email_service: &Arc<EmailService>,
+) {
+    round_tick(pool, time_source).await;
+
+    // Mint scheduled pre-authorizations for proxy participants of
+    // auctions starting within the advance window.
+    let _ = process_scheduled_preauths(
+        pool,
+        worker_pool,
+        time_source,
+        stripe_service,
+    )
+    .await
+    .map_err(log_error);
+
+    // Process due (round, user) proxy bidding work items, awaiting the
+    // spawned card tasks so callers observe completed work.
+    let mut tasks = ProxyTasks::new();
+    let _ = process_due_proxy_items(
+        pool,
+        worker_pool,
+        time_source,
+        stripe_service,
+        &mut tasks,
+    )
+    .await
+    .map_err(log_error);
+    tasks.drain().await;
+
+    // Work off intent rows owing a Stripe call: cancels (superseded,
+    // released, and age-scanned holds) and settlement captures.
+    let _ = process_intent_work(pool, worker_pool, time_source, stripe_service)
+        .await
+        .map_err(log_error);
+
+    // Deliver enqueued notification emails.
+    let _ = process_notification_outbox(
+        pool,
+        worker_pool,
+        time_source,
+        email_service,
+    )
+    .await
+    .map_err(log_error);
+
+    // Hourly reconciliation: the gate skips unless a community's
+    // watermark is stale, so calling every tick is cheap.
+    let _ = run_reconciliation_if_due(
+        pool,
+        worker_pool,
+        time_source,
+        stripe_service,
+    )
+    .await
+    .map_err(log_error);
+}
+
+/// The pure-DB tick: auction round processing and storage refresh.
 #[tracing::instrument(skip(pool, time_source))]
-pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
+async fn round_tick(pool: &PgPool, time_source: &TimeSource) {
     // Update active states from schedule
     // TODO: revisit this after MVP
     // let _ = store::update_is_active_from_schedule(pool, time_source)
@@ -85,11 +294,6 @@ pub async fn schedule_tick(pool: &PgPool, time_source: &TimeSource) {
 
     // Process auctions without ongoing rounds
     let _ = process_auctions_without_rounds(pool, time_source)
-        .await
-        .map_err(log_error);
-
-    // Process due (round, user) proxy bidding work items
-    let _ = process_due_proxy_items(pool, time_source)
         .await
         .map_err(log_error);
 
@@ -138,42 +342,49 @@ async fn process_next_auction(
     // savepoint so a failure can be recorded on this same transaction while
     // the lock is still held: rolling back to a savepoint releases locks
     // acquired after the savepoint, but the advisory lock predates it.
-    let mut tx = pool.begin().await?;
+    let mut locks = TrackedTx::begin(pool).await?;
 
     // Lock one auction atomically using advisory lock
-    let auction =
-        match lock_next_auction_needing_update(&mut tx, time_source).await? {
-            Some(a) => a,
-            None => return Ok(false), // No auctions available
-        };
+    let auction = match lock_next_auction_needing_update(
+        locks.tx(),
+        time_source,
+    )
+    .await?
+    {
+        Some(a) => a,
+        None => return Ok(false), // No auctions available
+    };
 
     let auction_id = auction.id;
+    // The selection SQL's embedded try-lock succeeded for this auction;
+    // record the claim in the lock record.
+    locks.assume_processing_locked(&auction_id);
 
     // Re-verify under the lock, since the selection's snapshot predates the
     // lock acquisition; process the fresh row, not the selection's stale one.
     let auction =
-        match reverify_auction_under_lock(auction_id, &mut tx, time_source)
+        match reverify_auction_under_lock(auction_id, locks.tx(), time_source)
             .await?
         {
             Some(a) => a,
             None => {
                 // A peer instance finished this auction after our selection
                 // snapshot; release the lock and keep draining the queue.
-                tx.commit().await?;
+                locks.commit().await?;
                 return Ok(true);
             }
         };
 
     // Run the work inside a savepoint (sqlx nested transaction)
     let work_result = async {
-        let mut work_tx = tx.begin().await?;
-        match process_locked_auction(&auction, &mut work_tx, time_source).await
-        {
-            Ok(()) => work_tx.commit().await.map_err(Into::into),
+        let mut work = locks.savepoint().await?;
+        match process_locked_auction(&auction, &mut work, time_source).await {
+            Ok(()) => work.commit().await.map_err(Into::into),
             Err(e) => {
-                // Discard the work's data changes; the advisory lock is
+                // Discard the work's data changes (and its recorded row
+                // locks); the advisory lock predates the savepoint and is
                 // unaffected
-                work_tx.rollback().await?;
+                work.rollback().await?;
                 Err(e)
             }
         }
@@ -182,7 +393,7 @@ async fn process_next_auction(
 
     match work_result {
         Ok(()) => {
-            tx.commit().await?;
+            locks.commit().await?;
             Ok(true)
         }
         Err(e) => {
@@ -191,7 +402,7 @@ async fn process_next_auction(
             // is written
             let _ = handle_auction_processing_failure(
                 auction_id,
-                &mut tx,
+                locks.tx(),
                 time_source,
             )
             .await
@@ -199,7 +410,7 @@ async fn process_next_auction(
             .map_err(log_error);
 
             // Commit to persist the failure record and release the lock
-            let _ = tx.commit().await;
+            let _ = locks.commit().await;
 
             Err(e)
         }
@@ -251,23 +462,13 @@ async fn lock_next_auction_needing_update(
         SELECT * FROM candidates
         WHERE pg_try_advisory_xact_lock({lock_key})
         LIMIT 1",
-        backoff = backoff_interval_sql("scheduler_failure_count"),
-        lock_key = store::auction::auction_processing_lock_key("candidates.id")
+        backoff = store::backoff_interval_sql("scheduler_failure_count"),
+        lock_key = store::locks::auction_processing_lock_key("candidates.id")
     ))
     .bind(time_source.now().to_sqlx())
     .fetch_optional(&mut **tx)
     .await
     .map_err(Into::into)
-}
-
-/// SQL expression for the retry backoff after `count_col` failures: 1
-/// second after the first failure, doubling to a ~2.3-hour cap. The base
-/// must stay well under the minimum round duration (5 seconds) — a failed
-/// item backing off past the round would sit out the retry that could
-/// still matter, and both auction processing and proxy items are pure-DB
-/// work where transient failures resolve quickly.
-fn backoff_interval_sql(count_col: &str) -> String {
-    format!("INTERVAL '1 second' * POW(2, LEAST({count_col}, 14) - 1)")
 }
 
 /// Re-read the auction under the advisory lock, confirming it still needs
@@ -325,10 +526,10 @@ async fn handle_auction_processing_failure(
 /// Process a locked auction on the caller's transaction (a savepoint under
 /// the lock-holding transaction). This function handles updating results for
 /// previous rounds and creating new rounds.
-#[tracing::instrument(skip(tx, auction, time_source))]
+#[tracing::instrument(skip(locks, auction, time_source))]
 async fn process_locked_auction(
     auction: &store::Auction,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locks: &mut TrackedTx<'_, '_>,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
     let previous_round = sqlx::query_as::<_, store::AuctionRound>(
@@ -338,7 +539,7 @@ async fn process_locked_auction(
         LIMIT 1",
     )
     .bind(auction.id)
-    .fetch_optional(&mut **tx)
+    .fetch_optional(&mut **locks.tx())
     .await
     .context("failed to query for concluded round")?;
 
@@ -348,7 +549,7 @@ async fn process_locked_auction(
         let auction_continues = update_round_space_results_within_tx(
             auction,
             previous_round,
-            tx,
+            locks,
             time_source,
         )
         .await?;
@@ -364,7 +565,75 @@ async fn process_locked_auction(
         // rather than settle: the allocation isn't valid since bidding never
         // naturally ended, and users should retry with a larger increment.
         if previous_round.round_num + 1 >= payloads::MAX_AUCTION_ROUNDS {
-            cancel_runaway_auction(auction, tx, time_source).await?;
+            tracing::warn!(
+                auction_id = ?auction.id,
+                max_rounds = payloads::MAX_AUCTION_ROUNDS,
+                "auction reached the round cap and was canceled; bid \
+                 increment is likely too small relative to bidders' values",
+            );
+            cancel_runaway_auction(auction, locks, time_source).await?;
+            return Ok(());
+        }
+    }
+
+    let auction_params = sqlx::query_as::<_, store::AuctionParams>(
+        "SELECT * FROM auction_params WHERE id = $1",
+    )
+    .bind(&auction.auction_params_id)
+    .fetch_one(&mut **locks.tx())
+    .await
+    .context("getting auction params; skipping")?;
+
+    let timezone =
+        sqlx::query_as::<_, store::Site>("SELECT * FROM sites where id = $1")
+            .bind(auction.site_id)
+            .fetch_one(&mut **locks.tx())
+            .await
+            .context("getting site; skipping")?
+            .timezone;
+
+    // Only started auctions are processed by the scheduler, so a missing
+    // start time here is a bug, not an expected state.
+    let auction_start = auction
+        .start_at
+        .context("auction has no start time; cannot create rounds")?;
+    let next_round_start = previous_round
+        .as_ref()
+        .map(|r| r.end_at)
+        .unwrap_or(auction_start);
+    let next_round_end = round_end_time(
+        next_round_start,
+        &timezone,
+        auction_params.round_duration,
+    )?;
+
+    // Time-based runaway cancel: a backed-mode auction whose next round would
+    // end past the fixed deadline (start + runtime) cancels with every hold
+    // released — nobody pays. Bounding round end times, not just `now`, keeps
+    // conclusion within the deadline by construction: the mint-site window
+    // predicate and the age scan size against this same deadline, so no
+    // mid-auction expiry handling exists. The `now` clause is a backstop for
+    // scheduler outages longer than a round, where the prospective end can
+    // still fit under the deadline while `now` is already past it; a backdated
+    // round would conclude with no activity and settle winners past the window.
+    let deadline = auction_start
+        .checked_add(store::funding::runaway_deadline())
+        .map_err(anyhow::Error::from)?;
+    if next_round_end > deadline || time_source.now() >= deadline {
+        let community_id =
+            store::get_site_community_id(&auction.site_id, &mut **locks.tx())
+                .await?;
+        if store::funding::is_backed_mode(&community_id, &mut **locks.tx())
+            .await?
+        {
+            tracing::warn!(
+                auction_id = ?auction.id,
+                %deadline,
+                %next_round_end,
+                "backed-mode auction cannot fit another round before its \
+                 runaway deadline; canceling with all holds released",
+            );
+            cancel_runaway_auction(auction, locks, time_source).await?;
             return Ok(());
         }
     }
@@ -373,57 +642,45 @@ async fn process_locked_auction(
     let new_round_id = add_subsequent_rounds_for_auction(
         auction,
         &previous_round,
-        tx,
+        next_round_start,
+        next_round_end,
+        &auction_params,
+        locks.tx(),
         time_source,
     )
     .await?;
 
     // Update eligibilities only if there was a previous round
     if let Some(ref previous_round) = previous_round {
-        update_user_eligibilities(auction, previous_round, &new_round_id, tx)
-            .await?;
+        update_user_eligibilities(
+            auction,
+            previous_round,
+            &new_round_id,
+            locks.tx(),
+        )
+        .await?;
     }
 
     Ok(())
 }
 
-/// Cancel an auction that has hit [`payloads::MAX_AUCTION_ROUNDS`]. Mirrors
-/// `store::auction::cancel_auction`'s terminal state (`end_at` set,
-/// `was_canceled = TRUE`, `AuctionEnded` emitted) but runs inside the
-/// scheduler's existing transaction and creates no settlement entry, since a
-/// canceled auction has no valid allocation.
+/// Cancel a runaway auction — one that hit [`payloads::MAX_AUCTION_ROUNDS`]
+/// or whose next round would breach its time deadline
+/// (`store::funding::runaway_deadline`, backed mode only; call sites log
+/// which) — via the shared terminalization
+/// (`store::auction::cancel_auction_tx`), on the scheduler's existing
+/// transaction.
+///
+/// Lock contract: runs under the auction-processing lock (held from
+/// selection by `lock_next_auction_needing_update`).
 async fn cancel_runaway_auction(
     auction: &store::Auction,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locks: &mut TrackedTx<'_, '_>,
     time_source: &TimeSource,
 ) -> anyhow::Result<()> {
-    let now = time_source.now();
-    sqlx::query(
-        "UPDATE auctions
-        SET end_at = $1, was_canceled = TRUE, updated_at = $1
-        WHERE id = $2",
-    )
-    .bind(now.to_sqlx())
-    .bind(auction.id)
-    .execute(&mut **tx)
-    .await
-    .context("failed to cancel runaway auction")?;
-
-    pubsub::emit(
-        tx,
-        &payloads::AuctionEvent::AuctionEnded {
-            auction_id: auction.id,
-        },
-    )
-    .await?;
-
-    tracing::warn!(
-        auction_id = ?auction.id,
-        max_rounds = payloads::MAX_AUCTION_ROUNDS,
-        "auction reached the round cap and was canceled; bid increment is \
-         likely too small relative to bidders' values",
-    );
-
+    store::auction::cancel_auction_tx(&auction.id, time_source, locks)
+        .await
+        .context("failed to cancel runaway auction")?;
     Ok(())
 }
 
@@ -443,13 +700,19 @@ async fn cancel_runaway_auction(
 /// concluded by defining end_at in the auction table with the current time.
 ///
 /// Returns whether the auction is still ongoing.
-#[tracing::instrument(skip(tx, time_source))]
+///
+/// Lock contract: runs under the auction-processing lock (held from
+/// selection, and excluding concurrent intent activations); on conclusion
+/// it acquires the settlement entry's account locks, then marks intent rows,
+/// then releases the auction's funding rows.
+#[tracing::instrument(skip(locks, time_source))]
 async fn update_round_space_results_within_tx(
     auction: &store::Auction,
     previous_round: &store::AuctionRound,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locks: &mut TrackedTx<'_, '_>,
     time_source: &TimeSource,
 ) -> anyhow::Result<bool> {
+    let tx = locks.tx();
     // Get the auction params to know the bid increment
     let auction_params = sqlx::query_as::<_, store::AuctionParams>(
         "SELECT * FROM auction_params WHERE id = $1",
@@ -620,10 +883,8 @@ async fn update_round_space_results_within_tx(
         .await?;
 
         // Get community_id from site for settlement
-        let community_id: payloads::CommunityId =
-            sqlx::query_scalar("SELECT community_id FROM sites WHERE id = $1")
-                .bind(auction.site_id)
-                .fetch_one(&mut **tx)
+        let community_id =
+            store::get_site_community_id(&auction.site_id, &mut **tx)
                 .await
                 .context("failed to get community_id for auction settlement")?;
 
@@ -631,69 +892,43 @@ async fn update_round_space_results_within_tx(
         store::currency::create_auction_settlement_entry(
             &community_id,
             &auction.id,
-            winner_payments,
+            winner_payments.clone(),
             time_source,
-            tx,
+            locks,
         )
         .await
         .context("failed to create auction settlement journal entry")?;
+
+        // Resolve the auction's card authorizations against the debits
+        // just written: winners' holds are marked for capture (sized to
+        // what balance couldn't cover), the rest for release.
+        store::funding::settle_auction_funding_tx(
+            &community_id,
+            &auction.id,
+            &winner_payments,
+            time_source,
+            locks,
+        )
+        .await
+        .context("failed to settle auction card authorizations")?;
     }
 
     Ok(any_bids)
 }
 
-/// For an in-progress auction, create the next auction round as needed.
+/// For an in-progress auction, create the next auction round as needed,
+/// spanning `start_at` (the previous round's end, or the auction start for
+/// round 0) to `end_at` (computed by the caller via [`round_end_time`]).
 #[tracing::instrument(skip(tx))]
 pub async fn add_subsequent_rounds_for_auction(
     auction: &store::Auction,
     previous_round: &Option<store::AuctionRound>,
+    start_at: jiff::Timestamp,
+    end_at: jiff::Timestamp,
+    auction_params: &store::AuctionParams,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> anyhow::Result<payloads::AuctionRoundId> {
-    let auction_params = sqlx::query_as::<_, store::AuctionParams>(
-        "SELECT * FROM auction_params WHERE id = $1",
-    )
-    .bind(&auction.auction_params_id)
-    .fetch_one(&mut **tx)
-    .await
-    .context("getting auction params; skipping")?;
-
-    let timezone =
-        sqlx::query_as::<_, store::Site>("SELECT * FROM sites where id = $1")
-            .bind(auction.site_id)
-            .fetch_one(&mut **tx)
-            .await
-            .context("getting site; skipping")?
-            .timezone;
-
-    // Only started auctions are processed by the scheduler, so a missing
-    // start time here is a bug, not an expected state.
-    let auction_start = auction
-        .start_at
-        .context("auction has no start time; cannot create rounds")?;
-
-    let start_time_ts = previous_round
-        .as_ref()
-        .map(|r| r.end_at)
-        .unwrap_or(auction_start);
-
-    // use DST-aware datetime math in case the round duration is days or
-    // larger
-    let zoned_start_time = match start_time_ts
-        .in_tz(&timezone.unwrap_or("UTC".into()))
-        .context("converting to timezone; falling back to DST-naive")
-    {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!("{e:#}");
-            auction_start.to_zoned(TimeZone::UTC)
-        }
-    };
-
-    let zoned_end_time = zoned_start_time
-        .checked_add(auction_params.round_duration)
-        .context("computing round end time; skipping")?;
-
     let round_num: i32 = previous_round
         .as_ref()
         .map(|r| r.round_num + 1)
@@ -718,8 +953,8 @@ pub async fn add_subsequent_rounds_for_auction(
     )
     .bind(auction.id)
     .bind(round_num)
-    .bind(start_time_ts.to_sqlx())
-    .bind(zoned_end_time.timestamp().to_sqlx())
+    .bind(start_at.to_sqlx())
+    .bind(end_at.to_sqlx())
     .bind(eligibility_threshold)
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut **tx)
@@ -736,6 +971,29 @@ pub async fn add_subsequent_rounds_for_auction(
     .await?;
 
     Ok(new_round.id)
+}
+
+/// Compute a round's end from its start, using DST-aware datetime math in the
+/// site's timezone in case the round duration is days or larger.
+fn round_end_time(
+    start: jiff::Timestamp,
+    timezone: &Option<String>,
+    round_duration: jiff::Span,
+) -> anyhow::Result<jiff::Timestamp> {
+    let zoned_start = match start
+        .in_tz(timezone.as_deref().unwrap_or("UTC"))
+        .context("converting to timezone; falling back to DST-naive")
+    {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("{e:#}");
+            start.to_zoned(TimeZone::UTC)
+        }
+    };
+    Ok(zoned_start
+        .checked_add(round_duration)
+        .context("computing round end time; skipping")?
+        .timestamp())
 }
 
 /// Update user eligibilities after an auction round concludes.
@@ -924,23 +1182,110 @@ fn get_eligibility_for_round_num(
 }
 
 /// A due (round, user) proxy work item, as listed by the lock-free selector.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 struct ProxyWorkItem {
     round_id: payloads::AuctionRoundId,
     auction_id: payloads::AuctionId,
     user_id: payloads::UserId,
+    community_id: payloads::CommunityId,
+    /// Stripe-backed backed_credits mode: the item may carry a card
+    /// authorization leg, so its claim runs on the worker pool.
+    backed: bool,
 }
 
-/// Process all due (round, user) proxy work items. The selector lists
-/// candidates lock-free; each item is then claimed individually via a
-/// try-lock on its `auction_user` pair key, so a stale or duplicate
-/// candidate list is harmless — losers skip. One user's failure is
-/// recorded on that user's marker alone and never affects other items.
-#[tracing::instrument(skip(pool, time_source))]
+type ProxyItemKey = (payloads::AuctionRoundId, payloads::UserId);
+type InflightSet = Arc<std::sync::Mutex<HashSet<ProxyItemKey>>>;
+
+/// Removes its item key from the in-flight set when the owning task
+/// finishes (including on panic — the guard is dropped either way).
+struct InflightGuard {
+    set: InflightSet,
+    key: ProxyItemKey,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        self.set.lock().unwrap().remove(&self.key);
+    }
+}
+
+/// The spawned backed-item tasks of the proxy worker: a `JoinSet` plus
+/// the in-flight key set that stops overlapping selector passes from
+/// re-spawning an item whose task is still running. The set is local to
+/// this process and purely an optimization — a duplicate claim (from
+/// this instance or another) just bounces off the `auction_user` pair
+/// lock, but not before consuming a worker-pool slot to probe it;
+/// correctness is entirely the lock plus state-driven re-selection.
+/// `Scheduler::run` keeps one instance across loop iterations so a slow
+/// task never delays the next pass; `schedule_tick` drains a fresh one so
+/// tests observe completed work.
+struct ProxyTasks {
+    tasks: tokio::task::JoinSet<()>,
+    inflight: InflightSet,
+}
+
+impl ProxyTasks {
+    fn new() -> Self {
+        Self {
+            tasks: tokio::task::JoinSet::new(),
+            inflight: Arc::new(std::sync::Mutex::new(HashSet::new())),
+        }
+    }
+
+    /// Discard finished task handles without blocking, resuming any
+    /// task's panic on the caller (see [`resume_task_panic`]).
+    fn reap(&mut self) {
+        while let Some(result) = self.tasks.try_join_next() {
+            resume_task_panic(result);
+        }
+    }
+
+    /// Await every spawned task — the deterministic completion barrier
+    /// for `schedule_tick` (tests). Production loops never call this.
+    /// Resumes any task's panic on the caller (see [`resume_task_panic`]).
+    async fn drain(&mut self) {
+        while let Some(result) = self.tasks.join_next().await {
+            resume_task_panic(result);
+        }
+    }
+}
+
+/// Resume a joined proxy task's panic on the caller. A panicked claim
+/// rolls back its transaction — including the failure marker — so the
+/// item stays due and would panic again every tick; swallowing the
+/// `JoinError` would make that loop invisible. Propagating panics the
+/// proxy loop, which main treats as fatal (process exit for orchestrator
+/// restart); in tests it fails the driving test. Cancellation errors
+/// can't occur: nothing aborts these tasks.
+fn resume_task_panic(result: Result<(), tokio::task::JoinError>) {
+    if let Err(e) = result {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+/// Run one selector pass over due (round, user) proxy work items:
+/// process informal-mode items inline (ms-scale pure-DB claims) and
+/// spawn backed-mode items as detached tasks in `tasks`, since their
+/// claims may carry a ~1s Stripe call (`process_proxy_item` routes each
+/// claim to the worker pool exactly when it carries one; the pool's
+/// connection count is the concurrency bound). Returns once inline
+/// items are done and backed tasks are spawned — the caller decides
+/// whether to await them (see `ProxyTasks`).
+///
+/// Called from `Scheduler::run`'s proxy loop and `schedule_tick`. The
+/// selection is lock-free, so a stale or duplicate candidate list is
+/// harmless: each item's claim (`process_proxy_item`) try-locks its
+/// `auction_user` pair key and losers skip. One user's failure lands on
+/// that user's marker alone and never affects other items.
+#[tracing::instrument(skip_all)]
 async fn process_due_proxy_items(
     pool: &PgPool,
+    worker_pool: &WorkerPool,
     time_source: &TimeSource,
+    stripe_service: &Arc<StripeService>,
+    tasks: &mut ProxyTasks,
 ) -> anyhow::Result<()> {
+    tasks.reap();
     let items = list_due_proxy_items(pool, time_source).await?;
     if items.is_empty() {
         return Ok(());
@@ -948,9 +1293,48 @@ async fn process_due_proxy_items(
     tracing::debug!("Found {} due proxy work items", items.len());
 
     for item in &items {
+        if item.backed {
+            let key = (item.round_id, item.user_id);
+            if !tasks.inflight.lock().unwrap().insert(key) {
+                // A task from a previous pass still owns this item.
+                continue;
+            }
+            let guard = InflightGuard {
+                set: tasks.inflight.clone(),
+                key,
+            };
+            let item = item.clone();
+            let pool = pool.clone();
+            let worker_pool = worker_pool.clone();
+            let time_source = time_source.clone();
+            let stripe_service = stripe_service.clone();
+            tasks.tasks.spawn(async move {
+                let _guard = guard;
+                if let Err(e) = process_proxy_item(
+                    &item,
+                    &pool,
+                    &worker_pool,
+                    &time_source,
+                    Some(&stripe_service),
+                )
+                .await
+                {
+                    tracing::error!(
+                        "Failed to process proxy item (round {:?}, user \
+                         {:?}): {:#}",
+                        item.round_id,
+                        item.user_id,
+                        e
+                    );
+                }
+            });
+            continue;
+        }
         // Per-item failures are recorded on the item's marker (backoff) and
         // must not stop the pass — that isolation is the point.
-        if let Err(e) = process_proxy_item(item, pool, time_source).await {
+        if let Err(e) =
+            process_proxy_item(item, pool, worker_pool, time_source, None).await
+        {
             tracing::error!(
                 "Failed to process proxy item (round {:?}, user {:?}): {:#}",
                 item.round_id,
@@ -980,11 +1364,15 @@ async fn list_due_proxy_items(
     let order = "";
 
     sqlx::query_as::<_, ProxyWorkItem>(&format!(
-        "SELECT ar.id AS round_id, ar.auction_id, upb.user_id
+        "SELECT ar.id AS round_id, ar.auction_id, upb.user_id,
+            si.community_id,
+            (c.currency_mode = 'backed_credits') AS backed
         FROM auction_rounds ar
         -- a.end_at excludes auctions canceled mid-round (the round row
         -- still spans now, but bidding into it would be pointless)
         JOIN auctions a ON ar.auction_id = a.id AND a.end_at IS NULL
+        JOIN sites si ON a.site_id = si.id
+        JOIN communities c ON si.community_id = c.id
         JOIN use_proxy_bidding upb ON upb.auction_id = ar.auction_id
         JOIN users u ON upb.user_id = u.id
         LEFT JOIN proxy_round_processing prp
@@ -1001,7 +1389,7 @@ async fn list_due_proxy_items(
                 )
             )
         {order}",
-        backoff = backoff_interval_sql("prp.failure_count"),
+        backoff = store::backoff_interval_sql("prp.failure_count"),
     ))
     .bind(time_source.now().to_sqlx())
     .fetch_all(pool)
@@ -1009,34 +1397,180 @@ async fn list_due_proxy_items(
     .map_err(Into::into)
 }
 
-/// Claim and process one (round, user) proxy work item. The claim tx
-/// carries the whole operation: pair advisory try-lock first (losing
-/// contenders bounce off the probe and never queue behind the row lock),
-/// then the flag-clearing UPDATE under the settings row lock, dueness
-/// re-verified under the claim, the bidding work inside a savepoint, and
-/// the marker write — one commit makes flag-clear + bids + marker atomic.
-/// A crash discards everything including the flag clear, so the item is
-/// simply re-selected. Concurrent settings writers block on the row lock,
-/// land strictly after the commit, and re-set the flag.
+/// Process one (round, user) proxy work item through funding cycles: each
+/// bidding claim either completes the item's bids or commits an authorization
+/// order sized to the first funding-short bid; execute the order
+/// (`funding_flow::execute_auth_order`, the ~1s Stripe call on the worker pool)
+/// and re-enter the claim against the enlarged backing. `stripe_service` is
+/// Some exactly for backed-mode items.
+///
+/// The claim and the execute step are separate transactions by design: the
+/// claim is ms-scale pure-DB work on the shared pool, and an authorization
+/// without bids is a legal state (the pre-authorize flow produces it), so they
+/// need no shared atomicity. The order-emitting claim records a failure marker
+/// in its own commit, so a crash (or an execute error, which propagates from
+/// here) re-selects the item after backoff, where the committed order is
+/// re-found (get-or-create) and replayed.
+///
+/// The cycle bound is a defensive backstop, not the working limit: raise sizing
+/// catches up or doubles (`raise_target`), so convergence is logarithmic in the
+/// needed hold, not linear in funded bids.
 async fn process_proxy_item(
     item: &ProxyWorkItem,
     pool: &PgPool,
+    worker_pool: &WorkerPool,
     time_source: &TimeSource,
+    stripe_service: Option<&StripeService>,
 ) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
+    let card_path = if stripe_service.is_some()
+        && store::funding::card_availability(
+            &item.community_id,
+            &item.user_id,
+            pool,
+        )
+        .await?
+            == payloads::responses::CardAvailability::Available
+    {
+        CardPath::Live
+    } else {
+        CardPath::Off
+    };
 
-    let claimed: bool = sqlx::query_scalar(&format!(
-        "SELECT pg_try_advisory_xact_lock({})",
-        store::auction::auction_user_lock_key("$1", "$2")
-    ))
-    .bind(item.auction_id)
-    .bind(item.user_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    if !claimed {
+    const MAX_FUNDING_CYCLES: usize = 10;
+    for cycle in 0..MAX_FUNDING_CYCLES {
+        let claim_cycle = if cycle == 0 {
+            ClaimCycle::First
+        } else {
+            ClaimCycle::Continuation
+        };
+        match run_proxy_bid_claim(
+            item,
+            card_path,
+            claim_cycle,
+            pool,
+            time_source,
+        )
+        .await?
+        {
+            ProxyClaimOutcome::Done => return Ok(()),
+            ProxyClaimOutcome::OrderPlaced => {
+                let ctx = crate::store::funding_flow::load_card_context(
+                    &item.community_id,
+                    &item.user_id,
+                    pool,
+                )
+                .await?;
+                match crate::store::funding_flow::execute_auth_order(
+                    &ctx,
+                    &item.community_id,
+                    &item.auction_id,
+                    &item.user_id,
+                    Presence::Automatic,
+                    FlowDeps {
+                        worker_pool,
+                        time_source,
+                        stripe_service: stripe_service
+                            .expect("order implies stripe service"),
+                    },
+                )
+                .await?
+                {
+                    AuthOrderOutcome::LockMiss => {
+                        // Another claimant owns this (auction, user);
+                        // the failure marker re-selects the item.
+                        return Ok(());
+                    }
+                    AuthOrderOutcome::Declined(decline) => {
+                        // The decline pauses further orders; the next
+                        // cycle places what existing backing allows.
+                        tracing::info!(
+                            user_id = ?item.user_id,
+                            auction_id = ?item.auction_id,
+                            code = ?decline.code,
+                            decline_code = ?decline.decline_code,
+                            "proxy authorization declined; bidding with \
+                             existing backing"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    tracing::warn!(
+        user_id = ?item.user_id,
+        auction_id = ?item.auction_id,
+        "proxy funding cycles exhausted without completing; backoff \
+         re-selection continues from the failure marker"
+    );
+    Ok(())
+}
+
+/// The bidding claim's verdict for `process_proxy_item`'s cycle loop.
+enum ProxyClaimOutcome {
+    /// The item is processed (or no longer applicable): bids placed up
+    /// to balance/backing limits, marker written; stop.
+    Done,
+    /// The claim committed an authorization order sized to the first
+    /// funding-short bid (with a failure marker for crash-safe
+    /// re-selection); execute it and re-enter.
+    OrderPlaced,
+}
+
+/// Whether an item's card-order leg is live: backed mode with a
+/// charges-enabled community, a saved card, and the member's charge
+/// grant. Checked once per item, like the member bid flow's peek.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CardPath {
+    Live,
+    Off,
+}
+
+/// Which cycle of `process_proxy_item`'s loop a claim runs.
+/// Continuations follow an executed order and skip the dueness probe:
+/// the order-emitting cycle just recorded a failure marker, and backoff
+/// would report not-due mid-pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaimCycle {
+    First,
+    Continuation,
+}
+
+/// Claim and run one cycle of an item's proxy bidding — flag-clear,
+/// dueness re-verify, bids (and, on a card-backed funding shortfall,
+/// the sized authorization order), and outcome marker in one
+/// transaction whose single commit makes them atomic; a crash discards
+/// all of it (including the flag clear), so the item is simply
+/// re-selected.
+///
+/// "Claim" because its advisory try-lock on the `auction_user` pair
+/// key is what claims the item (losing contenders bounce off the probe
+/// and never queue behind the row lock). Always on the shared pool:
+/// this claim never carries a Stripe call.
+///
+/// Lock contract: acquires the pair try-lock, then the member's
+/// `use_proxy_bidding` row (concurrent settings writers block on it,
+/// land strictly after the commit, and re-set the flag), then per bid
+/// the member's account and funding rows inside the work savepoint. The
+/// pair lock doubles as the order-transaction authority: on a funding
+/// shortfall the savepoint writes the pending intent row
+/// (`funding_flow::order_proxy_bid_auth_tx`) — the one card-state
+/// write this claim makes.
+async fn run_proxy_bid_claim(
+    item: &ProxyWorkItem,
+    card_path: CardPath,
+    cycle: ClaimCycle,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> anyhow::Result<ProxyClaimOutcome> {
+    let mut locks = TrackedTx::begin(pool).await?;
+    if !locks
+        .acquire_pair(&item.auction_id, &item.user_id, LockWait::Try)
+        .await?
+    {
         // Another claimant owns this (auction, user); it will process or
         // the item stays due and is re-selected next tick.
-        return Ok(());
+        return Ok(ProxyClaimOutcome::Done);
     }
 
     // Lock and read the settings row (capturing the flag's pre-clear
@@ -1050,11 +1584,11 @@ async fn process_proxy_item(
     )
     .bind(item.user_id)
     .bind(item.auction_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **locks.tx())
     .await?;
     let Some(settings) = settings else {
         // Proxy bidding was disabled after the candidate was listed
-        return Ok(());
+        return Ok(ProxyClaimOutcome::Done);
     };
     if settings.needs_processing {
         sqlx::query(
@@ -1063,7 +1597,7 @@ async fn process_proxy_item(
         )
         .bind(item.user_id)
         .bind(item.auction_id)
-        .execute(&mut *tx)
+        .execute(&mut **locks.tx())
         .await?;
     }
 
@@ -1078,97 +1612,491 @@ async fn process_proxy_item(
     )
     .bind(item.round_id)
     .bind(now.to_sqlx())
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **locks.tx())
     .await?;
     let Some(round) = round else {
         // Round ended, or the auction was canceled mid-round; a next
         // round's baseline arm covers any reprocessing
-        tx.rollback().await?;
-        return Ok(());
+        locks.rollback().await?;
+        return Ok(ProxyClaimOutcome::Done);
     };
-    let due: bool = sqlx::query_scalar(&format!(
-        "SELECT $3
-            OR NOT EXISTS (
-                SELECT 1 FROM proxy_round_processing
-                WHERE round_id = $1 AND user_id = $2
-            )
-            OR EXISTS (
-                SELECT 1 FROM proxy_round_processing
-                WHERE round_id = $1 AND user_id = $2
-                    AND failure_count > 0
-                    AND last_failed_at IS NOT NULL
-                    AND $4 > last_failed_at + {backoff}
-            )",
-        backoff = backoff_interval_sql("failure_count"),
-    ))
-    .bind(item.round_id)
-    .bind(item.user_id)
-    .bind(settings.needs_processing)
-    .bind(now.to_sqlx())
-    .fetch_one(&mut *tx)
-    .await?;
-    if !due {
-        tx.rollback().await?;
-        return Ok(());
+    if cycle == ClaimCycle::First {
+        let due: bool = sqlx::query_scalar(&format!(
+            "SELECT $3
+                OR NOT EXISTS (
+                    SELECT 1 FROM proxy_round_processing
+                    WHERE round_id = $1 AND user_id = $2
+                )
+                OR EXISTS (
+                    SELECT 1 FROM proxy_round_processing
+                    WHERE round_id = $1 AND user_id = $2
+                        AND failure_count > 0
+                        AND last_failed_at IS NOT NULL
+                        AND $4 > last_failed_at + {backoff}
+                )",
+            backoff = store::backoff_interval_sql("failure_count"),
+        ))
+        .bind(item.round_id)
+        .bind(item.user_id)
+        .bind(settings.needs_processing)
+        .bind(now.to_sqlx())
+        .fetch_one(&mut **locks.tx())
+        .await?;
+        if !due {
+            locks.rollback().await?;
+            return Ok(ProxyClaimOutcome::Done);
+        }
     }
 
     // Run the bidding work inside a savepoint so a failure can be recorded
     // on the marker while the flag stays cleared (a writer-side signal
     // only) and the claim commits — re-selection then goes through backoff,
     // or immediately via the flag if the member changes inputs.
-    let work_result = async {
-        let mut work_tx = tx.begin().await?;
+    let outcome = async {
+        let mut work = locks.savepoint().await?;
         match run_proxy_item_work(
             &settings,
             &round,
-            &mut work_tx,
+            &item.community_id,
+            card_path,
+            &mut work,
             time_source,
-            pool,
         )
         .await
         {
-            Ok(()) => work_tx.commit().await.map_err(Into::into),
+            Ok(outcome) => {
+                work.commit().await?;
+                Ok(outcome)
+            }
             Err(e) => {
-                work_tx.rollback().await?;
+                work.rollback().await?;
                 Err(e)
             }
         }
     }
     .await;
 
-    match work_result {
-        Ok(()) => {
-            sqlx::query(
-                "INSERT INTO proxy_round_processing
-                    (round_id, user_id, processed_at, failure_count,
-                     last_failed_at)
-                VALUES ($1, $2, $3, 0, NULL)
-                ON CONFLICT (round_id, user_id) DO UPDATE
-                SET processed_at = EXCLUDED.processed_at,
-                    failure_count = 0,
-                    last_failed_at = NULL",
+    // Marker: a completed cycle resets it; an order-emitting cycle or a
+    // failed one records a failure, so a crash (or an execute error)
+    // re-selects the item after backoff. The order-emitting cycle's
+    // marker lands in the same commit as its order, so re-selection
+    // always finds the committed pending row; the completing cycle's
+    // success marker resets the count.
+    if matches!(
+        &outcome,
+        Ok(ProxyWorkOutcome {
+            order_placed: false
+        })
+    ) {
+        sqlx::query(
+            "INSERT INTO proxy_round_processing
+                (round_id, user_id, processed_at, failure_count,
+                 last_failed_at)
+            VALUES ($1, $2, $3, 0, NULL)
+            ON CONFLICT (round_id, user_id) DO UPDATE
+            SET processed_at = EXCLUDED.processed_at,
+                failure_count = 0,
+                last_failed_at = NULL",
+        )
+        .bind(item.round_id)
+        .bind(item.user_id)
+        .bind(now.to_sqlx())
+        .execute(&mut **locks.tx())
+        .await?;
+    } else {
+        sqlx::query(
+            "INSERT INTO proxy_round_processing
+                (round_id, user_id, failure_count, last_failed_at)
+            VALUES ($1, $2, 1, $3)
+            ON CONFLICT (round_id, user_id) DO UPDATE
+            SET failure_count = proxy_round_processing.failure_count + 1,
+                last_failed_at = EXCLUDED.last_failed_at",
+        )
+        .bind(item.round_id)
+        .bind(item.user_id)
+        .bind(now.to_sqlx())
+        .execute(&mut **locks.tx())
+        .await?;
+    }
+    locks.commit().await?;
+    match outcome {
+        Ok(ProxyWorkOutcome {
+            order_placed: false,
+        }) => Ok(ProxyClaimOutcome::Done),
+        Ok(ProxyWorkOutcome { order_placed: true }) => {
+            Ok(ProxyClaimOutcome::OrderPlaced)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Work off intent rows owing a Stripe call, one claim per row. Runs
+/// each tick from `Scheduler::run`'s intent loop and from
+/// `schedule_tick`.
+///
+/// The arms: cancels for `superseded` (swap-reauth predecessors) and
+/// `release_pending` (settled or canceled with nothing owed) rows,
+/// captures for `capture_pending` rows, plus a catchall cancel for
+/// authorizations still active after their auction ended — a claim
+/// racing conclusion can activate one after the settlement pass read
+/// its snapshot, and state re-selection here releases it without that
+/// race needing to be prevented. One arm carries no Stripe call: aged
+/// `pending` orders whose execute never ran are canceled locally so
+/// their stale amount stops being reusable
+/// (`cancel_aged_pending_order`).
+///
+/// Rows keep their status until the Stripe call succeeds, so skipped or
+/// failed items are re-found from state alone; failures back off via
+/// the worker columns. Each item is claimed via try-lock on its
+/// `auction_user` pair key in a claim tx on the worker pool (every arm
+/// carries a Stripe call).
+#[tracing::instrument(skip_all)]
+async fn process_intent_work(
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    stripe_service: &StripeService,
+) -> anyhow::Result<()> {
+    let now = time_source.now();
+    let candidates: Vec<WorkerIntent> = sqlx::query_as(&format!(
+        "SELECT fi.id, fi.status, fi.payment_intent_id, fi.capture_amount,
+            fi.capture_before, fi.origin, fi.authorized_amount,
+            fi.auction_id, s.community_id, fi.user_id,
+            c.stripe_account_id, c.currency_name
+        FROM funding_intents fi
+        JOIN auctions a ON fi.auction_id = a.id
+        JOIN sites s ON a.site_id = s.id
+        JOIN communities c ON s.community_id = c.id
+        WHERE (
+                fi.status IN ('superseded', 'release_pending',
+                              'capture_pending')
+                OR (fi.status = 'authorized' AND fi.is_active
+                    AND a.end_at IS NOT NULL)
+                -- Age scan: pre-start holds whose window can't cover
+                -- the auction deadline (known start + runtime +
+                -- margin; now-based while the start is unknown — an
+                -- immediate start must stay coverable). The same
+                -- comparison as the mint-site predicate, so a
+                -- postponement's invalidation is discovered at the
+                -- next tick, not just-in-time before the start.
+                OR (fi.status = 'authorized' AND fi.is_active
+                    AND a.end_at IS NULL
+                    AND (a.start_at IS NULL OR a.start_at > $1)
+                    AND fi.capture_before IS NOT NULL
+                    AND fi.capture_before < COALESCE(a.start_at, $1)
+                        + $2 * INTERVAL '1 hour')
+                -- Stranded orders: a pending row whose execute never
+                -- ran ages out and is canceled locally, so the next
+                -- genuine need orders fresh instead of reusing the
+                -- stale amount.
+                OR (fi.status = 'pending'
+                    AND fi.created_at + $3 * INTERVAL '1 hour' <= $1)
             )
-            .bind(item.round_id)
-            .bind(item.user_id)
-            .bind(now.to_sqlx())
-            .execute(&mut *tx)
+            AND (
+                fi.worker_failure_count = 0
+                OR fi.worker_last_failed_at IS NULL
+                OR $1 > fi.worker_last_failed_at + {backoff}
+            )",
+        backoff = store::backoff_interval_sql("fi.worker_failure_count"),
+    ))
+    .bind(now.to_sqlx())
+    .bind(store::funding::min_viable_window_hours() as f64)
+    .bind(store::funding::stale_order_age_hours() as f64)
+    .fetch_all(pool)
+    .await?;
+
+    let deps = FlowDeps {
+        worker_pool,
+        time_source,
+        stripe_service,
+    };
+    for intent in &candidates {
+        let result = match intent.status {
+            payloads::FundingIntentStatus::CapturePending => {
+                capture_intent(intent, deps).await
+            }
+            payloads::FundingIntentStatus::Pending => {
+                cancel_aged_pending_order(intent, worker_pool, time_source)
+                    .await
+            }
+            _ => cancel_worker_intent(intent, deps).await,
+        };
+        if let Err(e) = result {
+            tracing::error!(
+                "intent worker failed for {:?} ({}): {:#}",
+                intent.id,
+                intent.status,
+                e
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Deliver enqueued notification emails (the outbox drain; see
+/// `store::notifications` for the outbox design). List-then-claim like
+/// the proxy worker: list due rows lock-free on the shared pool, then
+/// claim each with `FOR UPDATE SKIP LOCKED` for the send. A failed
+/// send records failure backoff on the row and delivery retries next
+/// tick.
+async fn process_notification_outbox(
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    email_service: &EmailService,
+) -> anyhow::Result<()> {
+    let due =
+        store::notifications::list_due_notification_ids(pool, time_source)
+            .await?;
+    for id in due {
+        if let Err(e) =
+            deliver_notification(&id, worker_pool, time_source, email_service)
+                .await
+        {
+            tracing::error!("notification delivery failed for {id}: {e:#}");
+        }
+    }
+    Ok(())
+}
+
+/// Mint scheduled pre-authorizations for proxy participants of
+/// backed-mode auctions whose known start falls within the advance
+/// window (T−24h): each candidate gets a strategy-sized hold via the
+/// shared preauth core (origin `scheduled_preauth`), so their card is
+/// warmed before rounds begin. Members without a saved card or the
+/// community grant never select — their proxies bid balance-only. A
+/// budget member with no `user_values` sizes a zero target and no-ops
+/// (they authorize reactively when a bid first needs it).
+///
+/// Try-and-skip: the need is re-derived each pass, so contended or
+/// skipped candidates simply stay selectable. Selection excludes
+/// members with any live active authorization (fresh mints only —
+/// undersized holds grow reactively at bid time), pending orders
+/// under worker backoff (a transient Stripe failure records backoff on
+/// the order row rather than retrying at tick rate), and members whose
+/// latest intent carries decline metadata — the ordinary
+/// automatic-attempt pause; a member-present success naturally lifts
+/// it. The decline itself notifies the member once (enqueued in the
+/// execute claim).
+async fn process_scheduled_preauths(
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    stripe_service: &StripeService,
+) -> anyhow::Result<()> {
+    let now = time_source.now();
+    let horizon = now
+        .checked_add(store::funding::preauth_advance())
+        .map_err(anyhow::Error::from)?;
+    let candidates: Vec<(
+        payloads::AuctionId,
+        payloads::CommunityId,
+        payloads::UserId,
+    )> = sqlx::query_as(&format!(
+        "SELECT a.id, si.community_id, upb.user_id
+         FROM auctions a
+         JOIN sites si ON a.site_id = si.id AND si.deleted_at IS NULL
+         JOIN communities c ON si.community_id = c.id
+         JOIN use_proxy_bidding upb ON upb.auction_id = a.id
+         JOIN user_payment_profiles upp ON upp.user_id = upb.user_id
+             AND upp.payment_method_id IS NOT NULL
+         JOIN community_members cm ON cm.community_id = si.community_id
+             AND cm.user_id = upb.user_id
+             AND cm.card_charges_granted_at IS NOT NULL
+         WHERE c.currency_mode = 'backed_credits'
+             AND {account_operational}
+             AND a.end_at IS NULL
+             AND a.start_at IS NOT NULL
+             AND a.start_at > $1
+             AND a.start_at <= $2
+             AND NOT EXISTS (
+                 SELECT 1 FROM funding_intents fi
+                 WHERE fi.auction_id = a.id AND fi.user_id = upb.user_id
+                     AND ((fi.is_active AND fi.status = 'authorized')
+                         OR (fi.status = 'pending'
+                             AND fi.worker_failure_count > 0
+                             AND fi.worker_last_failed_at IS NOT NULL
+                             AND $1 <= fi.worker_last_failed_at
+                                 + {backoff})
+                         -- Decline pause: the latest intent (a declined
+                         -- confirm leaves a canceled row with decline
+                         -- metadata) blocks automatic attempts.
+                         OR (fi.last_decline_at IS NOT NULL
+                             AND fi.id = (
+                                 SELECT id FROM funding_intents
+                                 WHERE auction_id = a.id
+                                   AND user_id = upb.user_id
+                                 ORDER BY created_at DESC, id DESC
+                                 LIMIT 1)))
+             )",
+        backoff = store::backoff_interval_sql("fi.worker_failure_count"),
+        account_operational = store::connect::account_operational_sql("c"),
+    ))
+    .bind(now.to_sqlx())
+    .bind(horizon.to_sqlx())
+    .fetch_all(pool)
+    .await?;
+
+    for (auction_id, community_id, user_id) in candidates {
+        if let Err(e) = process_scheduled_preauth_candidate(
+            &auction_id,
+            &community_id,
+            &user_id,
+            pool,
+            worker_pool,
+            time_source,
+            stripe_service,
+        )
+        .await
+        {
+            tracing::error!(
+                ?auction_id,
+                ?user_id,
+                "scheduled pre-authorization failed: {e:#}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Run one scheduled pre-auth candidate through the shared preauth
+/// core. An operational Stripe error records worker backoff on the
+/// pending order row so selection paces the retries.
+async fn process_scheduled_preauth_candidate(
+    auction_id: &payloads::AuctionId,
+    community_id: &payloads::CommunityId,
+    user_id: &payloads::UserId,
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    stripe_service: &StripeService,
+) -> anyhow::Result<()> {
+    // Prerequisites re-validate here (the selection's join is a cheap
+    // approximation); a context that fails to load — e.g. the community
+    // deauthorized since selection — just skips the candidate.
+    let ctx = match crate::store::funding_flow::load_card_context(
+        community_id,
+        user_id,
+        pool,
+    )
+    .await
+    {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::debug!(
+                ?auction_id,
+                ?user_id,
+                "scheduled pre-auth skipped: card context unavailable \
+                 ({e:#?})"
+            );
+            return Ok(());
+        }
+    };
+
+    let outcome = crate::store::funding_flow::run_preauth(
+        &ctx,
+        community_id,
+        auction_id,
+        user_id,
+        None,
+        payloads::FundingIntentOrigin::ScheduledPreauth,
+        Presence::Automatic,
+        FlowDeps {
+            worker_pool,
+            time_source,
+            stripe_service,
+        },
+    )
+    .await;
+    match outcome {
+        Ok(AuthOrderOutcome::Authorized) => {
+            tracing::info!(
+                ?auction_id,
+                ?user_id,
+                "scheduled pre-authorization minted"
+            );
+            Ok(())
+        }
+        Ok(AuthOrderOutcome::Declined(decline)) => {
+            tracing::warn!(
+                ?auction_id,
+                ?user_id,
+                code = ?decline.code,
+                decline_code = ?decline.decline_code,
+                "scheduled pre-authorization declined; automatic \
+                 attempts paused"
+            );
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Pace retries via the pending order's worker backoff (the
+            // selection's NOT EXISTS arm); without this a persistent
+            // Stripe error would retry at tick rate for the whole
+            // advance window.
+            let pending: Option<payloads::FundingIntentId> =
+                sqlx::query_scalar(
+                    "SELECT id FROM funding_intents \
+                     WHERE auction_id = $1 AND user_id = $2 \
+                       AND status = 'pending'",
+                )
+                .bind(auction_id)
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+            if let Some(intent_id) = pending {
+                let mut tx = pool.begin().await?;
+                store::funding::record_worker_failure_tx(
+                    &intent_id,
+                    time_source,
+                    &mut tx,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+            Err(e.into())
+        }
+    }
+}
+
+/// Claim and deliver one outbox row. The claim transaction holds only
+/// the outbox row lock across the send — permissible because the
+/// drainer is the row's only writer — and runs on the worker pool,
+/// which exists precisely so transactions spanning network calls never
+/// pin shared API-pool connections (and its session-timeout backstop
+/// covers a hung send).
+async fn deliver_notification(
+    id: &uuid::Uuid,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    email_service: &EmailService,
+) -> anyhow::Result<()> {
+    let mut tx = worker_pool.0.begin().await?;
+    let Some(due) =
+        store::notifications::claim_due_notification_tx(id, &mut tx).await?
+    else {
+        // Sent meanwhile, or another drainer owns it.
+        return Ok(());
+    };
+    let template = due.params.0.render(&due.username, email_service.base_url());
+    match email_service.send_email(&due.email, template).await {
+        Ok(()) => {
+            store::notifications::mark_notification_sent_tx(
+                id,
+                time_source,
+                &mut tx,
+            )
             .await?;
             tx.commit().await?;
+            tracing::info!(notification_id = %id, "notification delivered");
             Ok(())
         }
         Err(e) => {
-            sqlx::query(
-                "INSERT INTO proxy_round_processing
-                    (round_id, user_id, failure_count, last_failed_at)
-                VALUES ($1, $2, 1, $3)
-                ON CONFLICT (round_id, user_id) DO UPDATE
-                SET failure_count = proxy_round_processing.failure_count + 1,
-                    last_failed_at = EXCLUDED.last_failed_at",
+            store::notifications::record_notification_failure_tx(
+                id,
+                time_source,
+                &mut tx,
             )
-            .bind(item.round_id)
-            .bind(item.user_id)
-            .bind(now.to_sqlx())
-            .execute(&mut *tx)
             .await?;
             tx.commit().await?;
             Err(e)
@@ -1176,6 +2104,27 @@ async fn process_proxy_item(
     }
 }
 
+/// What `run_proxy_item_work` observed, for `run_proxy_bid_claim`'s
+/// marker decision and `process_proxy_item`'s cycle loop.
+struct ProxyWorkOutcome {
+    /// A pending authorization order was committed for the first
+    /// funding-short bid; the walk stopped there. Execute the order and
+    /// re-enter the claim.
+    order_placed: bool,
+}
+
+/// Re-place one member's bids for the round inside the claim's
+/// savepoint: delete their existing bids, then bid on their positive-
+/// surplus spaces (best surplus first) until `max_items` is reached.
+///
+/// Skips on eligibility/already-winning are expected and per-space. A
+/// bid failing on insufficient funding orders a card authorization
+/// sized to that exact bid when the card path is live
+/// (`funding_flow::order_proxy_bid_auth_tx`) and stops the walk —
+/// continuing to cheaper spaces would consume the balance the gap was
+/// just sized against; without a card leg (or during a decline pause)
+/// the skip is the member's honest balance limit and the walk tries the
+/// next space.
 #[tracing::instrument(
     skip_all,
     fields(
@@ -1186,10 +2135,11 @@ async fn process_proxy_item(
 async fn run_proxy_item_work(
     settings: &store::UseProxyBidding,
     round: &store::AuctionRound,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    community_id: &payloads::CommunityId,
+    card_path: CardPath,
+    ttx: &mut TrackedTx<'_, '_>,
     time_source: &TimeSource,
-    pool: &PgPool, // for create_bid_tx's validation reads
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ProxyWorkOutcome> {
     // Plan reads: the auction-level inputs for this item. (The settings row
     // always denotes a current member: proxy bidding rows are deleted when
     // a member leaves a community.)
@@ -1200,7 +2150,7 @@ async fn run_proxy_item_work(
         WHERE a.id = $1 AND s.is_available = true AND s.deleted_at IS NULL",
     )
     .bind(round.auction_id)
-    .fetch_all(&mut **tx)
+    .fetch_all(&mut **ttx.tx())
     .await
     .context("failed to get auction spaces")?;
 
@@ -1220,7 +2170,7 @@ async fn run_proxy_item_work(
         )
         .bind(round.auction_id)
         .bind(round.round_num - 1)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut **ttx.tx())
         .await
         .context("failed to get round results")?;
 
@@ -1231,7 +2181,7 @@ async fn run_proxy_item_work(
         WHERE a.id = $1",
     )
     .bind(round.auction_id)
-    .fetch_one(&mut **tx)
+    .fetch_one(&mut **ttx.tx())
     .await
     .context("failed to get auction params")?;
     let bid_increment = auction_params.bid_increment;
@@ -1246,7 +2196,7 @@ async fn run_proxy_item_work(
     )
     .bind(round.id)
     .bind(settings.user_id)
-    .execute(&mut **tx)
+    .execute(&mut **ttx.tx())
     .await
     .with_context(|| {
         format!(
@@ -1270,7 +2220,7 @@ async fn run_proxy_item_work(
     let user_values = sqlx::query_as::<_, store::UserValue>(user_values_query)
         .bind(settings.user_id)
         .bind(spaces.keys().copied().collect::<Vec<_>>())
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut **ttx.tx())
         .await
         .with_context(|| {
             format!("failed to get user values for {:?}", settings.user_id)
@@ -1343,6 +2293,7 @@ async fn run_proxy_item_work(
 
     // Try bidding on spaces in surplus order until we hit max_items
     let mut successful_bids = 0;
+    let mut order_placed = false;
     for (space_id, surplus, _value) in space_surpluses {
         if successful_bids + num_spaces_already_winning
             >= settings.max_items as usize
@@ -1360,9 +2311,8 @@ async fn run_proxy_item_work(
             &space_id,
             &round.id,
             &settings.user_id,
-            tx,
+            ttx,
             time_source,
-            pool,
         )
         .await
         {
@@ -1382,6 +2332,23 @@ async fn run_proxy_item_work(
                 continue;
             }
             Err(store::StoreError::Api(ApiError::InsufficientBalance)) => {
+                // The failed bid passed every other gate (eligibility is
+                // checked before funding), so it is exactly what the card
+                // must back: order reactively and stop.
+                if card_path == CardPath::Live
+                    && crate::store::funding_flow::order_proxy_bid_auth_tx(
+                        community_id,
+                        &spaces[&space_id],
+                        &round.id,
+                        &settings.user_id,
+                        time_source,
+                        ttx,
+                    )
+                    .await?
+                {
+                    order_placed = true;
+                    break;
+                }
                 // User has run out of credit - try next space
                 tracing::info!(
                     "Failed to bid on {:?}: insufficient credit, trying next space",
@@ -1402,7 +2369,7 @@ async fn run_proxy_item_work(
     }
 
     pubsub::emit(
-        tx,
+        ttx.tx(),
         &payloads::AuctionEvent::BidsChanged {
             auction_id: round.auction_id,
             round_id: round.id,
@@ -1413,6 +2380,44 @@ async fn run_proxy_item_work(
 
     tracing::info!("Placed {} successful new bids", successful_bids,);
 
+    Ok(ProxyWorkOutcome { order_placed })
+}
+
+/// Run the hourly reconciliation pass when due: the advisory-lock gate
+/// plus any-community-stale check (`try_claim_reconciliation_pass`),
+/// the full pass (`store::reconciliation::run_reconciliation_pass`),
+/// and the watermark restamp committing with the gate.
+///
+/// Called every tick from `run()` and `schedule_tick`; the gate makes
+/// the frequent calls cheap and deduplicates instances. The gate runs
+/// on the worker pool: it is held across the whole Stripe-heavy pass,
+/// and a pinned connection must not come out of the API pool.
+async fn run_reconciliation_if_due(
+    pool: &PgPool,
+    worker_pool: &WorkerPool,
+    time_source: &TimeSource,
+    stripe_service: &StripeService,
+) -> anyhow::Result<()> {
+    let mut gate = worker_pool.0.begin().await?;
+    if !store::reconciliation::try_claim_reconciliation_pass(
+        time_source,
+        &mut gate,
+    )
+    .await?
+    {
+        tracing::trace!("reconciliation not due or already running");
+        return Ok(());
+    }
+    store::reconciliation::run_reconciliation_pass(
+        pool,
+        worker_pool,
+        time_source,
+        stripe_service,
+    )
+    .await?;
+    store::reconciliation::record_reconciliation_pass(time_source, &mut gate)
+        .await?;
+    gate.commit().await?;
     Ok(())
 }
 

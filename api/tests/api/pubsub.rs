@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use api::scheduler;
 use jiff::Span;
 use payloads::{AuctionEvent, requests};
 use reqwest::header::ACCEPT;
@@ -40,7 +39,7 @@ async fn round_created_event_emitted_on_first_round() -> anyhow::Result<()> {
     auction_details.start_at = Some(start_time);
     let auction_id = app.client.create_auction(&auction_details).await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
@@ -109,14 +108,14 @@ async fn auction_ended_event_emitted_on_completion() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // First tick creates round 0.
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
     // No bids; advance past round end and tick again to conclude.
     app.time_source
         .set(round_0.round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Expect round 0's RoundCreated, then RoundEnded(round_0) and
     // AuctionEnded(auction) from the concluding tick.
@@ -149,7 +148,7 @@ async fn round_ended_event_emitted_on_round_transition() -> anyhow::Result<()> {
     let auction_id = app.client.create_auction(&auction_details).await?;
 
     // Tick to create round 0.
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0_id = rounds[0].round_id;
 
@@ -160,7 +159,7 @@ async fn round_ended_event_emitted_on_round_transition() -> anyhow::Result<()> {
     // Advance past round 0's end and tick to create round 1.
     app.time_source
         .set(rounds[0].round_details.end_at + Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Expect: RoundCreated(round_0) and BidsChanged(round_0) from the first
     // tick + manual bid; RoundEnded(round_0) and RoundCreated(round_1) from
@@ -228,7 +227,7 @@ async fn bids_changed_event_emitted_for_proxy_bidder() -> anyhow::Result<()> {
 
     // Tick: creates round 0 (RoundCreated) AND runs proxy bidding for alice
     // (BidsChanged). Both happen in the same tick but in separate transactions.
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0_id = rounds[0].round_id;
@@ -244,6 +243,89 @@ async fn bids_changed_event_emitted_for_proxy_bidder() -> anyhow::Result<()> {
             } if *a == auction_id && *r == round_0_id
         )),
         "expected BidsChanged for round {round_0_id}, got {events:?}",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn card_charge_grant_changed_event_emitted() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    let community_id = app.create_two_person_community().await?;
+    app.login_bob().await?;
+    let bob_id = app.client.user_profile().await?.user_id;
+
+    let mut rx = app.pubsub.subscribe();
+    app.client
+        .update_card_charge_grant(&requests::UpdateCardChargeGrant {
+            community_id,
+            grant: requests::ChargeGrant::Granted,
+        })
+        .await?;
+
+    let events = collect_events(&mut rx, 1).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            AuctionEvent::CardChargeGrantChanged { user_id }
+                if *user_id == bob_id
+        )),
+        "expected CardChargeGrantChanged for {bob_id}, got {events:?}",
+    );
+
+    Ok(())
+}
+
+/// Space values and proxy `max_items` size the budget hold preview, so
+/// writing either changes the funding view without touching a funding row
+/// and must emit `FundingChanged` (backed_credits communities).
+#[tokio::test]
+async fn funding_changed_event_emitted_on_budget_input_writes()
+-> anyhow::Result<()> {
+    let app = spawn_app().await;
+
+    let community_id = app.create_two_person_community().await?;
+    app.set_backed_credits_mode(&community_id).await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(app.time_source.now());
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    app.login_alice().await?;
+    let alice_id = app.client.user_profile().await?.user_id;
+
+    let mut rx = app.pubsub.subscribe();
+    app.client
+        .create_or_update_user_value(&requests::UserValue {
+            space_id: space.space_id,
+            value: Decimal::new(5, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 2,
+        })
+        .await?;
+
+    let events = collect_events(&mut rx, 2).await;
+    let funding_changed = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                AuctionEvent::FundingChanged { auction_id: a, user_id: u }
+                    if *a == auction_id && *u == alice_id
+            )
+        })
+        .count();
+    assert_eq!(
+        funding_changed, 2,
+        "expected FundingChanged for the value and max_items writes, \
+         got {events:?}",
     );
 
     Ok(())

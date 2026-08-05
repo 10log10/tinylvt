@@ -73,11 +73,22 @@ const DOCS_PAGES: &[DocsPage] = &[
         meta: PageMeta {
             title: "Currency Modes - TinyLVT",
             description: "Understand TinyLVT's currency options: internal \
-                points, IOUs between members, or prepaid credits.",
+                points, IOUs between members, or backed credits.",
             path: "/docs/currency",
         },
         markdown_file: "currency.md",
         output_file: "docs/currency/index.html",
+    },
+    DocsPage {
+        meta: PageMeta {
+            title: "Card Payments - TinyLVT",
+            description: "How card-backed bidding works in TinyLVT: card \
+                holds while you bid, payment only if you win, and Stripe \
+                setup for communities.",
+            path: "/docs/card-payments",
+        },
+        markdown_file: "card-payments.md",
+        output_file: "docs/card-payments/index.html",
     },
     DocsPage {
         meta: PageMeta {
@@ -351,6 +362,7 @@ fn render_page(
 <ul>
 <li><a href="/docs" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Getting Started</a></li>
 <li><a href="/docs/currency" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Currency Modes</a></li>
+<li><a href="/docs/card-payments" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Card Payments</a></li>
 <li><a href="/docs/setup" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Community Setup</a></li>
 <li><a href="/docs/auctions" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Auctions</a></li>
 <li><a href="/docs/desk-allocation" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Desk Allocation</a></li>

@@ -73,7 +73,10 @@ async fn main() -> Result<()> {
 fn start_scheduler(app: &test_helpers::TestApp) {
     let scheduler = Scheduler::new(
         app.db_pool.clone(),
+        app.worker_pool.clone(),
         app.time_source.clone(),
+        app.stripe_service.clone(),
+        app.email_service.clone(),
         Duration::from_secs(1), // Tick every second for development
     );
 

@@ -189,13 +189,13 @@ pub(super) async fn create_auction_params(
 
 pub async fn get_site_community_id(
     site_id: &SiteId,
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
 ) -> Result<CommunityId, StoreError> {
     sqlx::query_as::<_, CommunityId>(
         "SELECT community_id FROM sites WHERE id = $1",
     )
     .bind(site_id)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => ApiError::SiteNotFound.into(),

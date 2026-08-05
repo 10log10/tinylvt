@@ -1,4 +1,3 @@
-use api::scheduler;
 use jiff::Span;
 use jiff_sqlx::ToSqlx;
 use payloads::{ApiError, PermissionLevel, requests};
@@ -70,7 +69,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
         .await?;
 
     // Create initial round and do first round proxy bidding
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Check initial round creation
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
@@ -94,7 +93,7 @@ async fn test_proxy_bidding_two_spaces_auction() -> anyhow::Result<()> {
             .set(latest_round.round_details.end_at + Span::new().seconds(1));
 
         // Create the next round and do proxy bidding
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
 
         // Check if auction has ended
         let auction = app.client.get_auction(&auction_id).await?;
@@ -207,7 +206,7 @@ async fn test_proxy_bidding_basic() -> anyhow::Result<()> {
         .await?;
 
     // Create initial round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
     let round = &rounds[0];
@@ -344,7 +343,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
     println!("Charlie (Bidder 3): B=2, C=9, max_items=1");
 
     // Create initial round and run proxy bidding
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Run the auction to completion
     let mut rounds_processed = 0;
@@ -414,7 +413,7 @@ async fn test_proxy_bidding_three_bidders_debug() -> anyhow::Result<()> {
             .set(latest_round.round_details.end_at + Span::new().seconds(1));
 
         // Create the next round and do proxy bidding
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
 
         // Check if auction has ended
         let auction = app.client.get_auction(&auction_id).await?;
@@ -724,7 +723,7 @@ async fn setup_processed_round(
         .await?;
 
     // Round 0 creation + baseline proxy processing for both users
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     assert_eq!(rounds.len(), 1);
@@ -793,7 +792,7 @@ async fn test_per_user_failure_isolation() -> anyhow::Result<()> {
 
     app.time_source.advance(Span::new().seconds(1));
     let t1 = app.time_source.now();
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Bob reprocessed fine; alice's failure was recorded on her marker only.
     let bob = proxy_marker(&app.db_pool, &round_id, "bob").await?.unwrap();
@@ -810,7 +809,7 @@ async fn test_per_user_failure_isolation() -> anyhow::Result<()> {
 
     // Within backoff and with no input change, alice is not retried.
     app.time_source.advance(Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let alice = proxy_marker(&app.db_pool, &round_id, "alice")
         .await?
         .unwrap();
@@ -830,7 +829,7 @@ async fn test_per_user_failure_isolation() -> anyhow::Result<()> {
         .await?;
     app.time_source.advance(Span::new().seconds(1));
     let t3 = app.time_source.now();
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let alice = proxy_marker(&app.db_pool, &round_id, "alice")
         .await?
@@ -871,7 +870,7 @@ async fn test_per_user_reprocessing() -> anyhow::Result<()> {
     assert!(needs_processing(&app.db_pool, &auction_id, "alice").await?);
     assert!(!needs_processing(&app.db_pool, &auction_id, "bob").await?);
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let alice_after = proxy_marker(&app.db_pool, &round_id, "alice")
         .await?
@@ -921,14 +920,14 @@ async fn test_straddling_write_not_lost() -> anyhow::Result<()> {
 
     // A full processing pass runs while the write is in flight and
     // invisible; nothing is due, and alice's bid survives.
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     assert_eq!(bid_count(&app.db_pool, &round_id, "alice").await?, 1);
 
     // The writer commits after the pass, with updated_at equal to the
     // pass's own instant — exactly the straddle the watermark lost.
     writer_tx.commit().await?;
 
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // The flag arm re-selected alice: her new negative value yields no
     // bids, so reprocessing deleted the round-0 bid.
@@ -970,7 +969,7 @@ async fn test_user_value_writers_trigger_reprocessing() -> anyhow::Result<()> {
         .await?;
     assert!(needs_processing(&app.db_pool, &auction_id, "alice").await?);
     assert!(!needs_processing(&app.db_pool, &auction_id, "bob").await?);
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     let alice_after = proxy_marker(&app.db_pool, &round_id, "alice")
         .await?
@@ -986,7 +985,7 @@ async fn test_user_value_writers_trigger_reprocessing() -> anyhow::Result<()> {
     app.time_source.advance(Span::new().seconds(1));
     app.client.delete_user_value(&space_id).await?;
     assert!(needs_processing(&app.db_pool, &auction_id, "alice").await?);
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     assert_eq!(
         bid_count(&app.db_pool, &round_id, "alice").await?,
         0,
@@ -1009,7 +1008,7 @@ async fn test_user_value_writers_trigger_reprocessing() -> anyhow::Result<()> {
         .await?
         .unwrap();
     app.time_source.advance(Span::new().seconds(1));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
     let alice_canceled_after = proxy_marker(&app.db_pool, &round_id, "alice")
         .await?
         .unwrap();

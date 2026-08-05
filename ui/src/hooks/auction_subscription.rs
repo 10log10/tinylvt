@@ -45,6 +45,8 @@ pub(crate) struct AuctionSubscriptionRefetches {
     pub on_auction_ended: Callback<()>,
     pub on_auction_schedule_changed: Callback<()>,
     pub on_bids_changed: Callback<()>,
+    pub on_funding_changed: Callback<()>,
+    pub on_card_charge_grant_changed: Callback<()>,
 }
 
 /// The routing-only auction event kinds that the SSE stream delivers.
@@ -57,6 +59,8 @@ pub enum SubscribedEvent {
     AuctionEnded,
     AuctionScheduleChanged,
     BidsChanged,
+    FundingChanged,
+    CardChargeGrantChanged,
 }
 
 impl SubscribedEvent {
@@ -81,6 +85,10 @@ impl SubscribedEvent {
                 SubscribedEvent::AuctionScheduleChanged,
             ),
             on_bids_changed: cb(SubscribedEvent::BidsChanged),
+            on_funding_changed: cb(SubscribedEvent::FundingChanged),
+            on_card_charge_grant_changed: cb(
+                SubscribedEvent::CardChargeGrantChanged,
+            ),
         }
     }
 }
@@ -283,6 +291,12 @@ pub(crate) mod registry {
                 }
                 AuctionEvent::BidsChanged { .. } => {
                     h.on_bids_changed.emit(());
+                }
+                AuctionEvent::FundingChanged { .. } => {
+                    h.on_funding_changed.emit(());
+                }
+                AuctionEvent::CardChargeGrantChanged { .. } => {
+                    h.on_card_charge_grant_changed.emit(());
                 }
             }
         }

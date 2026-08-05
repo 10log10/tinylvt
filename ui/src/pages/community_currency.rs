@@ -5,8 +5,8 @@ use payloads::{
 use yew::prelude::*;
 
 use crate::components::{
-    ActiveTab, CommunityPageWrapper, CommunityTabHeader, PaginationControls,
-    RequireAuth, TransactionList, TransferForm,
+    ActiveTab, CommunityPageWrapper, CommunityTabHeader, CreditPurchaseSection,
+    PaginationControls, RequireAuth, TransactionList, TransferForm,
 };
 use crate::hooks::{use_member_currency_info, use_member_transactions};
 
@@ -122,13 +122,13 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                                         }
                                     }
 
-                                    // Locked Balance
+                                    // Committed by bids
                                     <div class="p-4 bg-neutral-50 dark:bg-neutral-700 rounded">
                                         <div class="text-sm text-neutral-600 dark:text-neutral-400">
-                                            {"Locked Balance"}
+                                            {"Committed by bids"}
                                         </div>
                                         <div class="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-                                            {props.community.community.currency.format_amount(info.locked_balance)}
+                                            {props.community.community.currency.format_amount(info.commitment)}
                                         </div>
                                     </div>
 
@@ -175,6 +175,52 @@ fn CommunityCurrencyContent(props: &ContentProps) -> Html {
                             },
                         )}
                     </div>
+
+                    // Card payments (backed credits): settle an
+                    // outstanding balance, buy credits, pending bank
+                    // payments. The section renders its own cards and
+                    // collapses to nothing when no action applies.
+                    // Gating on the denomination (not just the mode)
+                    // means the section always has a real minimum
+                    // charge to enforce.
+                    {if let Some(denom) = props
+                        .community
+                        .community
+                        .currency
+                        .backed_denomination()
+                    {
+                        currency_info.inner.render(
+                            |info, _is_loading, _errors| {
+                                let refetch_currency =
+                                    currency_info.refetch.clone();
+                                let refetch_txns =
+                                    transactions.refetch.clone();
+                                let community = &props.community.community;
+                                let currency = community.currency.clone();
+                                let card_ok =
+                                    community.card_payments_enabled;
+                                let on_balance_changed =
+                                    Callback::from(move |_| {
+                                        refetch_currency.emit(());
+                                        refetch_txns.emit(());
+                                    });
+                                html! {
+                                    <CreditPurchaseSection
+                                        community_id={props.community_id}
+                                        currency={currency}
+                                        card_payments_enabled={card_ok}
+                                        currency_info={info.clone()}
+                                        min_charge={denom.stripe_min_charge}
+                                        on_balance_changed={on_balance_changed}
+                                    />
+                                }
+                            },
+                            || html! {},
+                            |_errors: &[String]| html! {},
+                        )
+                    } else {
+                        html! {}
+                    }}
 
                     // Transfer Form Section
                     <div class="bg-white dark:bg-neutral-800 rounded-lg shadow p-6">

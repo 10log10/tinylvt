@@ -46,7 +46,8 @@ web-sys = { version = "0.3.77", features = [
     "EventSourceInit",
     "MessageEvent",
     "Navigator",
-    "Clipboard"
+    "Clipboard",
+    "PageTransitionEvent"
 ] }
 yew = { version = "0.21.0", features = ["csr"] }
 yew-router = "0.18.0"

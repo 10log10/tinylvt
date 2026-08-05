@@ -1,6 +1,6 @@
 use payloads::{
-    CurrencyMode, CurrencyModeConfig, CurrencySettings, IOUConfig,
-    PointsAllocationConfig, PrepaidCreditsConfig,
+    BackedCreditsConfig, CurrencyMode, CurrencyModeConfig, CurrencySettings,
+    DENOMINATIONS, IOUConfig, PointsAllocationConfig, denomination,
 };
 use rust_decimal::Decimal;
 use wasm_bindgen::JsCast;
@@ -52,9 +52,13 @@ pub fn CurrencyConfigEditor(props: &Props) -> Html {
             <div class="space-y-4">
                 <h3 class="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{"Currency Settings"}</h3>
 
-                {render_currency_name_input(props)}
-                {render_currency_symbol_input(props)}
-                {render_currency_minor_units_input(props)}
+                if current_mode == CurrencyMode::BackedCredits {
+                    {render_denomination_select(props)}
+                } else {
+                    {render_currency_name_input(props)}
+                    {render_currency_symbol_input(props)}
+                    {render_currency_minor_units_input(props)}
+                }
                 {render_balances_visible_checkbox(props)}
             </div>
 
@@ -85,9 +89,9 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
             "Members issue IOUs to treasury, settled later",
         ),
         (
-            CurrencyMode::PrepaidCredits,
-            "Prepaid Credits",
-            "Members purchase credits from treasury up front",
+            CurrencyMode::BackedCredits,
+            "Backed Credits",
+            "Real-currency credits with card-backed bidding via Stripe",
         ),
     ];
 
@@ -105,23 +109,37 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                     Callback::from(move |_| {
                         let new_mode_config = create_default_config_for_mode(&mode);
 
-                        // Auto-update currency name/symbol based on mode
-                        let (currency_name, currency_symbol) = match mode {
-                            CurrencyMode::PointsAllocation => {
-                                ("points".to_string(), "P".to_string())
-                            }
-                            CurrencyMode::DistributedClearing
-                            | CurrencyMode::DeferredPayment
-                            | CurrencyMode::PrepaidCredits => {
-                                ("dollars".to_string(), "$".to_string())
-                            }
-                        };
+                        // Auto-update currency name/symbol based on mode.
+                        // Backed credits must use an allow-listed
+                        // denomination, so default to USD.
+                        let (currency_name, currency_symbol, minor_units) =
+                            match mode {
+                                CurrencyMode::PointsAllocation => (
+                                    "points".to_string(),
+                                    "P".to_string(),
+                                    currency_minor_units,
+                                ),
+                                CurrencyMode::DistributedClearing
+                                | CurrencyMode::DeferredPayment => (
+                                    "dollars".to_string(),
+                                    "$".to_string(),
+                                    currency_minor_units,
+                                ),
+                                CurrencyMode::BackedCredits => {
+                                    let usd = denomination("USD").unwrap();
+                                    (
+                                        usd.iso.to_string(),
+                                        usd.symbol.to_string(),
+                                        usd.minor_units,
+                                    )
+                                }
+                            };
 
                         on_change_callback.emit(CurrencySettings {
                             mode_config: new_mode_config,
                             name: currency_name,
                             symbol: currency_symbol,
-                            minor_units: currency_minor_units,
+                            minor_units,
                             balances_visible_to_members: balances_visible,
                             new_members_default_active,
                         });
@@ -150,6 +168,63 @@ fn render_mode_selector(props: &Props, current_mode: &CurrencyMode) -> Html {
                 }
             })}
         </>
+    }
+}
+
+/// Denomination selector for backed credits mode, replacing the free-text
+/// name/symbol/decimals fields. The backend only accepts allow-listed
+/// denominations in this mode, so selecting from the list sets all three
+/// fields consistently. The denomination is immutable after creation, so
+/// the select is disabled outside the create flow (`can_change_mode`).
+fn render_denomination_select(props: &Props) -> Html {
+    let on_change = {
+        let on_change_callback = props.on_change.clone();
+        let currency = props.currency.clone();
+
+        Callback::from(move |e: Event| {
+            let select: web_sys::HtmlSelectElement =
+                e.target().unwrap().dyn_into().unwrap();
+            let Some(denom) = denomination(&select.value()) else {
+                return;
+            };
+            on_change_callback.emit(CurrencySettings {
+                name: denom.iso.to_string(),
+                symbol: denom.symbol.to_string(),
+                minor_units: denom.minor_units,
+                ..currency.clone()
+            });
+        })
+    };
+
+    html! {
+        <div>
+            <label class="block text-sm font-medium mb-1 \
+                          text-neutral-900 dark:text-neutral-100">
+                {"Denomination"}
+            </label>
+            <select
+                onchange={on_change}
+                disabled={props.disabled || !props.can_change_mode}
+                class="w-full max-w-xs border border-neutral-300 \
+                       dark:border-neutral-600 rounded px-3 py-2 \
+                       bg-white dark:bg-neutral-700 text-neutral-900 \
+                       dark:text-neutral-100"
+            >
+                {for DENOMINATIONS.iter().map(|d| html! {
+                    <option
+                        value={d.iso}
+                        selected={props.currency.name == d.iso}
+                    >
+                        {format!("{} ({})", d.iso, d.symbol)}
+                    </option>
+                })}
+            </select>
+            <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                {"The real currency that credits and card charges are \
+                  denominated in. Cannot be changed after community \
+                  creation."}
+            </p>
+        </div>
     }
 }
 
@@ -386,8 +461,8 @@ fn render_mode_specific_fields(props: &Props, _mode: &CurrencyMode) -> Html {
             config,
             "In Deferred Payment mode, members issue IOUs to the treasury which are settled later.",
         ),
-        CurrencyModeConfig::PrepaidCredits(ref config) => {
-            render_prepaid_credits_fields(props, config)
+        CurrencyModeConfig::BackedCredits(ref config) => {
+            render_backed_credits_fields(props, config)
         }
     }
 }
@@ -450,14 +525,21 @@ fn render_iou_fields(
     }
 }
 
-fn render_prepaid_credits_fields(
+fn render_backed_credits_fields(
     props: &Props,
-    config: &PrepaidCreditsConfig,
+    config: &BackedCreditsConfig,
 ) -> Html {
     html! {
         <div class="space-y-4">
             <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                {"In Prepaid Credits mode, members purchase credits from the treasury up front."}
+                {"Credits are denominated in a real currency (USD, EUR, \
+                  or GBP) and \
+                  backed by Stripe. After the community connects a Stripe \
+                  account, members with a saved card can bid beyond their \
+                  balance: bids are backed by card holds, charged only \
+                  when an auction settles. Credits move between members \
+                  and the treasury only — auction payments and purchases; \
+                  member-to-member transfers are disabled in this mode."}
             </p>
 
             {render_debts_callable_checkbox(props, config.debts_callable)}
@@ -864,8 +946,8 @@ fn create_default_config_for_mode(mode: &CurrencyMode) -> CurrencyModeConfig {
                 debts_callable: true,
             })
         }
-        CurrencyMode::PrepaidCredits => {
-            CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
+        CurrencyMode::BackedCredits => {
+            CurrencyModeConfig::BackedCredits(BackedCreditsConfig {
                 debts_callable: false,
             })
         }
@@ -877,6 +959,6 @@ fn mode_display_name(mode: &CurrencyMode) -> &'static str {
         CurrencyMode::DistributedClearing => "Distributed Clearing",
         CurrencyMode::PointsAllocation => "Points Allocation",
         CurrencyMode::DeferredPayment => "Deferred Payment",
-        CurrencyMode::PrepaidCredits => "Prepaid Credits",
+        CurrencyMode::BackedCredits => "Backed Credits",
     }
 }

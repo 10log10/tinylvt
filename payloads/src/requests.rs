@@ -478,3 +478,63 @@ pub struct CreateCheckoutSession {
 pub struct CreatePortalSession {
     pub community_id: crate::CommunityId,
 }
+
+/// Set how the member's automatic card authorizations are sized: one
+/// hold at their auction budget, or a minimal hold that grows with
+/// their bids.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateHoldStrategy {
+    /// TRUE = budget holds; FALSE = minimum start.
+    pub budget_holds: bool,
+}
+
+/// Member-initiated card authorization for an auction (the pre-authorize
+/// button). Without `amount`, sizing follows the member's hold strategy;
+/// with it, the authorization is raised to at least `amount`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthorizeFunding {
+    pub auction_id: crate::AuctionId,
+    pub amount: Option<rust_decimal::Decimal>,
+}
+
+/// Unsaved-card authorization for an auction: mints a Checkout session
+/// (mode=payment, manual capture) on the community's connected account
+/// sized at `amount` — the member's chosen spending cap — and returns
+/// its URL. Nothing is saved and no card-charge grant is involved; a
+/// completed session becomes the auction's active authorization,
+/// superseding any prior one.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CheckoutFunding {
+    pub auction_id: crate::AuctionId,
+    pub amount: rust_decimal::Decimal,
+}
+
+/// A member's grant decision for merchant-initiated charges on their
+/// saved card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChargeGrant {
+    Granted,
+    Revoked,
+}
+
+/// Grant or revoke this community's permission to charge the member's
+/// saved card (merchant-initiated holds/charges). Revocation stops new
+/// authorizations only — standing holds back binding bids and release
+/// through settlement or cancellation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateCardChargeGrant {
+    pub community_id: crate::CommunityId,
+    pub grant: ChargeGrant,
+}
+
+/// Start a credit purchase: mints a Checkout session on the community's
+/// connected account and returns its URL. For `DebtSettlement`, `amount`
+/// must equal the member's exact effective debt (balance plus pending
+/// captures) — the server re-derives it and rejects a stale figure so
+/// the balance never crosses zero.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateCreditPurchase {
+    pub community_id: crate::CommunityId,
+    pub kind: crate::PurchaseKind,
+    pub amount: rust_decimal::Decimal,
+}

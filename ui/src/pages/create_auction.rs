@@ -467,6 +467,11 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                             currency_name={props.site_with_role.community.community.currency.name.clone()}
                             disabled={*is_loading}
                         />
+
+                        {runaway_warning(
+                            &props.site_with_role.community.community,
+                            &auction_params,
+                        )}
                     </div>
 
                     <div class="flex space-x-3 pt-6 border-t border-neutral-200 dark:border-neutral-700">
@@ -505,5 +510,51 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                 </form>
             </div>
         </div>
+    }
+}
+
+/// Inform backed-mode organizers of the runaway deadline: an auction
+/// still live that long after starting is canceled with every card
+/// hold released, because members' card authorizations can't outlast
+/// it. Always shown — whether an auction approaches the deadline
+/// depends on bidding (round count is driven by the bid increment
+/// relative to bidders' values), not on round duration alone, so the
+/// note states the budget rather than guessing likelihood.
+fn runaway_warning(
+    community: &payloads::responses::Community,
+    params: &AuctionParams,
+) -> Html {
+    use payloads::CurrencyMode;
+
+    if community.currency.mode() != CurrencyMode::BackedCredits {
+        return html! {};
+    }
+    let round_secs = params
+        .round_duration
+        .total(jiff::Unit::Second)
+        .unwrap_or(0.0);
+    let deadline_secs =
+        (payloads::AUCTION_RUNAWAY_DEADLINE_HOURS * 3600) as f64;
+    let rounds_within_deadline = if round_secs > 0.0 {
+        (deadline_secs / round_secs).floor() as i64
+    } else {
+        0
+    };
+    html! {
+        <p class="text-sm text-neutral-600 dark:text-neutral-400 \
+                  bg-neutral-50 dark:bg-neutral-900 border \
+                  border-neutral-200 dark:border-neutral-700 \
+                  rounded-md p-3">
+            {format!(
+                "Card-backed auctions are canceled if still running {} \
+                 hours after they start (card holds can't be held \
+                 longer). The chosen round duration fits about {} \
+                 rounds in that budget; bidding must converge within \
+                 it, so make sure the bid increment isn't too small \
+                 relative to likely values.",
+                payloads::AUCTION_RUNAWAY_DEADLINE_HOURS,
+                rounds_within_deadline,
+            )}
+        </p>
     }
 }

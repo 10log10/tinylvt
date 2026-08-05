@@ -11,7 +11,6 @@
 
 use crate::TestApp;
 use anyhow::Result;
-use api::scheduler;
 use jiff::{Span, Timestamp};
 use payloads::{
     BidIncrement, CommunityId, ReservePrice, SiteId, requests, responses,
@@ -345,7 +344,7 @@ async fn run_chore_auction(
 
     let round_duration = auction_details.auction_params.round_duration;
     for round_num in 0..num_rounds_to_process {
-        scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+        app.tick().await;
         let current_time = app.time_source.now();
         app.time_source.set(current_time + round_duration);
         tracing::debug!(

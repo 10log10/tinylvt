@@ -86,12 +86,14 @@ impl<T: Clone + PartialEq> Deref for FetchHookReturn<T> {
 ///
 /// Derefs to `Fetch<T>` so `data`, `is_loading`, and `error` remain reachable
 /// as field access. `connection_status` is the live SSE connection state for
-/// UI freshness indicators. Refetches are driven by SSE events, not the
-/// caller, so there's no manual `refetch` callback.
+/// UI freshness indicators. Refetches are normally driven by SSE events;
+/// `refetch` covers mutations whose writes don't emit one (e.g. the card
+/// charge grant, which is community-scoped rather than auction-scoped).
 #[derive(Clone, PartialEq)]
 pub struct SubscribedFetchHookReturn<T: Clone + PartialEq> {
     pub inner: Fetch<T>,
     pub connection_status: ConnectionStatus,
+    pub refetch: Callback<()>,
 }
 
 impl<T: Clone + PartialEq> Deref for SubscribedFetchHookReturn<T> {
@@ -272,18 +274,11 @@ where
         move |errors: &[String]| {
             html! {
                 <div class="space-y-2">
-                    {for errors.iter().map(|err| html! {
-                        <div class="p-4 rounded-md bg-red-50 \
-                                   dark:bg-red-900/20 border \
-                                   border-red-200 dark:border-red-800">
-                            <p class="text-sm text-red-700 \
-                                      dark:text-red-400">
-                                {format!(
-                                    "Error loading {}: {}",
-                                    context_for_error, err,
-                                )}
-                            </p>
-                        </div>
+                    {for errors.iter().map(|err| {
+                        crate::utils::styles::error_banner(&format!(
+                            "Error loading {}: {}",
+                            context_for_error, err,
+                        ))
                     })}
                 </div>
             }
@@ -698,11 +693,16 @@ where
     Fut: Future<Output = Result<T, String>> + 'static,
 {
     let hook = use_fetch_state(deps.clone(), fetch_fn);
-    let connection_status =
-        use_subscription_lifecycle(deps, auction_id, events, hook.refetch);
+    let connection_status = use_subscription_lifecycle(
+        deps,
+        auction_id,
+        events,
+        hook.refetch.clone(),
+    );
 
     SubscribedFetchHookReturn {
         inner: hook.inner,
         connection_status,
+        refetch: hook.refetch,
     }
 }

@@ -23,25 +23,60 @@ use std::net::TcpListener;
 
 use crate::time::TimeSource;
 
+/// The dedicated pool for claim transactions that span Stripe calls
+/// (funding authorizations, the proxy funding worker, the capture
+/// worker). Each in-flight item pins one connection for the call's ~1s
+/// duration; `max_connections` is therefore the concurrency bound
+/// (pool-as-bound), and keeping it separate from the API pool means a
+/// Stripe brownout can't starve request handling. The pool sets its own
+/// `idle_in_transaction_session_timeout` so a leaked claim tx (holding
+/// the pair advisory lock) self-heals, regardless of server-level
+/// settings. Requires direct Postgres connections — transaction-mode
+/// poolers don't honor session SETs.
+#[derive(Clone)]
+pub struct WorkerPool(pub PgPool);
+
+pub async fn create_worker_pool(
+    database_url: &str,
+) -> Result<WorkerPool, sqlx::Error> {
+    use sqlx::postgres::PgPoolOptions;
+    let pool = PgPoolOptions::new()
+        .max_connections(16)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                use sqlx::Executor;
+                conn.execute("SET idle_in_transaction_session_timeout = '60s'")
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(database_url)
+        .await?;
+    Ok(WorkerPool(pool))
+}
+
 /// Build the server, but not await it.
 ///
 /// Returns the port that the server has bound to by modifying the config.
+/// The returned `JoinHandle` is the pubsub listener task, which loops
+/// forever with retry+backoff — it resolving means a panic. Main selects
+/// on it to fail fast; tests may ignore it.
 pub async fn build(
     config: &mut Config,
     db_pool: PgPool,
+    worker_pool: WorkerPool,
     time_source: TimeSource,
     stripe_service: std::sync::Arc<stripe_service::StripeService>,
+    email_service: std::sync::Arc<email::EmailService>,
     pubsub: pubsub::PubSub,
-) -> std::io::Result<(Server, ServerHandle)> {
+) -> std::io::Result<(Server, ServerHandle, tokio::task::JoinHandle<()>)> {
     // Spawn the Postgres listener task that forwards NOTIFYs from the
-    // `auction_changes` channel into the in-process broadcast. The listener
-    // loops forever with retry+backoff; it only returns when the broadcast
-    // channel is closed (process shutdown).
-    {
+    // `auction_changes` channel into the in-process broadcast.
+    let listener_task = {
         let db_url = config.database_url.clone();
         let bus = pubsub.clone();
-        tokio::spawn(pubsub::run_listener(db_url, bus));
-    }
+        tokio::spawn(pubsub::run_listener(db_url, bus))
+    };
     // Initialize session key from config or generate a temporary one
     let secret_key = match &config.session_master_key {
         Some(master_key) => {
@@ -67,16 +102,11 @@ pub async fn build(
         }
     };
     let db_pool = web::Data::new(db_pool);
+    let worker_pool = web::Data::new(worker_pool);
     let time_source = web::Data::new(time_source);
     let pubsub = web::Data::new(pubsub);
 
-    let email_service = web::Data::new(email::EmailService::new(
-        secrecy::SecretBox::new(Box::new(
-            config.email_api_key.expose_secret().clone(),
-        )),
-        config.email_from_address.clone(),
-    ));
-
+    let email_service = web::Data::from(email_service);
     let stripe_service = web::Data::from(stripe_service);
 
     // Clone config for use in closure
@@ -122,6 +152,7 @@ pub async fn build(
             )
             .service(routes::api_services())
             .app_data(db_pool.clone())
+            .app_data(worker_pool.clone())
             .app_data(
                 web::JsonConfig::default()
                     // 1 MB image as JSON-serialized Vec<u8>
@@ -138,7 +169,7 @@ pub async fn build(
     .listen(listener)?
     .run();
     let handle = server.handle();
-    Ok((server, handle))
+    Ok((server, handle, listener_task))
 }
 
 /// Configuration loaded from environment variables at startup.
@@ -165,6 +196,9 @@ pub struct Config {
     pub stripe_api_key: SecretBox<String>,
     /// Stripe webhook endpoint secret
     pub stripe_webhook_secret: SecretBox<String>,
+    /// Stripe Connect webhook endpoint secret (events from connected
+    /// accounts arrive on a separate endpoint with its own signing secret)
+    pub stripe_connect_webhook_secret: SecretBox<String>,
     /// Stripe Price ID for the monthly plan
     pub stripe_monthly_price_id: String,
     /// Stripe Price ID for the annual plan
@@ -183,6 +217,16 @@ pub struct AppConfig {
 }
 
 impl Config {
+    pub fn create_email_service(&self) -> std::sync::Arc<email::EmailService> {
+        std::sync::Arc::new(email::EmailService::new(
+            SecretBox::new(Box::new(
+                self.email_api_key.expose_secret().clone(),
+            )),
+            self.email_from_address.clone(),
+            self.base_url.clone(),
+        ))
+    }
+
     pub fn create_stripe_service(
         &self,
     ) -> std::sync::Arc<stripe_service::StripeService> {
@@ -192,6 +236,9 @@ impl Config {
             )),
             SecretBox::new(Box::new(
                 self.stripe_webhook_secret.expose_secret().clone(),
+            )),
+            SecretBox::new(Box::new(
+                self.stripe_connect_webhook_secret.expose_secret().clone(),
             )),
         ))
     }
@@ -227,6 +274,10 @@ impl Config {
             stripe_webhook_secret: SecretBox::new(Box::new(
                 var("STRIPE_WEBHOOK_SECRET")
                     .expect("STRIPE_WEBHOOK_SECRET must be set"),
+            )),
+            stripe_connect_webhook_secret: SecretBox::new(Box::new(
+                var("STRIPE_CONNECT_WEBHOOK_SECRET")
+                    .expect("STRIPE_CONNECT_WEBHOOK_SECRET must be set"),
             )),
             stripe_monthly_price_id: var("STRIPE_MONTHLY_PRICE_ID")
                 .expect("STRIPE_MONTHLY_PRICE_ID must be set"),

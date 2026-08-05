@@ -11,6 +11,12 @@ pub struct EmailService {
     #[cfg(not(feature = "mock-email"))]
     client: Resend,
     from_address: String,
+    /// Base URL for links in email bodies.
+    base_url: String,
+    /// Mock: every email "sent", for test assertions (the captured
+    /// outbox, following the Stripe mock's state-capture pattern).
+    #[cfg(feature = "mock-email")]
+    pub mock_sent_emails: std::sync::Mutex<Vec<SentEmail>>,
 }
 
 #[derive(Debug)]
@@ -20,19 +26,45 @@ pub struct EmailTemplate {
     pub text_body: String,
 }
 
+/// A captured mock send.
+#[cfg(feature = "mock-email")]
+#[derive(Debug, Clone)]
+pub struct SentEmail {
+    pub to: String,
+    pub subject: String,
+    pub text_body: String,
+}
+
 impl EmailService {
     #[cfg(not(feature = "mock-email"))]
-    pub fn new(api_key: SecretBox<String>, from_address: String) -> Self {
+    pub fn new(
+        api_key: SecretBox<String>,
+        from_address: String,
+        base_url: String,
+    ) -> Self {
         let client = Resend::new(api_key.expose_secret());
         Self {
             client,
             from_address,
+            base_url,
         }
     }
 
     #[cfg(feature = "mock-email")]
-    pub fn new(_api_key: SecretBox<String>, from_address: String) -> Self {
-        Self { from_address }
+    pub fn new(
+        _api_key: SecretBox<String>,
+        from_address: String,
+        base_url: String,
+    ) -> Self {
+        Self {
+            from_address,
+            base_url,
+            mock_sent_emails: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     #[tracing::instrument(skip(self), fields(to = %to_email))]
@@ -73,6 +105,11 @@ impl EmailService {
             self.from_address,
             template.subject
         );
+        self.mock_sent_emails.lock().unwrap().push(SentEmail {
+            to: to_email.to_string(),
+            subject: template.subject,
+            text_body: template.text_body,
+        });
         Ok(())
     }
 
@@ -82,10 +119,11 @@ impl EmailService {
         to_email: &str,
         username: &str,
         verification_token: &str,
-        base_url: &str,
     ) -> Result<()> {
-        let verification_link =
-            format!("{}/verify_email?token={}", base_url, verification_token);
+        let verification_link = format!(
+            "{}/verify_email?token={}",
+            self.base_url, verification_token
+        );
 
         let template = EmailTemplate {
             subject: "Verify your email address".to_string(),
@@ -126,10 +164,9 @@ If you didn't create an account, you can safely ignore this email.
         to_email: &str,
         username: &str,
         reset_token: &str,
-        base_url: &str,
     ) -> Result<()> {
         let reset_link =
-            format!("{}/reset_password?token={}", base_url, reset_token);
+            format!("{}/reset_password?token={}", self.base_url, reset_token);
 
         let template = EmailTemplate {
             subject: "Reset your password".to_string(),
@@ -175,9 +212,9 @@ If you didn't request this password reset, you can safely ignore this email. You
         to_email: &str,
         community_name: &str,
         invite_id: &str,
-        base_url: &str,
     ) -> Result<()> {
-        let invite_link = format!("{}/accept-invite/{}", base_url, invite_id);
+        let invite_link =
+            format!("{}/accept-invite/{}", self.base_url, invite_id);
 
         let template = EmailTemplate {
             subject: format!("You've been invited to join {}", community_name),

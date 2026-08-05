@@ -111,9 +111,18 @@ pub fn TransferForm(props: &Props) -> Html {
     // distributed_clearing.
     let treasury_allowed =
         props.currency.mode() != CurrencyMode::DistributedClearing;
+    // Member→member transfers are banned in backed_credits (credits
+    // move member→treasury only: auction payments and donations), so
+    // the treasury is the only destination there.
+    let members_allowed = props.currency.mode() != CurrencyMode::BackedCredits;
 
     // Form state
-    let destination_kind = use_state(|| DestinationKind::Member);
+    let default_destination = if members_allowed {
+        DestinationKind::Member
+    } else {
+        DestinationKind::Treasury
+    };
+    let destination_kind = use_state(move || default_destination);
     let selected_recipient = use_state(|| None::<UserId>);
     let amount_input = use_state(String::new);
     let note_input = use_state(String::new);
@@ -314,7 +323,7 @@ pub fn TransferForm(props: &Props) -> Html {
             amount_input.set(String::new());
             note_input.set(String::new());
             selected_recipient.set(None);
-            destination_kind.set(DestinationKind::Member);
+            destination_kind.set(default_destination);
             error_message.set(None);
             success_message.set(None);
             amount_error.set(None);
@@ -384,9 +393,23 @@ pub fn TransferForm(props: &Props) -> Html {
 
             // Destination kind toggle (member vs treasury). The treasury
             // option is hidden in distributed_clearing, where the treasury
-            // is not the structural counterparty.
+            // is not the structural counterparty; the member option is
+            // hidden in backed_credits, where member→member transfers
+            // are banned.
             {
-                if treasury_allowed {
+                if treasury_allowed && !members_allowed {
+                    html! {
+                        <p class="text-sm text-neutral-600
+                                  dark:text-neutral-400">
+                            {"Transfers go to the community treasury: use \
+                              this to relinquish credits, or if the \
+                              community has agreed to buy them back \
+                              (transferring doesn't itself trigger a \
+                              repayment). Member-to-member transfers \
+                              aren't available for card-backed credits."}
+                        </p>
+                    }
+                } else if treasury_allowed {
                     let toggle_button_classes = |selected: bool, side: &'static str| {
                         classes!(
                             "px-3", "py-2", "text-sm", "font-medium", "border",

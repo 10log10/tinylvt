@@ -59,13 +59,16 @@ use rust_decimal::prelude::ToPrimitive;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 
+use super::locks::TrackedTx;
 use super::{IdempotencyKey, JournalEntry, StoreError};
 
 use crate::time::TimeSource;
 
-/// Database-level Account struct that matches the accounts table schema
+/// Database-level Account struct that matches the accounts table schema.
+/// `pub(crate)` so the lock module (`store::locks`) can read rows under
+/// `FOR UPDATE` and convert them through the `TryFrom` below.
 #[derive(Debug, Clone, FromRow)]
-struct DbAccount {
+pub(crate) struct DbAccount {
     id: AccountId,
     community_id: CommunityId,
     owner_type: AccountOwnerType,
@@ -174,13 +177,30 @@ pub(crate) fn validate_currency_settings_quantization(
                 check_amount_quantized(limit, settings.minor_units)?;
             }
         }
-        payloads::CurrencyModeConfig::PrepaidCredits(_) => {}
+        payloads::CurrencyModeConfig::BackedCredits(_) => {}
     }
     Ok(())
 }
 
-/// Get effective credit limit for an account, excluding any locked balance
-/// pledged via auction bids.
+/// Validate that a backed_credits currency is an allow-listed real-currency
+/// denomination used exactly: name is the ISO code, and symbol/minor-units
+/// match the listed values. Cent-exact quantization is what keeps app amounts
+/// and Stripe charges equal by construction.
+pub(crate) fn validate_backed_denomination(
+    settings: &payloads::CurrencySettings,
+) -> Result<(), StoreError> {
+    let denom = payloads::denomination(&settings.name)
+        .ok_or(ApiError::UnsupportedDenomination)?;
+    if settings.symbol != denom.symbol
+        || settings.minor_units != denom.minor_units
+    {
+        return Err(ApiError::UnsupportedDenomination.into());
+    }
+    Ok(())
+}
+
+/// Get effective credit limit for an account, excluding any commitment pledged
+/// via auction bids.
 ///
 /// Returns account-specific limit if set, otherwise community default
 pub(crate) async fn get_effective_credit_limit_tx(
@@ -203,15 +223,15 @@ pub(crate) async fn get_effective_credit_limit_tx(
     Ok(row.0.or(row.1))
 }
 
-/// Get locked balance for an account (Rust-based implementation).
+/// A member's commitment: what their active bids oblige them to pay at
+/// settlement, summed over all active auctions in the account's community.
+/// Mode-independent — how commitments are backed is a separate question
+/// (balance and the credit line in the credit modes; balance plus card
+/// authorizations in backed_credits).
 ///
-/// The locked balance reduces the user's available credit. Sums the
-/// per-auction locked balance over all active auctions in the account's
-/// community.
-///
-/// Works within an active transaction and will see uncommitted changes made
-/// by the same transaction (e.g., bids inserted but not yet committed).
-async fn get_locked_balance_tx(
+/// Works within an active transaction and will see uncommitted changes made by
+/// the same transaction (e.g., bids inserted but not yet committed).
+async fn get_commitment_tx(
     account_id: &AccountId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Decimal, StoreError> {
@@ -238,23 +258,23 @@ async fn get_locked_balance_tx(
     .fetch_all(&mut **tx)
     .await?;
 
-    // Step 3: Sum locked balance across auctions
-    let mut total_locked = Decimal::ZERO;
+    // Step 3: Sum the commitment across auctions
+    let mut total_commitment = Decimal::ZERO;
     for auction_id in active_auction_ids {
-        total_locked +=
-            get_auction_locked_balance_tx(&user_id, &auction_id, tx).await?;
+        total_commitment +=
+            get_auction_commitment_tx(&user_id, &auction_id, tx).await?;
     }
 
-    Ok(total_locked)
+    Ok(total_commitment)
 }
 
-/// Get a user's locked balance within a single auction.
+/// Get a user's commitment within a single auction.
 ///
-/// Locked balance includes:
+/// The commitment includes:
 /// - Winning bids: value from latest processed round_space_results
 /// - Outstanding bids: (prev round value + bid increment) for unprocessed
 ///   rounds
-pub(crate) async fn get_auction_locked_balance_tx(
+pub(crate) async fn get_auction_commitment_tx(
     user_id: &payloads::UserId,
     auction_id: &payloads::AuctionId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -286,37 +306,11 @@ pub(crate) async fn get_auction_locked_balance_tx(
     .await?
     .flatten();
 
-    let mut locked = Decimal::ZERO;
+    // Commitment from winning bids in the latest processed round.
+    let mut commitment =
+        get_auction_winning_commitment_tx(user_id, auction_id, tx).await?;
 
-    // Add locked balance from winning bids in latest processed round
-    if let Some(processed_round_num) = max_processed_round {
-        let winning_values: Vec<Decimal> = sqlx::query_scalar(
-            r#"
-            SELECT rsr.value
-            FROM round_space_results rsr
-            JOIN auction_rounds ar ON rsr.round_id = ar.id
-            WHERE ar.auction_id = $1
-              AND ar.round_num = $2
-              AND rsr.winning_user_id = $3
-            "#,
-        )
-        .bind(auction_id)
-        .bind(processed_round_num)
-        .bind(user_id)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        // Clamp negative values (chore wins) to zero: a chore winner is
-        // owed compensation if the auction settles now, but a later
-        // round could displace them, so treating the unrealized chore
-        // reward as freed available credit would let them place
-        // positive bids funded by money they may never receive.
-        for value in winning_values {
-            locked += value.max(Decimal::ZERO);
-        }
-    }
-
-    // Add locked balance from bids in unprocessed rounds
+    // Add the commitment from bids in unprocessed rounds
     #[derive(sqlx::FromRow)]
     struct UnprocessedBid {
         space_id: payloads::SpaceId,
@@ -374,42 +368,106 @@ pub(crate) async fn get_auction_locked_balance_tx(
             bid_increment,
             bid.reserve_price,
         );
-        locked += bid_amount.max(Decimal::ZERO);
+        commitment += bid_amount.max(Decimal::ZERO);
     }
 
-    Ok(locked)
+    Ok(commitment)
+}
+
+/// Get a user's obligations on spaces they are already winning in an auction:
+/// the sum of their winning values in the latest processed round, each clamped
+/// to zero. One component of [`get_auction_commitment_tx`].
+pub(crate) async fn get_auction_winning_commitment_tx(
+    user_id: &payloads::UserId,
+    auction_id: &payloads::AuctionId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Decimal, StoreError> {
+    let winning_values: Vec<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT rsr.value
+        FROM round_space_results rsr
+        JOIN auction_rounds ar ON rsr.round_id = ar.id
+        WHERE ar.auction_id = $1
+          AND ar.round_num = (
+            SELECT MAX(ar2.round_num)
+            FROM round_space_results rsr2
+            JOIN auction_rounds ar2 ON rsr2.round_id = ar2.id
+            WHERE ar2.auction_id = $1
+          )
+          AND rsr.winning_user_id = $2
+        "#,
+    )
+    .bind(auction_id)
+    .bind(user_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Clamp negative values (chore wins) to zero: a chore winner is owed
+    // compensation if the auction settles now, but a later round could displace
+    // them, so treating the unrealized chore reward as freed available credit
+    // would let them place positive bids funded by money they may never
+    // receive.
+    let mut commitment = Decimal::ZERO;
+    for value in winning_values {
+        commitment += value.max(Decimal::ZERO);
+    }
+    Ok(commitment)
 }
 
 /// Get available credit for an account
 ///
 /// Returns the amount the account can still spend, accounting for:
 /// - Current balance (positive = credit, negative = debt)
-/// - Locked balance from outstanding auction bids
+/// - Encumbered balance: the portion of balance backing bid commitments
 /// - Credit limit (the maximum negative balance allowed)
 ///
-/// Formula: available = balance - locked_balance + credit_limit
+/// Formula: available = balance - encumbered + credit_limit, where the
+/// encumbrance depends on the currency mode. In the credit modes commitments
+/// are backed by balance and the credit line directly, so the commitment total
+/// itself encumbers. In backed_credits, only the balance commitments (`max(0,
+/// commitment − live auth)` per live auction) encumber balance — card holds
+/// cover commitments first — less pending settlement captures, which are
+/// committed incoming credit-backs (and the effective limit is structurally
+/// zero: the community CHECK pins the default, and overrides are only writable
+/// in the IOU modes). This makes the generic debit check the backed-mode
+/// outflow gate: outflows may spend exactly the balance no commitment claims.
 ///
 /// Examples:
-/// - balance=100, locked=20, limit=50 -> available=130
-/// - balance=0, locked=0, limit=50 -> available=50
-/// - balance=-30, locked=0, limit=50 -> available=20
-/// - balance=100, locked=50, limit=None -> available=None (unlimited)
+/// - balance=100, commitment=20, limit=50 -> available=130
+/// - balance=0, commitment=0, limit=50 -> available=50
+/// - balance=-30, commitment=0, limit=50 -> available=20
+/// - balance=100, commitment=50, limit=None -> available=None (unlimited)
+/// - backed: balance=50, commitment=80, auth=60 -> balance commitment=20,
+///   available=30
 ///
 /// Returns None if there's no credit limit (unlimited credit)
 async fn get_available_credit_tx(
     account_id: &AccountId,
+    now: jiff::Timestamp,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<Decimal>, StoreError> {
     // Get account info including balance and owner_type
-    let (balance, owner_type, credit_limit, default_limit): (
+    let (
+        balance,
+        owner_type,
+        credit_limit,
+        default_limit,
+        currency_mode,
+        community_id,
+        owner_id,
+    ): (
         Decimal,
         AccountOwnerType,
         Option<Decimal>,
         Option<Decimal>,
+        CurrencyMode,
+        CommunityId,
+        Option<UserId>, // NULL on treasury accounts
     ) = sqlx::query_as(
         r#"
         SELECT a.balance_cached, a.owner_type, a.credit_limit_override,
-               c.default_credit_limit
+               c.default_credit_limit, c.currency_mode,
+               a.community_id, a.owner_id
         FROM accounts a
         JOIN communities c ON a.community_id = c.id
         WHERE a.id = $1
@@ -424,9 +482,31 @@ async fn get_available_credit_tx(
     if owner_type == AccountOwnerType::CommunityTreasury {
         return Ok(None);
     }
+    let owner_id = owner_id.ok_or_else(|| {
+        anyhow::anyhow!("member account {account_id} has no owner_id")
+    })?;
 
-    // Get locked balance
-    let locked = get_locked_balance_tx(account_id, tx).await?;
+    // Balance encumbrance (see docstring)
+    let encumbered = if currency_mode == CurrencyMode::BackedCredits {
+        let balance_commitments =
+            super::funding::member_balance_commitments_tx(
+                &community_id,
+                &owner_id,
+                None,
+                now,
+                tx,
+            )
+            .await?;
+        let pending = super::funding::pending_captures(
+            &community_id,
+            &owner_id,
+            &mut **tx,
+        )
+        .await?;
+        balance_commitments - pending
+    } else {
+        get_commitment_tx(account_id, tx).await?
+    };
 
     // Calculate effective credit limit
     let effective_limit = credit_limit.or(default_limit);
@@ -437,9 +517,9 @@ async fn get_available_credit_tx(
     };
 
     // Calculate available credit
-    // available = balance - locked + limit
-    // This is equivalent to: limit - (locked - balance)
-    let available = balance - locked + limit;
+    // available = balance - encumbered + limit
+    // This is equivalent to: limit - (encumbered - balance)
+    let available = balance - encumbered + limit;
 
     Ok(Some(available))
 }
@@ -449,16 +529,18 @@ async fn get_available_credit_tx(
 /// Returns Ok(()) if the account can spend the given amount, or
 /// Err(ApiError::InsufficientBalance) if not.
 ///
-/// Demands a [`LockedAccounts`] witness covering the account: without the row
-/// lock, a settlement or transfer committing between this check's statements
-/// could tear the balance/locked-balance read and overstate available credit.
+/// Demands the account be covered by the transaction's account-row locks:
+/// without the row lock, a settlement or transfer committing between this
+/// check's statements could tear the balance/commitment read and overstate
+/// available credit.
 pub(crate) async fn check_sufficient_credit_tx(
     account_id: &AccountId,
     amount: Decimal,
-    locked: &mut LockedAccounts<'_, '_>,
+    now: jiff::Timestamp,
+    ttx: &mut TrackedTx<'_, '_>,
 ) -> Result<(), StoreError> {
-    locked.require(account_id)?;
-    let available = get_available_credit_tx(account_id, locked.tx()).await?;
+    ttx.locked_account(account_id)?;
+    let available = get_available_credit_tx(account_id, now, ttx.tx()).await?;
 
     // If available is None, unlimited credit
     let Some(available_amount) = available else {
@@ -472,177 +554,10 @@ pub(crate) async fn check_sufficient_credit_tx(
     Ok(())
 }
 
-/// Account row locking, structured so holding the locks is provable in the type
-/// system. [`LockedAccounts`] is a witness constructible only inside this
-/// module, so a function that takes one can rely on its accounts being `FOR
-/// UPDATE`-locked by the current transaction. The witness holds the
-/// transaction's `&mut` borrow: while it lives, every statement must flow
-/// through [`LockedAccounts::tx`], so a witness can't be paired with a
-/// different transaction or outlive its own.
-mod lock {
-    use super::*;
-
-    /// Canonical lock order for account rows: raw UUID byte order, matching the
-    /// database's `ORDER BY id`. Every site that takes row locks on multiple
-    /// accounts within one transaction — explicit `SELECT FOR UPDATE` or the
-    /// implicit locks of balance updates — must acquire in this order, or two
-    /// transactions sharing accounts can AB/BA deadlock. All sorted-locking
-    /// sites must use this one key rather than an ad-hoc ordering: lexical
-    /// order on `id.to_string()`, for example, happens to coincide with byte
-    /// order for lowercase hyphenated UUIDs, but that's a fact to avoid
-    /// depending on site by site. The discipline spans the transaction's entire
-    /// lifetime, not each statement or loop: a lock taken early (say, on one
-    /// account whose balance a caller needs) followed by later locks on
-    /// lower-ordered accounts is an out-of-order acquisition even if each phase
-    /// is internally sorted. That's why this module offers no way to extend a
-    /// witness with more accounts: a flow that discovers it needs another
-    /// account row must restructure to lock the full set in one acquisition up
-    /// front.
-    pub fn account_lock_sort_key(id: &AccountId) -> uuid::Uuid {
-        id.0
-    }
-
-    /// Witness that a set of account rows is locked (`FOR UPDATE`) by the
-    /// current transaction. Carries the rows as read at lock acquisition —
-    /// authoritative for as long as the witness lives, since no other
-    /// transaction can change them — sorted in canonical lock order.
-    ///
-    /// [`create_entry`] consumes the witness because its balance updates
-    /// invalidate the snapshot; the transaction borrow is released back to the
-    /// caller when the witness dies, so the caller can commit. A caller that
-    /// needs balances afterward re-reads with a plain `SELECT` (the row locks
-    /// are held until commit regardless).
-    pub(crate) struct LockedAccounts<'a, 'tx> {
-        accounts: Vec<Account>,
-        tx: &'a mut sqlx::Transaction<'tx, sqlx::Postgres>,
-    }
-
-    impl<'a, 'tx> LockedAccounts<'a, 'tx> {
-        /// Access the transaction for further statements under the locks.
-        pub(crate) fn tx(
-            &mut self,
-        ) -> &mut sqlx::Transaction<'tx, sqlx::Postgres> {
-            self.tx
-        }
-
-        /// The locked accounts, in canonical lock order.
-        pub(crate) fn accounts(&self) -> &[Account] {
-            &self.accounts
-        }
-
-        /// The locked account with the given id, erring if the witness doesn't
-        /// cover it. The error is an internal invariant violation (a 500, not a
-        /// user error): it means a caller locked a set that doesn't cover the
-        /// accounts it went on to touch.
-        pub(crate) fn require(
-            &self,
-            id: &AccountId,
-        ) -> Result<&Account, StoreError> {
-            self.accounts
-                .binary_search_by_key(&account_lock_sort_key(id), |a| {
-                    account_lock_sort_key(&a.id)
-                })
-                .ok()
-                .map(|i| &self.accounts[i])
-                .ok_or(StoreError::AccountNotLocked)
-        }
-    }
-
-    fn into_accounts(
-        db_accounts: Vec<DbAccount>,
-    ) -> Result<Vec<Account>, StoreError> {
-        db_accounts.into_iter().map(Account::try_from).collect()
-    }
-
-    /// Lock account rows in canonical order (`ORDER BY id` before the locking
-    /// node acquires in exactly that order). Callers that need account state
-    /// before [`create_entry`] — e.g. a balance read that determines the
-    /// journal lines — must lock the entry's full account set here first and
-    /// pass the witness down; locking only a subset and acquiring the rest
-    /// later re-creates the out-of-order interleaving the canonical order
-    /// exists to prevent.
-    pub(crate) async fn lock_accounts_tx<'a, 'tx>(
-        account_ids: &[AccountId],
-        tx: &'a mut sqlx::Transaction<'tx, sqlx::Postgres>,
-    ) -> Result<LockedAccounts<'a, 'tx>, StoreError> {
-        let mut ids: Vec<uuid::Uuid> =
-            account_ids.iter().map(account_lock_sort_key).collect();
-        ids.sort();
-        ids.dedup();
-        let db_accounts: Vec<DbAccount> = sqlx::query_as(
-            "SELECT * FROM accounts WHERE id = ANY($1) ORDER BY id FOR UPDATE",
-        )
-        .bind(&ids)
-        .fetch_all(&mut **tx)
-        .await?;
-        if db_accounts.len() != ids.len() {
-            return Err(ApiError::AccountNotFound.into());
-        }
-        Ok(LockedAccounts {
-            accounts: into_accounts(db_accounts)?,
-            tx,
-        })
-    }
-
-    /// Lock a single account row by owner. Single-row acquisition is trivially
-    /// in canonical order; the resulting witness is `accounts()[0]`.
-    pub(crate) async fn lock_account_tx<'a, 'tx>(
-        community_id: &CommunityId,
-        owner: AccountOwner,
-        tx: &'a mut sqlx::Transaction<'tx, sqlx::Postgres>,
-    ) -> Result<LockedAccounts<'a, 'tx>, StoreError> {
-        let db_account: DbAccount = sqlx::query_as(
-            r#"
-            SELECT * FROM accounts
-            WHERE community_id = $1
-              AND owner_type = $2
-              AND owner_id IS NOT DISTINCT FROM $3
-            FOR UPDATE
-            "#,
-        )
-        .bind(community_id)
-        .bind(owner.owner_type())
-        .bind(owner.owner_id())
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or(ApiError::AccountNotFound)?;
-        Ok(LockedAccounts {
-            accounts: vec![db_account.try_into()?],
-            tx,
-        })
-    }
-
-    /// Lock every member and treasury account in a community, in canonical
-    /// order. For operations whose account set is defined by a predicate rather
-    /// than known ids (balance reset).
-    pub(crate) async fn lock_community_accounts_tx<'a, 'tx>(
-        community_id: &CommunityId,
-        tx: &'a mut sqlx::Transaction<'tx, sqlx::Postgres>,
-    ) -> Result<LockedAccounts<'a, 'tx>, StoreError> {
-        let db_accounts: Vec<DbAccount> = sqlx::query_as(
-            r#"
-            SELECT * FROM accounts
-            WHERE community_id = $1
-              AND owner_type IN ('member_main', 'community_treasury')
-            ORDER BY id
-            FOR UPDATE
-            "#,
-        )
-        .bind(community_id)
-        .fetch_all(&mut **tx)
-        .await?;
-        Ok(LockedAccounts {
-            accounts: into_accounts(db_accounts)?,
-            tx,
-        })
-    }
-}
-
-pub use lock::account_lock_sort_key;
-pub(crate) use lock::{
-    LockedAccounts, lock_account_tx, lock_accounts_tx,
-    lock_community_accounts_tx,
-};
+// Account row locking lives in `store::locks` (`TrackedTx::lock_accounts`
+// and friends), where holding the locks is recorded alongside the
+// transaction's other coordination locks. The canonical account lock order
+// is `AccountId`'s `Ord` (raw UUID byte order); see the `locks` module docs.
 
 /// Parameters for creating a journal entry
 struct CreateEntryParams<'a> {
@@ -653,6 +568,9 @@ struct CreateEntryParams<'a> {
     auction_id: Option<&'a payloads::AuctionId>,
     initiated_by_id: Option<&'a UserId>,
     note: Option<String>,
+    /// Stripe PaymentIntent behind a `StripePayment` entry (required for
+    /// that type by a schema CHECK); None for every other entry type.
+    payment_intent_id: Option<&'a str>,
 }
 
 /// Create a journal entry with lines, updating balances atomically
@@ -666,24 +584,25 @@ struct CreateEntryParams<'a> {
 ///
 /// Special entry types:
 /// - AuctionSettlement: Multiple lines per account allowed, skips credit checks
-///   (locked balance already includes debits)
+///   (commitments already include the debits)
 /// - BalanceReset: credit checks skipped (they would trivially pass)
 ///
 /// The caller locks every line account in one up-front acquisition (see
-/// [`lock_accounts_tx`]) and passes the witness; a witness that doesn't cover
-/// every line is an internal error. Locking only a subset and letting the
-/// balance updates below acquire the rest implicitly would be a second
-/// acquisition phase whose locks can land below already-held ids, AB/BAing
-/// against a concurrent entry sharing accounts (e.g. reverse transfers A→B and
-/// B→A). The witness is consumed because the balance updates invalidate its
-/// snapshot; the transaction borrow returns to the caller for the commit.
+/// [`TrackedTx::lock_accounts`]); a snapshot that doesn't cover every line is
+/// an internal error. Locking only a subset and letting the balance updates
+/// below acquire the rest implicitly would be a second acquisition phase whose
+/// locks can land below already-held ids, AB/BAing against a concurrent entry
+/// sharing accounts (e.g. reverse transfers A→B and B→A). The balance updates
+/// invalidate the account snapshot on the way out; a caller that needs
+/// balances afterward re-locks or re-reads with a plain `SELECT` (the row
+/// locks are held until commit regardless).
 ///
 /// Uses idempotency_key for deduplication - if key exists, returns Ok
 /// without error.
 async fn create_entry(
     params: CreateEntryParams<'_>,
     time_source: &TimeSource,
-    mut locked: LockedAccounts<'_, '_>,
+    ttx: &mut TrackedTx<'_, '_>,
 ) -> Result<(), StoreError> {
     // Validate note length
     if let Some(note) = &params.note
@@ -704,7 +623,7 @@ async fn create_entry(
         "SELECT id FROM journal_entries WHERE idempotency_key = $1",
     )
     .bind(params.idempotency_key)
-    .fetch_optional(&mut **locked.tx())
+    .fetch_optional(&mut **ttx.tx())
     .await?;
 
     if existing.is_some() {
@@ -719,10 +638,10 @@ async fn create_entry(
 
     let lines = params.lines;
 
-    // Every line account must be covered by the caller's lock witness before
+    // Every line account must be covered by the caller's account locks before
     // any balance-affecting statement runs.
     for (account_id, _) in &lines {
-        locked.require(account_id)?;
+        ttx.locked_account(account_id)?;
     }
 
     // Quantization backstop, all modes and entry types: every line must be
@@ -739,7 +658,7 @@ async fn create_entry(
         "SELECT currency_minor_units FROM communities WHERE id = $1",
     )
     .bind(params.community_id)
-    .fetch_one(&mut **locked.tx())
+    .fetch_one(&mut **ttx.tx())
     .await?;
     for (_, amount) in &lines {
         if !payloads::is_quantized(*amount, minor_units) {
@@ -754,7 +673,7 @@ async fn create_entry(
 
     // Skip credit checks for auction settlement, balance reset, and rounding
     // adjustment
-    // - Auction settlement: locked balance already includes debits
+    // - Auction settlement: commitments already include the debits
     // - Balance reset: credit checks would trivially pass
     // - Rounding adjustment: system-imposed dust movement must not fail on an
     //   account already at its credit limit
@@ -780,7 +699,7 @@ async fn create_entry(
                 continue; // Skip credits, only check debits
             }
 
-            check_sufficient_credit_tx(account_id, amount.abs(), &mut locked)
+            check_sufficient_credit_tx(account_id, amount.abs(), now, ttx)
                 .await?;
         }
     }
@@ -798,9 +717,10 @@ async fn create_entry(
             auction_id,
             initiated_by_id,
             note,
+            payment_intent_id,
             created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING id
         "#,
@@ -811,8 +731,9 @@ async fn create_entry(
     .bind(params.auction_id)
     .bind(params.initiated_by_id)
     .bind(&params.note)
+    .bind(params.payment_intent_id)
     .bind(now.to_sqlx())
-    .fetch_optional(&mut **locked.tx())
+    .fetch_optional(&mut **ttx.tx())
     .await?;
 
     let Some(entry_id) = entry_id else {
@@ -832,7 +753,7 @@ async fn create_entry(
         .bind(entry_id)
         .bind(account_id)
         .bind(amount)
-        .execute(&mut **locked.tx())
+        .execute(&mut **ttx.tx())
         .await?;
 
         // Update balance_cached
@@ -845,9 +766,12 @@ async fn create_entry(
         )
         .bind(amount)
         .bind(account_id)
-        .execute(&mut **locked.tx())
+        .execute(&mut **ttx.tx())
         .await?;
     }
+
+    // The updates above made the snapshot's balances stale.
+    ttx.invalidate_account_snapshot();
 
     Ok(())
 }
@@ -878,7 +802,7 @@ pub fn system_idempotency_key(
 /// - points_allocation: Winners pay treasury
 /// - distributed_clearing: Winners pay, split equally among active members
 /// - deferred_payment: Winners pay treasury
-/// - prepaid_credits: Winners pay treasury
+/// - backed_credits: Winners pay treasury
 ///
 /// For distributed_clearing, distributions go only to members currently marked
 /// as active (allows observer members, decouples bidding rights from
@@ -892,7 +816,7 @@ pub fn system_idempotency_key(
 /// tracked in round_space_results, not in the journal.
 ///
 /// Settlement skips credit checks (the AuctionSettlement entry type), since
-/// the locked balance includes the very bids being settled.
+/// the commitment includes the very bids being settled.
 ///
 /// Uses a deterministic (v5) idempotency key derived from the auction id,
 /// adding a second exactly-once guarantee alongside the scheduler's advisory
@@ -900,13 +824,19 @@ pub fn system_idempotency_key(
 /// because client-supplied keys are v4-only (`ClientIdempotencyKey`) —
 /// otherwise a member could pre-create an entry under the key and silently
 /// block settlement.
+///
+/// Lock contract: expects the auction-processing lock (key-checked);
+/// acquires the entry's account locks (winners + treasury or distribution
+/// recipients) in one up-front acquisition.
 pub async fn create_auction_settlement_entry(
     community_id: &CommunityId,
     auction_id: &payloads::AuctionId,
     winner_payments: HashMap<UserId, Decimal>,
     time_source: &TimeSource,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locks: &mut TrackedTx<'_, '_>,
 ) -> Result<(), StoreError> {
+    locks.expect_processing(auction_id)?;
+    let tx = locks.tx();
     let idempotency_key =
         system_idempotency_key("auction_settlement", auction_id);
 
@@ -954,7 +884,7 @@ pub async fn create_auction_settlement_entry(
     match currency_mode {
         CurrencyMode::PointsAllocation
         | CurrencyMode::DeferredPayment
-        | CurrencyMode::PrepaidCredits => {
+        | CurrencyMode::BackedCredits => {
             // All payments go to treasury
             let treasury_account =
                 get_account_tx(community_id, AccountOwner::Treasury, tx)
@@ -992,7 +922,7 @@ pub async fn create_auction_settlement_entry(
     // Create the journal entry as an auction settlement
     let line_account_ids: Vec<AccountId> =
         lines.iter().map(|(account_id, _)| *account_id).collect();
-    let locked = lock_accounts_tx(&line_account_ids, tx).await?;
+    locks.lock_accounts(&line_account_ids).await?;
     create_entry(
         CreateEntryParams {
             community_id,
@@ -1003,13 +933,165 @@ pub async fn create_auction_settlement_entry(
             initiated_by_id: None, /* No initiated_by_id for automated
                                     * settlements */
             note: None,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        locks,
     )
     .await?;
 
     Ok(())
+}
+
+/// Create a treasury→member issuance entry recording a captured card
+/// payment for an auction win (`StripePayment`, `payment_intent_id` set).
+/// The settlement debit already exists, so this credit returns the
+/// member's balance toward zero. Idempotency key derives from the funding
+/// intent id, so worker retries and redundant webhook deliveries no-op.
+/// Called by the capture worker inside its claim transaction.
+///
+/// Lock contract: expects the pair lock (key-checked — the worker's
+/// claim); acquires the treasury and member account locks (sorted).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn create_capture_issuance_entry_tx(
+    community_id: &CommunityId,
+    auction_id: &payloads::AuctionId,
+    user_id: &UserId,
+    amount: Decimal,
+    payment_intent_id: &str,
+    intent_id: &payloads::FundingIntentId,
+    time_source: &TimeSource,
+    locks: &mut TrackedTx<'_, '_>,
+) -> Result<(), StoreError> {
+    locks.expect_pair(auction_id, user_id)?;
+    issue_from_treasury_tx(
+        community_id,
+        user_id,
+        amount,
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::StripePayment,
+            idempotency_key: system_idempotency_key(
+                "stripe_capture",
+                intent_id,
+            ),
+            lines: Vec::new(),
+            auction_id: Some(auction_id),
+            initiated_by_id: None,
+            note: None,
+            payment_intent_id: Some(payment_intent_id),
+        },
+        time_source,
+        locks,
+    )
+    .await
+}
+
+/// Create a treasury→member issuance entry recording a completed credit
+/// purchase (`StripePayment`, `payment_intent_id` set, no auction).
+/// Idempotency key derives from the purchase id — a purchase and its
+/// PaymentIntent are 1:1 (both columns unique), so redundant webhook
+/// deliveries no-op. Called by the purchase webhook applier.
+///
+/// Lock contract: acquires the treasury and member account locks
+/// (sorted).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn create_purchase_issuance_entry_tx(
+    community_id: &CommunityId,
+    user_id: &UserId,
+    amount: Decimal,
+    payment_intent_id: &str,
+    purchase_id: &payloads::CreditPurchaseId,
+    kind: payloads::PurchaseKind,
+    time_source: &TimeSource,
+    ttx: &mut TrackedTx<'_, '_>,
+) -> Result<(), StoreError> {
+    let note = match kind {
+        payloads::PurchaseKind::TopUp => "Credit purchase",
+        payloads::PurchaseKind::DebtSettlement => "Outstanding balance payment",
+    };
+    issue_from_treasury_tx(
+        community_id,
+        user_id,
+        amount,
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::StripePayment,
+            idempotency_key: system_idempotency_key(
+                "stripe_purchase",
+                purchase_id,
+            ),
+            lines: Vec::new(),
+            auction_id: None,
+            initiated_by_id: None,
+            note: Some(note.into()),
+            payment_intent_id: Some(payment_intent_id),
+        },
+        time_source,
+        ttx,
+    )
+    .await
+}
+
+/// Create a treasury→member issuance entry forgiving a card remainder too
+/// small for Stripe to capture (below the denomination's minimum charge).
+/// The settlement debit left the balance negative by `amount`; forgiving
+/// returns it to zero. Recorded at conclusion by
+/// `settle_auction_funding_tx`.
+///
+/// Lock contract: per the caller's contract, the treasury and member account
+/// locks are already held from the settlement entry; the acquisition here is a
+/// re-lock, never a new wait.
+pub(crate) async fn create_forgiveness_issuance_entry_tx(
+    community_id: &CommunityId,
+    auction_id: &payloads::AuctionId,
+    user_id: &UserId,
+    amount: Decimal,
+    intent_id: &payloads::FundingIntentId,
+    time_source: &TimeSource,
+    ttx: &mut TrackedTx<'_, '_>,
+) -> Result<(), StoreError> {
+    issue_from_treasury_tx(
+        community_id,
+        user_id,
+        amount,
+        CreateEntryParams {
+            community_id,
+            entry_type: EntryType::TreasuryTransfer,
+            idempotency_key: system_idempotency_key(
+                "forgive_subminimum",
+                intent_id,
+            ),
+            lines: Vec::new(),
+            auction_id: Some(auction_id),
+            initiated_by_id: None,
+            note: Some("Forgiven card remainder below charge minimum".into()),
+            payment_intent_id: None,
+        },
+        time_source,
+        ttx,
+    )
+    .await
+}
+
+/// Lock the treasury and member accounts, fill in the treasury→member
+/// lines, and create the entry from `params` (whose `lines` are ignored).
+async fn issue_from_treasury_tx(
+    community_id: &CommunityId,
+    user_id: &UserId,
+    amount: Decimal,
+    mut params: CreateEntryParams<'_>,
+    time_source: &TimeSource,
+    ttx: &mut TrackedTx<'_, '_>,
+) -> Result<(), StoreError> {
+    let treasury =
+        get_account_tx(community_id, AccountOwner::Treasury, ttx.tx()).await?;
+    let member =
+        get_account_tx(community_id, AccountOwner::Member(*user_id), ttx.tx())
+            .await?;
+    params.lines = vec![(treasury.id, -amount), (member.id, amount)];
+    ttx.lock_accounts(&[treasury.id, member.id]).await?;
+    create_entry(params, time_source, ttx).await
 }
 
 /// Get account by owner within a transaction
@@ -1141,10 +1223,9 @@ fn apportion_to_grain(
     // Indices ranked by (residual desc, account id asc).
     let mut order: Vec<usize> = (0..targets.len()).collect();
     order.sort_by(|&a, &b| {
-        residuals[b].cmp(&residuals[a]).then_with(|| {
-            account_lock_sort_key(&targets[a].0)
-                .cmp(&account_lock_sort_key(&targets[b].0))
-        })
+        residuals[b]
+            .cmp(&residuals[a])
+            .then_with(|| targets[a].0.cmp(&targets[b].0))
     });
     for &idx in order.iter().take(leftover_units) {
         amounts[idx] += grain;
@@ -1160,13 +1241,14 @@ fn apportion_to_grain(
 /// Get currency information for a member
 ///
 /// Returns account balance, effective credit limit (uses community default if
-/// not set), locked balance (from auction bids), and available credit for the
+/// not set), commitment (from auction bids), and available credit for the
 /// member in their community.
 ///
 /// Note: `target_member` represents the member whose info is being fetched,
 /// not necessarily the user making the request.
 async fn get_member_currency_info(
     target_member: &super::ValidatedMember,
+    time_source: &TimeSource,
     pool: &PgPool,
 ) -> Result<payloads::responses::MemberCurrencyInfo, StoreError> {
     let mut tx = pool.begin().await?;
@@ -1183,12 +1265,20 @@ async fn get_member_currency_info(
     let effective_credit_limit =
         get_effective_credit_limit_tx(&account.id, &mut tx).await?;
 
-    // Get locked balance
-    let locked_balance = get_locked_balance_tx(&account.id, &mut tx).await?;
+    // Get the member's commitment
+    let commitment = get_commitment_tx(&account.id, &mut tx).await?;
 
     // Get available credit
     let available_credit =
-        get_available_credit_tx(&account.id, &mut tx).await?;
+        get_available_credit_tx(&account.id, time_source.now(), &mut tx)
+            .await?;
+
+    let pending_captures = super::funding::pending_captures(
+        &target_member.0.community_id,
+        &target_member.0.user_id,
+        &mut *tx,
+    )
+    .await?;
 
     tx.commit().await?;
 
@@ -1196,8 +1286,9 @@ async fn get_member_currency_info(
         account_id: account.id,
         balance: account.balance_cached,
         credit_limit: effective_credit_limit,
-        locked_balance,
+        commitment,
         available_credit,
+        pending_captures,
     })
 }
 
@@ -1403,8 +1494,8 @@ pub fn currency_mode_config_from_db(
     allowance_start: Option<jiff::Timestamp>,
 ) -> Option<payloads::CurrencyModeConfig> {
     use payloads::{
-        CurrencyModeConfig, IOUConfig, PointsAllocationConfig,
-        PrepaidCreditsConfig,
+        BackedCreditsConfig, CurrencyModeConfig, IOUConfig,
+        PointsAllocationConfig,
     };
 
     match mode {
@@ -1458,7 +1549,7 @@ pub fn currency_mode_config_from_db(
                 debts_callable,
             }))
         }
-        CurrencyMode::PrepaidCredits => {
+        CurrencyMode::BackedCredits => {
             // Must not have allowance fields
             if allowance_amount.is_some()
                 || allowance_period.is_some()
@@ -1470,7 +1561,7 @@ pub fn currency_mode_config_from_db(
             if default_credit_limit != Some(Decimal::ZERO) {
                 return None;
             }
-            Some(CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
+            Some(CurrencyModeConfig::BackedCredits(BackedCreditsConfig {
                 debts_callable,
             }))
         }
@@ -1554,8 +1645,8 @@ pub fn currency_mode_config_to_db(
             None,
             None,
         ),
-        CurrencyModeConfig::PrepaidCredits(cfg) => (
-            CurrencyMode::PrepaidCredits,
+        CurrencyModeConfig::BackedCredits(cfg) => (
+            CurrencyMode::BackedCredits,
             Some(cfg.credit_limit()),
             cfg.debts_callable,
             None,
@@ -1667,7 +1758,7 @@ pub async fn update_credit_limit_override(
 /// The sender must be a validated member of the community. The destination
 /// is either another member in the same community, or the community
 /// treasury for modes where the treasury is the structural counterparty
-/// (points_allocation, deferred_payment, prepaid_credits). Treasury
+/// (points_allocation, deferred_payment, backed_credits). Treasury
 /// destinations are rejected in distributed_clearing -- the treasury has
 /// no steady-state counterparty role there, so member-initiated transfers
 /// to it have no clean meaning.
@@ -1684,7 +1775,7 @@ pub async fn create_transfer(
         return Err(ApiError::AmountMustBePositive.into());
     }
 
-    let mut tx = pool.begin().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
 
     // Amounts must land on the community's minor-unit grain; validate the
     // transfer amount and the currency mode (treasury destinations only
@@ -1694,7 +1785,7 @@ pub async fn create_transfer(
          WHERE id = $1",
     )
     .bind(sender.0.community_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **ttx.tx())
     .await?;
     check_amount_quantized(amount, minor_units)?;
     if matches!(to, AccountOwner::Treasury)
@@ -1702,15 +1793,24 @@ pub async fn create_transfer(
     {
         return Err(ApiError::InvalidTreasuryOperation.into());
     }
+    // Closed-loop rule for stripe-backed credits: they only flow member ->
+    // treasury (auction payments, purchases). Member->member transfers
+    // would make credits transferable stored value (see the design doc's
+    // stored-value policy).
+    if matches!(to, AccountOwner::Member(_))
+        && currency_mode == CurrencyMode::BackedCredits
+    {
+        return Err(ApiError::MemberTransfersNotAllowed.into());
+    }
 
     let from_account = get_account_tx(
         &sender.0.community_id,
         AccountOwner::Member(sender.0.user_id),
-        &mut tx,
+        ttx.tx(),
     )
     .await?;
     let to_account =
-        get_account_tx(&sender.0.community_id, to, &mut tx).await?;
+        get_account_tx(&sender.0.community_id, to, ttx.tx()).await?;
 
     // Create journal lines: debit sender, credit recipient
     let lines = vec![
@@ -1718,9 +1818,11 @@ pub async fn create_transfer(
         (to_account.id, amount),    // Credit
     ];
 
-    // Create the journal entry
-    let locked =
-        lock_accounts_tx(&[from_account.id, to_account.id], &mut tx).await?;
+    // Create the journal entry. In backed_credits, create_entry's
+    // generic debit check is also the outflow gate: available credit is
+    // balance + pending captures − derived balance commitments at limit 0, so a
+    // transfer can spend exactly the balance no bid commitment requires.
+    ttx.lock_accounts(&[from_account.id, to_account.id]).await?;
     create_entry(
         CreateEntryParams {
             community_id: &sender.0.community_id,
@@ -1731,13 +1833,14 @@ pub async fn create_transfer(
             initiated_by_id: None, /* No initiated_by_id for member-to-member
                                     * transfers */
             note,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        &mut ttx,
     )
     .await?;
 
-    tx.commit().await?;
+    ttx.commit().await?;
 
     Ok(())
 }
@@ -1757,7 +1860,7 @@ pub async fn create_transfer(
 ///   only mode that accepts negative amounts, bounded by the move-toward- zero
 ///   check)
 /// - deferred_payment + SingleMember (IOU settlement or ad-hoc grant)
-/// - prepaid_credits + SingleMember (credit purchase or ad-hoc grant)
+/// - backed_credits + SingleMember (credit purchase or ad-hoc grant)
 ///
 /// Returns the number of recipients and total amount debited from treasury.
 pub async fn treasury_credit_operation(
@@ -1781,7 +1884,7 @@ pub async fn treasury_credit_operation(
     let community_id = &actor.0.community_id;
     let initiated_by_id = &actor.0.user_id;
 
-    let mut tx = pool.begin().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
 
     // Get community currency mode, validating the amount lands on the
     // minor-unit grain
@@ -1790,7 +1893,7 @@ pub async fn treasury_credit_operation(
          WHERE id = $1",
     )
     .bind(community_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **ttx.tx())
     .await?;
     check_amount_quantized(amount_per_recipient, minor_units)?;
 
@@ -1816,13 +1919,13 @@ pub async fn treasury_credit_operation(
             let account = get_account_tx(
                 community_id,
                 AccountOwner::Member(*user_id),
-                &mut tx,
+                ttx.tx(),
             )
             .await?;
             vec![account.id]
         }
         payloads::TreasuryRecipient::AllActiveMembers => {
-            get_active_member_account_ids_tx(community_id, &mut tx).await?
+            get_active_member_account_ids_tx(community_id, ttx.tx()).await?
         }
     };
 
@@ -1859,7 +1962,7 @@ pub async fn treasury_credit_operation(
         (PointsAllocation, SingleMember(_) | AllActiveMembers)
         | (DistributedClearing, AllActiveMembers)
         | (DeferredPayment, SingleMember(_))
-        | (PrepaidCredits, SingleMember(_)) => {}
+        | (BackedCredits, SingleMember(_)) => {}
         _ => return Err(ApiError::InvalidTreasuryOperation.into()),
     }
     let entry_type = EntryType::TreasuryTransfer;
@@ -1870,13 +1973,14 @@ pub async fn treasury_credit_operation(
     // order with the recipient locks. The witness's treasury row is the
     // balance read under the lock.
     let treasury_account_id =
-        get_account_tx(community_id, AccountOwner::Treasury, &mut tx)
+        get_account_tx(community_id, AccountOwner::Treasury, ttx.tx())
             .await?
             .id;
     let mut lock_ids = recipient_account_ids.clone();
     lock_ids.push(treasury_account_id);
-    let locked = lock_accounts_tx(&lock_ids, &mut tx).await?;
-    let treasury_balance = locked.require(&treasury_account_id)?.balance_cached;
+    ttx.lock_accounts(&lock_ids).await?;
+    let treasury_balance =
+        ttx.locked_account(&treasury_account_id)?.balance_cached;
 
     // Build journal lines: one debit for treasury, one credit per recipient
     let mut lines: Vec<(AccountId, Decimal)> = Vec::new();
@@ -1892,7 +1996,7 @@ pub async fn treasury_credit_operation(
     //   from the equivalent chore case; either way, the redistribution
     //   operation should bring it back to zero without overshooting and without
     //   crossing sign in the same direction.
-    // - DeferredPayment / PointsAllocation / PrepaidCredits: no constraint --
+    // - DeferredPayment / PointsAllocation / BackedCredits: no constraint --
     //   the treasury is the structural counterparty and its balance can go
     //   arbitrarily positive or negative. External settlement zeroes it out
     //   when redemption rights are exercised (see `debts_callable`).
@@ -1931,13 +2035,14 @@ pub async fn treasury_credit_operation(
             auction_id: None,
             initiated_by_id: Some(initiated_by_id),
             note,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        &mut ttx,
     )
     .await?;
 
-    tx.commit().await?;
+    ttx.commit().await?;
 
     Ok(payloads::TreasuryOperationResult {
         recipient_count,
@@ -1965,7 +2070,7 @@ pub async fn resolve_orphaned_balance(
         return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
-    let mut tx = pool.begin().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
 
     // Get currency mode (resolution behavior) and minor units (distribution
     // grain)
@@ -1974,7 +2079,7 @@ pub async fn resolve_orphaned_balance(
          WHERE id = $1",
     )
     .bind(actor.0.community_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **ttx.tx())
     .await?;
 
     // Verify account is orphaned (no matching community_members row exists)
@@ -1995,7 +2100,7 @@ pub async fn resolve_orphaned_balance(
     )
     .bind(orphaned_account_id)
     .bind(actor.0.community_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **ttx.tx())
     .await?;
 
     if !is_orphaned {
@@ -2007,42 +2112,45 @@ pub async fn resolve_orphaned_balance(
     // — locking the orphaned account alone first would put its acquisition
     // out of order with the recipient locks. Recipient emptiness is
     // validated after the zero-balance early return below.
-    let recipient_account_ids: Vec<AccountId> = if currency_mode
-        == CurrencyMode::DistributedClearing
-    {
-        // Distribute to active members (no treasury fallback)
-        get_active_member_account_ids_tx(&actor.0.community_id, &mut tx).await?
-    } else {
-        // All other modes: transfer to treasury
-        let treasury = get_account_tx(
-            &actor.0.community_id,
-            AccountOwner::Treasury,
-            &mut tx,
-        )
-        .await?;
-        vec![treasury.id]
-    };
+    let recipient_account_ids: Vec<AccountId> =
+        if currency_mode == CurrencyMode::DistributedClearing {
+            // Distribute to active members (no treasury fallback)
+            get_active_member_account_ids_tx(&actor.0.community_id, ttx.tx())
+                .await?
+        } else {
+            // All other modes: transfer to treasury
+            let treasury = get_account_tx(
+                &actor.0.community_id,
+                AccountOwner::Treasury,
+                ttx.tx(),
+            )
+            .await?;
+            vec![treasury.id]
+        };
 
     let mut lock_ids = recipient_account_ids.clone();
     lock_ids.push(*orphaned_account_id);
-    let mut locked = lock_accounts_tx(&lock_ids, &mut tx).await?;
+    ttx.lock_accounts(&lock_ids).await?;
 
-    // The witness's row is the balance read under the lock.
-    let balance = locked.require(orphaned_account_id)?.balance_cached;
+    // The snapshot's row is the balance read under the lock.
+    let balance = ttx.locked_account(orphaned_account_id)?.balance_cached;
 
-    // Don't resolve locked funds: they back an outstanding bid that settlement
-    // will debit later, so transferring them out now could drive the account
-    // past its credit limit. The coleader can resolve the remainder once the
-    // auction settles.
-    let locked_balance =
-        get_locked_balance_tx(orphaned_account_id, locked.tx()).await?;
-    if locked_balance > Decimal::ZERO {
-        return Err(ApiError::OrphanedAccountHasLockedBalance.into());
+    // Don't resolve committed funds: they back an outstanding bid that
+    // settlement will debit later, so transferring them out now could drive the
+    // account past its credit limit. The coleader can resolve the remainder
+    // once the auction settles.
+    let commitment = get_commitment_tx(orphaned_account_id, ttx.tx()).await?;
+    if commitment > Decimal::ZERO {
+        return Err(ApiError::OrphanedAccountHasCommitments.into());
     }
+
+    // With no commitment (just checked), the departed member has no balance
+    // commitments in this community, so the resolving transfer can take the
+    // whole balance.
 
     // If balance is zero, nothing to transfer
     if balance == Decimal::ZERO {
-        tx.commit().await?;
+        ttx.commit().await?;
         return Ok(payloads::TreasuryOperationResult {
             recipient_count: 0,
             total_amount: Decimal::ZERO,
@@ -2074,13 +2182,14 @@ pub async fn resolve_orphaned_balance(
             auction_id: None,
             initiated_by_id: Some(&actor.0.user_id),
             note,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        &mut ttx,
     )
     .await?;
 
-    tx.commit().await?;
+    ttx.commit().await?;
 
     Ok(payloads::TreasuryOperationResult {
         recipient_count: recipient_account_ids.len(),
@@ -2208,7 +2317,7 @@ pub async fn reset_all_balances(
         return Err(ApiError::RequiresColeaderPermissions.into());
     }
 
-    let mut tx = pool.begin().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
     let community_id = &actor.0.community_id;
 
     // Check for active auctions BEFORE locking
@@ -2225,7 +2334,7 @@ pub async fn reset_all_balances(
     )
     .bind(community_id)
     .bind(time_source.now().to_sqlx())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **ttx.tx())
     .await?;
 
     if active_count > 0 {
@@ -2234,7 +2343,7 @@ pub async fn reset_all_balances(
 
     // Lock ALL member accounts plus the treasury in one ordered acquisition;
     // including the treasury keeps its acquisition in order too.
-    let locked = lock_community_accounts_tx(community_id, &mut tx).await?;
+    ttx.lock_community_accounts(community_id).await?;
 
     // Build journal lines for every member account (even zero balances)
     let mut total = rust_decimal::Decimal::ZERO;
@@ -2242,7 +2351,7 @@ pub async fn reset_all_balances(
     let mut lines: Vec<(payloads::AccountId, rust_decimal::Decimal)> =
         Vec::new();
 
-    for account in locked.accounts() {
+    for account in ttx.locked_accounts()? {
         if !matches!(account.owner, AccountOwner::Member(_)) {
             continue;
         }
@@ -2253,8 +2362,8 @@ pub async fn reset_all_balances(
     }
 
     // Add treasury credit line
-    let treasury_account_id = locked
-        .accounts()
+    let treasury_account_id = ttx
+        .locked_accounts()?
         .iter()
         .find(|a| matches!(a.owner, AccountOwner::Treasury))
         .map(|a| a.id)
@@ -2272,13 +2381,14 @@ pub async fn reset_all_balances(
             auction_id: None,
             initiated_by_id: Some(&actor.0.user_id),
             note,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        &mut ttx,
     )
     .await?;
 
-    tx.commit().await?;
+    ttx.commit().await?;
 
     Ok(payloads::responses::BalanceResetResult {
         accounts_reset,
@@ -2312,12 +2422,12 @@ pub(crate) async fn quantize_community_balances_tx(
     initiated_by_id: Option<&UserId>,
     note: Option<String>,
     time_source: &TimeSource,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ttx: &mut TrackedTx<'_, '_>,
 ) -> Result<usize, StoreError> {
-    let locked = lock_community_accounts_tx(community_id, tx).await?;
+    ttx.lock_community_accounts(community_id).await?;
 
-    let targets: Vec<(AccountId, Decimal)> = locked
-        .accounts()
+    let targets: Vec<(AccountId, Decimal)> = ttx
+        .locked_accounts()?
         .iter()
         .map(|a| (a.id, a.balance_cached))
         .collect();
@@ -2347,9 +2457,10 @@ pub(crate) async fn quantize_community_balances_tx(
             auction_id: None,
             initiated_by_id,
             note,
+            payment_intent_id: None,
         },
         time_source,
-        locked,
+        ttx,
     )
     .await?;
 
@@ -2361,12 +2472,13 @@ pub(crate) async fn quantize_community_balances_tx(
 /// If target_user_id is None, returns info for the actor.
 /// If target_user_id is Some, requires coleader+ permissions.
 ///
-/// Since this returns credit limits and locked balances in addition to the
+/// Since this returns credit limits and commitments in addition to the
 /// user's current balance, it is not used for providing members visibility into
 /// each other's balances. That functionality is provided by store::get_members.
 pub async fn get_member_currency_info_with_permissions(
     actor: &super::ValidatedMember,
     target_user_id: Option<&UserId>,
+    time_source: &TimeSource,
     pool: &PgPool,
 ) -> Result<payloads::responses::MemberCurrencyInfo, StoreError> {
     let query_user_id = match target_user_id {
@@ -2389,7 +2501,7 @@ pub async fn get_member_currency_info_with_permissions(
     .await?;
 
     // Call the existing function with the validated member
-    get_member_currency_info(&target_member, pool).await
+    get_member_currency_info(&target_member, time_source, pool).await
 }
 
 /// Get member transactions with permission checking
@@ -2449,6 +2561,17 @@ pub async fn update_currency_config(
         return Err(ApiError::CurrencyModeImmutable.into());
     }
 
+    // In backed_credits mode the currency is a real denomination fixed at
+    // creation; name/symbol/minor-units cannot drift from what members'
+    // cards are charged in.
+    if currency.mode() == CurrencyMode::BackedCredits
+        && (currency.name != current_community.currency.name
+            || currency.symbol != current_community.currency.symbol
+            || currency.minor_units != current_community.currency.minor_units)
+    {
+        return Err(ApiError::CurrencyDenominationImmutable.into());
+    }
+
     // Validate currency name/symbol lengths
     if currency.name.len() > 50 {
         return Err(ApiError::InvalidCurrencyName.into());
@@ -2473,7 +2596,7 @@ pub async fn update_currency_config(
     // Convert config to DB format
     let currency_db = currency_settings_to_db(currency);
 
-    let mut tx = pool.begin().await?;
+    let mut ttx = TrackedTx::begin(pool).await?;
 
     // Coarsening minor_units can strand existing balances below the new
     // grain; re-quantize them with a balanced rounding adjustment,
@@ -2495,7 +2618,7 @@ pub async fn update_currency_config(
             currency.minor_units
         )),
         time_source,
-        &mut tx,
+        &mut ttx,
     )
     .await?;
     if adjusted > 0 {
@@ -2542,14 +2665,14 @@ pub async fn update_currency_config(
     .bind(currency_db.new_members_default_active)
     .bind(time_source.now().to_sqlx())
     .bind(actor.0.community_id)
-    .execute(&mut *tx)
+    .execute(&mut **ttx.tx())
     .await?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::CommunityNotFound.into());
     }
 
-    tx.commit().await?;
+    ttx.commit().await?;
 
     Ok(())
 }

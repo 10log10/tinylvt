@@ -4,8 +4,8 @@ use wasm_bindgen::JsCast;
 
 use payloads::auction_sim::simulate_auction;
 use payloads::{
-    CurrencyModeConfig, CurrencySettings, IOUConfig, PointsAllocationConfig,
-    PrepaidCreditsConfig, SpaceId, UserId,
+    BackedCreditsConfig, CurrencyModeConfig, CurrencySettings, IOUConfig,
+    PointsAllocationConfig, SpaceId, UserId,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -260,7 +260,7 @@ fn street_fair() -> Scenario {
     Scenario {
         name: "Street fair",
         description: "Vendors bid on booth locations at a \
-            weekend market using prepaid credits. Corner booths have \
+            weekend market using backed credits. Corner booths have \
             extra frontage, while spots near the entrance get more foot \
             traffic. Revenue offsets event costs.",
         state: EditorState {
@@ -288,8 +288,8 @@ fn street_fair() -> Scenario {
             bid_increment: Decimal::new(5, 0),
         },
         currency: CurrencySettings {
-            mode_config: CurrencyModeConfig::PrepaidCredits(
-                PrepaidCreditsConfig {
+            mode_config: CurrencyModeConfig::BackedCredits(
+                BackedCreditsConfig {
                     debts_callable: false,
                 },
             ),

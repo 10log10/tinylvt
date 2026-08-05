@@ -1,9 +1,12 @@
 use api::store;
 use payloads::{AccountOwner, ApiError, requests};
 use reqwest::StatusCode;
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, dec};
 
 use test_helpers::{assert_api_error, assert_status_code, spawn_app};
+
+use crate::funding_auth::{card_enabled_setup, intent_rows};
+use crate::funding_schedule::create_scheduled_auction;
 
 #[tokio::test]
 async fn login_refused() -> anyhow::Result<()> {
@@ -283,7 +286,6 @@ async fn delete_user_no_auction_history() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn delete_user_with_auction_history() -> anyhow::Result<()> {
-    use api::scheduler;
     use jiff::Span;
 
     let app = spawn_app().await;
@@ -297,7 +299,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
     let auction = app.create_test_auction(&site.site_id).await?;
 
     // Run scheduler to create the first round
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Get the current round
     let rounds = app.client.list_auction_rounds(&auction.auction_id).await?;
@@ -312,7 +314,7 @@ async fn delete_user_with_auction_history() -> anyhow::Result<()> {
 
     // Complete the round so Bob wins
     app.time_source.advance(Span::new().minutes(2));
-    scheduler::schedule_tick(&app.db_pool, &app.time_source).await;
+    app.tick().await;
 
     // Verify Bob won
     let results = app
@@ -486,6 +488,68 @@ async fn delete_user_with_transaction_history() -> anyhow::Result<()> {
         Decimal::new(5000, 2),
         "Account balance should be preserved"
     );
+
+    Ok(())
+}
+
+/// A member whose only payment state is a live pre-authorization (no
+/// bids, no journal lines) deletes their account: the RESTRICT on
+/// funding_intents.user_id blocks the hard delete, so the fallback
+/// anonymizes and releases the hold instead of cascading away the only
+/// record of the Stripe authorization.
+#[tokio::test]
+async fn delete_user_with_live_preauth() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = card_enabled_setup(&app).await?;
+
+    // Start-unknown auction: pre-authorization is allowed anytime.
+    app.login_alice().await?;
+    let (_, auction_id) =
+        create_scheduled_auction(&app, community_id, "site a", dec!(10), None)
+            .await?;
+
+    app.login_bob().await?;
+    app.client
+        .authorize_funding(&requests::AuthorizeFunding {
+            auction_id,
+            amount: Some(dec!(5)),
+        })
+        .await?;
+    let rows = intent_rows(&app, &auction_id).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].status, "authorized");
+    let pi_id = rows[0].payment_intent_id.clone().unwrap();
+
+    let bob_id = sqlx::query_scalar::<_, payloads::UserId>(
+        "SELECT id FROM users WHERE username = 'bob'",
+    )
+    .fetch_one(&app.db_pool)
+    .await?;
+
+    app.client.delete_user().await?;
+
+    // Anonymized, not hard-deleted: the funding rows survive.
+    let anonymized_user =
+        sqlx::query_as::<_, store::User>("SELECT * FROM users WHERE id = $1")
+            .bind(bob_id)
+            .fetch_one(&app.db_pool)
+            .await?;
+    assert!(anonymized_user.deleted_at.is_some());
+    assert!(anonymized_user.username.starts_with("deleted-"));
+
+    // The hold was queued for release, and the worker cancels it at
+    // Stripe.
+    let rows = intent_rows(&app, &auction_id).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].status, "release_pending");
+    app.tick().await;
+    let rows = intent_rows(&app, &auction_id).await?;
+    assert_eq!(rows[0].status, "canceled");
+    let status = {
+        let intents = app.stripe_service.mock_payment_intents.lock().unwrap();
+        intents.get(&pi_id).unwrap().status.clone()
+    };
+    assert_eq!(status, "canceled");
 
     Ok(())
 }

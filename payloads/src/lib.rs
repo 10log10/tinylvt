@@ -116,6 +116,12 @@ impl Role {
     pub fn can_change_active_status(&self) -> bool {
         self.is_ge_moderator()
     }
+
+    /// Connecting the community's Stripe account and viewing its
+    /// connection status.
+    pub fn can_manage_stripe_connection(&self) -> bool {
+        self.is_ge_coleader()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,6 +197,14 @@ pub const MIN_ROUND_DURATION_SECS: i64 = 5;
 /// reasonable time, so the scheduler cancels it rather than settling: see
 /// `process_locked_auction`. Users should retry with a larger increment.
 pub const MAX_AUCTION_ROUNDS: i32 = 10_000;
+
+/// The fixed runtime of a stripe-backed backed_credits auction: rather than
+/// create a round that would end past this long after the start, the scheduler
+/// cancels the auction via the runaway path with every card hold released. Set
+/// by the card authorization budget (see the api crate's age-rule constants,
+/// which derive from it); the auction-creation UI warns when a plausible round
+/// count at the chosen round duration approaches it.
+pub const AUCTION_RUNAWAY_DEADLINE_HOURS: i64 = 48;
 
 /// Why an [`AuctionParams`] is invalid.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
@@ -527,7 +541,7 @@ pub enum CurrencyMode {
     PointsAllocation,
     DistributedClearing,
     DeferredPayment,
-    PrepaidCredits,
+    BackedCredits,
 }
 
 impl CurrencyMode {
@@ -538,7 +552,7 @@ impl CurrencyMode {
     /// True for points_allocation (each active member receives an equal
     /// allowance) and distributed_clearing (auction proceeds are redistributed
     /// equally among active members). False for deferred_payment and
-    /// prepaid_credits, which lack equalization, so no distribution is gated on
+    /// backed_credits, which lack equalization, so no distribution is gated on
     /// activity.
     ///
     /// This is the single source of truth for that distinction. It gates the
@@ -551,7 +565,7 @@ impl CurrencyMode {
         match self {
             CurrencyMode::PointsAllocation
             | CurrencyMode::DistributedClearing => true,
-            CurrencyMode::DeferredPayment | CurrencyMode::PrepaidCredits => {
+            CurrencyMode::DeferredPayment | CurrencyMode::BackedCredits => {
                 false
             }
         }
@@ -603,16 +617,16 @@ pub struct IOUConfig {
     pub debts_callable: bool,
 }
 
-/// Prepaid credits configuration
+/// Backed credits configuration
 /// Members purchase credits from treasury up front
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PrepaidCreditsConfig {
+pub struct BackedCreditsConfig {
     /// Whether debts carry promise of settlement
     pub debts_callable: bool,
 }
 
-impl PrepaidCreditsConfig {
-    /// Credit limit is always 0 for prepaid credits
+impl BackedCreditsConfig {
+    /// Credit limit is always 0 for backed credits
     pub fn credit_limit(&self) -> rust_decimal::Decimal {
         rust_decimal::Decimal::ZERO
     }
@@ -625,7 +639,7 @@ pub enum CurrencyModeConfig {
     PointsAllocation(Box<PointsAllocationConfig>),
     DistributedClearing(IOUConfig),
     DeferredPayment(IOUConfig),
-    PrepaidCredits(PrepaidCreditsConfig),
+    BackedCredits(BackedCreditsConfig),
 }
 
 impl CurrencyModeConfig {
@@ -641,9 +655,7 @@ impl CurrencyModeConfig {
             CurrencyModeConfig::DeferredPayment(_) => {
                 CurrencyMode::DeferredPayment
             }
-            CurrencyModeConfig::PrepaidCredits(_) => {
-                CurrencyMode::PrepaidCredits
-            }
+            CurrencyModeConfig::BackedCredits(_) => CurrencyMode::BackedCredits,
         }
     }
 
@@ -659,7 +671,7 @@ impl CurrencyModeConfig {
             CurrencyModeConfig::DeferredPayment(cfg) => {
                 cfg.default_credit_limit
             }
-            CurrencyModeConfig::PrepaidCredits(cfg) => Some(cfg.credit_limit()),
+            CurrencyModeConfig::BackedCredits(cfg) => Some(cfg.credit_limit()),
         }
     }
 
@@ -669,7 +681,7 @@ impl CurrencyModeConfig {
             CurrencyModeConfig::PointsAllocation(cfg) => cfg.debts_callable(),
             CurrencyModeConfig::DistributedClearing(cfg) => cfg.debts_callable,
             CurrencyModeConfig::DeferredPayment(cfg) => cfg.debts_callable,
-            CurrencyModeConfig::PrepaidCredits(cfg) => cfg.debts_callable,
+            CurrencyModeConfig::BackedCredits(cfg) => cfg.debts_callable,
         }
     }
 
@@ -712,8 +724,8 @@ impl CurrencyModeConfig {
                     debts_callable: callable,
                 }))
             }
-            CurrencyModeConfig::PrepaidCredits(_) => {
-                Some(CurrencyModeConfig::PrepaidCredits(PrepaidCreditsConfig {
+            CurrencyModeConfig::BackedCredits(_) => {
+                Some(CurrencyModeConfig::BackedCredits(BackedCreditsConfig {
                     debts_callable: callable,
                 }))
             }
@@ -754,24 +766,46 @@ impl CurrencySettings {
         format!("{}\u{2014}", self.symbol)
     }
 
-    /// Format an amount using the currency symbol and minor units. Displays at
-    /// least `minor_units` decimal places (e.g. "$10.00", not "$10"), widened
-    /// when the value itself is finer — historical amounts predating
-    /// quantization enforcement, or a coarsening's rounding-adjustment dust —
-    /// so no stored amount is ever misrendered by display rounding.
-    pub fn format_amount(&self, amount: rust_decimal::Decimal) -> String {
-        // Normalize to drop trailing zeros so scale reflects real precision
-        let normalized = amount.normalize();
-        let prec = (self.minor_units as u32).max(normalized.scale()) as usize;
+    /// The allow-listed real-currency denomination behind a
+    /// backed_credits community, or None for other modes (or a
+    /// backed community whose currency name is not allow-listed,
+    /// which validation prevents). Callers gate card-payment UI and
+    /// minimum-charge logic on this instead of falling back when the
+    /// denomination lookup fails.
+    pub fn backed_denomination(&self) -> Option<&'static Denomination> {
+        (self.mode() == CurrencyMode::BackedCredits)
+            .then(|| denomination(&self.name))
+            .flatten()
+    }
 
-        // Place negative sign before the symbol: "-$50" not "$-50"
-        let abs = normalized.abs();
-        let amount_str = format!("{:.prec$}", abs, prec = prec);
-        if normalized.is_sign_negative() && !normalized.is_zero() {
-            format!("-{}{}", self.symbol, amount_str)
-        } else {
-            format!("{}{}", self.symbol, amount_str)
-        }
+    /// Format an amount using the currency symbol and minor units (see
+    /// [`format_amount`]).
+    pub fn format_amount(&self, amount: rust_decimal::Decimal) -> String {
+        format_amount(&self.symbol, self.minor_units, amount)
+    }
+}
+
+/// Format an amount with a currency symbol. Displays at least
+/// `minor_units` decimal places (e.g. "$10.00", not "$10"), widened when
+/// the value itself is finer — historical amounts predating quantization
+/// enforcement, or a coarsening's rounding-adjustment dust — so no
+/// stored amount is ever misrendered by display rounding.
+pub fn format_amount(
+    symbol: &str,
+    minor_units: i16,
+    amount: rust_decimal::Decimal,
+) -> String {
+    // Normalize to drop trailing zeros so scale reflects real precision
+    let normalized = amount.normalize();
+    let prec = (minor_units as u32).max(normalized.scale()) as usize;
+
+    // Place negative sign before the symbol: "-$50" not "$-50"
+    let abs = normalized.abs();
+    let amount_str = format!("{:.prec$}", abs, prec = prec);
+    if normalized.is_sign_negative() && !normalized.is_zero() {
+        format!("-{}{}", symbol, amount_str)
+    } else {
+        format!("{}{}", symbol, amount_str)
     }
 }
 
@@ -847,7 +881,7 @@ impl AccountOwner {
 pub enum EntryType {
     // Member-initiated transfer: member->member, or member->treasury for
     // modes where the treasury is the structural counterparty
-    // (points_allocation, deferred_payment, prepaid_credits).
+    // (points_allocation, deferred_payment, backed_credits).
     Transfer,
     // Coleader-initiated treasury credit operation. Treasury crediting one
     // member or all active members; covers allowance issuance, credit
@@ -871,10 +905,25 @@ pub enum EntryType {
     // outgoing finer grain); historical entries also exist from the
     // since-retired one-time dust migration at the feature's rollout.
     RoundingAdjustment,
+    // A capture or purchase recorded from a Stripe PaymentIntent
+    // (stripe-backed backed_credits mode). Machine-recorded fact with an
+    // enforced payment_intent_id linkage; auction_id set = card payment for
+    // an auction win, NULL = credits purchase.
+    StripePayment,
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    Serialize,
+    Deserialize,
 )]
 #[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
 pub struct AccountId(pub Uuid);
@@ -931,10 +980,17 @@ pub struct JournalLine {
 
 pub mod auction_sim;
 pub mod billing;
+pub mod currency;
 pub mod errors;
 pub mod requests;
 pub mod responses;
 
+pub use currency::{
+    CREDIT_PURCHASES_ENABLED, CreditPurchaseId, DENOMINATIONS, Denomination,
+    FundingIntentId, FundingIntentOrigin, FundingIntentStatus,
+    PLATFORM_FEE_RATE, PurchaseKind, PurchaseStatus, StripeConnectStatus,
+    denomination, from_minor_units, platform_fee, to_minor_units,
+};
 pub use errors::ApiError;
 
 /// Live update events delivered to the UI over Server-Sent Events. Payloads
@@ -965,6 +1021,21 @@ pub enum AuctionEvent {
     BidsChanged {
         auction_id: AuctionId,
         round_id: AuctionRoundId,
+        user_id: UserId,
+    },
+    /// The user's funding state (allocated balance, and later card
+    /// authorizations) for the auction changed: allocation at bid time,
+    /// lazy reclaim by another auction's allocation or an outflow, or
+    /// release at settlement/cancellation. User-scoped like `BidsChanged`.
+    FundingChanged {
+        auction_id: AuctionId,
+        user_id: UserId,
+    },
+    /// The user granted or revoked a community's permission to charge
+    /// their saved card. User-scoped only — the grant is community-wide,
+    /// so it is delivered on every auction stream the user has open,
+    /// keeping the funding section and the card-charge control in sync.
+    CardChargeGrantChanged {
         user_id: UserId,
     },
 }
@@ -1169,6 +1240,35 @@ mod tests {
                 round: -1,
             })
         );
+    }
+
+    #[test]
+    fn backed_denomination_gated_on_mode_and_allowlist() {
+        let settings = |mode_config, name: &str| CurrencySettings {
+            mode_config,
+            name: name.to_string(),
+            symbol: "$".to_string(),
+            minor_units: 2,
+            balances_visible_to_members: true,
+            new_members_default_active: true,
+        };
+        let backed = CurrencyModeConfig::BackedCredits(BackedCreditsConfig {
+            debts_callable: false,
+        });
+
+        let usd = settings(backed.clone(), "USD").backed_denomination();
+        assert_eq!(usd.map(|d| d.iso), Some("USD"));
+        // Non-allowlisted name (validation prevents this for real
+        // communities) and non-backed modes both yield None.
+        assert!(settings(backed, "JPY").backed_denomination().is_none());
+        let points = CurrencyModeConfig::PointsAllocation(Box::new(
+            PointsAllocationConfig {
+                allowance_amount: Decimal::ONE,
+                allowance_period: Span::new().hours(1),
+                allowance_start: Timestamp::UNIX_EPOCH,
+            },
+        ));
+        assert!(settings(points, "USD").backed_denomination().is_none());
     }
 
     fn auction_params(round_duration: Span) -> AuctionParams {
