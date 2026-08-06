@@ -62,7 +62,7 @@ Coleaders, and only the Leader can transfer leadership to someone else.
 ## Active vs Inactive Members
 
 **Active members** receive their share of auction proceeds (in Distributed
-Clearing mode) or allowances (in Points Allowance mode).
+Clearing mode) or allowances (in Points Allocation mode).
 
 **Inactive members** can still participate in auctions but don't receive
 distributions. This is useful for:

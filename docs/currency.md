@@ -11,16 +11,16 @@ and whether real money is involved.
 
 | Mode | Best for | Real money? |
 |------|----------|-------------|
-| **Points Allowance**     | Internal allocation without money   | No  |
+| **Points Allocation**     | Internal allocation without money   | No  |
 | **Distributed Clearing** | True common ownership with trusted members | Yes |
 | **Deferred Payment** | Treasury-controlled funds | Yes |
 | **Backed Credits**      | Card-backed bidding or commercial use | Yes |
 
 Modes that support real money can represent external currencies, though **backed credits** is the only mode that integrates payment handling.
 
-## Points Allowance
+## Points Allocation
 
-Members receive a recurring allowance of points from the treasury. Points are
+Members receive a recurring allocation of points from the treasury. Points are
 spent in auctions and return to the treasury. No real money changes hands.
 
 **How it works:**
@@ -38,7 +38,7 @@ spent in auctions and return to the treasury. No real money changes hands.
 gets 50 points per week. Popular time slots cost more points, but everyone has
 equal points to spend.
 
-**Note:** Points Allowance works best with regular, recurring auctions. If
+**Note:** Points Allocation works best with regular, recurring auctions. If
 auctions are infrequent or one-off, points may lose their meaning after the
 auction ends. For infrequent auctions, consider Distributed Clearing instead.
 
@@ -130,7 +130,7 @@ Spaces with a negative reserve price represent chores: the winner is
 *compensated* rather than charged. The currency mode determines where that
 compensation comes from.
 
-- **Points Allowance, Deferred Payment, Backed Credits:** The treasury pays
+- **Points Allocation, Deferred Payment, Backed Credits:** The treasury pays
   the winner. At settlement, the winner's balance is credited and the
   treasury's balance is debited by the same amount. This is the reverse of a
   normal auction (where the winner is debited and the treasury is credited).
@@ -151,7 +151,7 @@ mode.
 The currency modes exist on a spectrum:
 
 **Most equal (common ownership):**
-- *Points Allowance* — Equal points means equal access over time, no money
+- *Points Allocation* — Equal points means equal access over time, no money
   involved.
 - *Distributed Clearing* — Auction proceeds go directly to members. Everyone
   shares equally in the resource value, whether they use it or not.

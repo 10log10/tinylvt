@@ -28,7 +28,7 @@ desks.
 2. Verify your email address
 3. Go to Communities and click "Create Community"
 4. Enter your community name
-5. Select **Points Allowance** as the currency mode
+5. Select **Points Allocation** as the currency mode
 6. Configure currency settings:
    - **Currency name:** Points
    - **Symbol:** P
