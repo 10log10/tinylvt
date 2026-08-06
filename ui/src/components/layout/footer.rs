@@ -35,6 +35,12 @@ pub fn Footer() -> Html {
                        class={LINK_CLASSES}>
                         {"Pricing"}
                     </a>
+                    <a href="https://peoplesrent.substack.com/"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class={LINK_CLASSES}>
+                        {"Blog"}
+                    </a>
                     <a onclick={on_terms}
                        class={LINK_CLASSES}>
                         {"Terms"}

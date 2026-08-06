@@ -442,6 +442,7 @@ fn render_page(
 <footer class="bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 mt-auto">
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-2">
 <div class="flex flex-wrap justify-center gap-x-6 gap-y-1">
+<a href="https://peoplesrent.substack.com/" target="_blank" rel="noopener noreferrer" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Blog</a>
 <a href="/terms" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Terms</a>
 <a href="https://github.com/10log10/tinylvt" target="_blank" rel="noopener noreferrer" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Source</a>
 <a href="mailto:info@aperturebeam.com" class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">Contact</a>
@@ -473,7 +474,7 @@ fn landing_page_content() -> String {
 <p class="text-lg text-neutral-600 dark:text-neutral-400">TinyLVT uses auctions to allocate spaces fairly. Everyone bids what each space is worth to them. Spaces go to those who value them most, and the proceeds are shared equally.</p>
 <div class="bg-neutral-100 dark:bg-neutral-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
 <p class="text-lg font-medium text-neutral-900 dark:text-neutral-100">You only pay what others would have paid.</p>
-<p class="text-neutral-600 dark:text-neutral-400 mt-2">If you win a space, you pay just enough to outbid the next-highest bidder—not your maximum. This encourages honest bidding and ensures fair prices.</p>
+<p class="text-neutral-600 dark:text-neutral-400 mt-2">If you win a space, you pay just enough to outbid the next-highest bidder, not your maximum. This pricing encourages honest bidding and ensures fair prices.</p>
 </div>
 <div class="flex flex-col sm:flex-row gap-4 justify-center">
 <button class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors">Sign Up</button>
@@ -547,6 +548,7 @@ fn landing_page_content() -> String {
 <div class="py-4 flex flex-col sm:flex-row gap-4 justify-center">
 <button class="inline-block px-8 py-3 text-lg font-semibold text-white bg-neutral-900 hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 rounded transition-colors">Sign Up</button>
 <button class="inline-block px-8 py-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-2 border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded transition-colors">Learn How It Works</button>
+<a href="https://peoplesrent.substack.com/" target="_blank" rel="noopener noreferrer" class="inline-block px-8 py-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-2 border-neutral-900 dark:border-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded transition-colors text-center">Read the blog</a>
 </div>
 <div class="max-w-2xl mx-auto">
 <div class="flex flex-col sm:flex-row gap-6 justify-center text-center">

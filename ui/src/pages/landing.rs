@@ -329,6 +329,18 @@ pub fn LandingPage() -> Html {
                 >
                     {"Learn How It Works"}
                 </button>
+                <a
+                    href="https://peoplesrent.substack.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-block px-8 py-3 text-lg font-semibold \
+                        text-neutral-900 dark:text-neutral-100 border-2 \
+                        border-neutral-900 dark:border-neutral-100 \
+                        hover:bg-neutral-100 dark:hover:bg-neutral-800 \
+                        rounded transition-colors text-center"
+                >
+                    {"Read the blog"}
+                </a>
             </div>
 
             // Platform stats
