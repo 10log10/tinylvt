@@ -64,6 +64,7 @@ use crate::time::TimeSource;
 
 pub mod auction;
 pub mod billing;
+pub mod caps;
 pub mod community;
 pub mod connect;
 pub mod convergence;
@@ -92,6 +93,7 @@ pub(crate) fn backoff_interval_sql(count_col: &str) -> String {
 }
 
 pub use auction::*;
+pub use caps::*;
 pub use community::*;
 pub use login::*;
 pub use proxy_bidding::*;
@@ -114,6 +116,7 @@ impl From<Space> for payloads::Space {
             name: space.name,
             description: space.description,
             eligibility_points: space.eligibility_points,
+            category_id: space.category_id,
             is_available: space.is_available,
             site_image_id: space.site_image_id,
             reserve_price: space.reserve_price,
@@ -198,6 +201,10 @@ pub struct CommunityInvite {
     pub single_use: bool,
     #[sqlx(try_from = "SqlxTs")]
     pub created_at: Timestamp,
+    /// Set when the invite was closed (used or revoked); closed invites are
+    /// read-only records kept for member join provenance.
+    #[sqlx(try_from = "payloads::OptionalTimestamp")]
+    pub deleted_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, sqlx::FromRow)]
@@ -324,6 +331,7 @@ pub struct Space {
     pub name: String,
     pub description: Option<String>,
     pub eligibility_points: f64,
+    pub category_id: Option<payloads::SpaceCategoryId>,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
     pub reserve_price: payloads::ReservePrice,
@@ -339,6 +347,8 @@ pub struct Space {
 pub struct Auction {
     pub id: AuctionId,
     pub site_id: SiteId,
+    pub name: Option<String>,
+    pub description: Option<String>,
     #[sqlx(try_from = "SqlxTs")]
     pub possession_start_at: Timestamp,
     #[sqlx(try_from = "SqlxTs")]
@@ -348,6 +358,7 @@ pub struct Auction {
     #[sqlx(try_from = "OptionalTimestamp")]
     pub end_at: Option<Timestamp>,
     pub was_canceled: bool,
+    pub capped: bool,
     pub auction_params_id: AuctionParamsId,
     pub scheduler_failure_count: i32,
     #[sqlx(try_from = "OptionalTimestamp")]
@@ -368,9 +379,12 @@ impl Auction {
             auction_id: self.id,
             auction_details: payloads::Auction {
                 site_id: self.site_id,
+                name: self.name,
+                description: self.description,
                 possession_start_at: self.possession_start_at,
                 possession_end_at: self.possession_end_at,
                 start_at: self.start_at,
+                capped: self.capped,
                 auction_params: params.into(),
             },
             created_at: self.created_at,

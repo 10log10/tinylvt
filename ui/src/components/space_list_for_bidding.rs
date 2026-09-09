@@ -1,11 +1,16 @@
-use payloads::{CurrencySettings, RoundSpaceResult, SpaceId, responses};
+use payloads::{
+    CurrencySettings, RoundSpaceResult, SpaceCategoryId, SpaceId, responses,
+};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
-use web_sys::HtmlElement;
+use wasm_bindgen::JsCast;
+use web_sys::{HtmlElement, HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
 
 use crate::components::InlineEdit;
+use crate::components::category_select::{category_name, format_points};
 use crate::components::user_identity_display::render_user_name;
+use crate::hooks::MyCapsMap;
 use payloads::responses::{UserIdentity, UserProfile};
 
 /// Per-row resolved data. The list as a whole is gated on prices, bids,
@@ -71,6 +76,19 @@ pub struct Props {
     /// it's a plain f64. Defaults to 0 when no auction is running.
     #[prop_or_default]
     pub current_activity: f64,
+    /// The community's space categories, for category labels and the
+    /// category-wide value assignment control. Empty when the community
+    /// uses no categories.
+    #[prop_or_default]
+    pub categories: Vec<responses::SpaceCategory>,
+    /// The user's per-category cap buckets in a capped auction; `None`
+    /// when the auction is uncapped (no cap gating). A missing bucket
+    /// means the user cannot bid on that bucket's spaces.
+    #[prop_or_default]
+    pub bidder_caps: Option<MyCapsMap>,
+    /// Bulk value upsert for the category-wide assignment control.
+    #[prop_or_default]
+    pub on_update_values: Callback<Vec<(SpaceId, Decimal)>>,
 }
 
 #[function_component]
@@ -139,6 +157,31 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         space_data.retain(|row| row.user_value.is_some());
     }
 
+    let category_names: HashMap<SpaceCategoryId, String> = props
+        .categories
+        .iter()
+        .map(|c| (c.id, c.name.clone()))
+        .collect();
+
+    // Active points per cap bucket (current-round bids plus standing
+    // wins), mirroring the server's cap check. Only meaningful in capped
+    // auctions, but cheap to compute.
+    let cap_active: HashMap<Option<SpaceCategoryId>, f64> = {
+        let mut active = HashMap::new();
+        for space in &props.spaces {
+            let is_high_bidder = price_map
+                .get(&space.space_id)
+                .map(|r| r.winner.user_id == props.current_user.user_id)
+                .unwrap_or(false);
+            if is_high_bidder || props.user_bids.contains(&space.space_id) {
+                *active
+                    .entry(space.space_details.category_id)
+                    .or_insert(0.0) += space.space_details.eligibility_points;
+            }
+        }
+        active
+    };
+
     // Sort. `None` is treated as smaller than any `Some` — semantically a
     // missing user value is worth less than any explicit value. This
     // ordering composes correctly with reverse: ascending puts `None`s at
@@ -204,6 +247,54 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
         })
     };
 
+    // Category-wide value assignment: apply one value to every visible
+    // space of a bucket — a category, or the uncategorized spaces.
+    let mut value_assign_options: Vec<(
+        Option<SpaceCategoryId>,
+        String,
+        Vec<SpaceId>,
+    )> = props
+        .categories
+        .iter()
+        .filter_map(|category| {
+            let space_ids: Vec<SpaceId> = filtered_spaces
+                .iter()
+                .filter(|s| s.space_details.category_id == Some(category.id))
+                .map(|s| s.space_id)
+                .collect();
+            (!space_ids.is_empty())
+                .then(|| (Some(category.id), category.name.clone(), space_ids))
+        })
+        .collect();
+    let uncategorized: Vec<SpaceId> = filtered_spaces
+        .iter()
+        .filter(|s| s.space_details.category_id.is_none())
+        .map(|s| s.space_id)
+        .collect();
+    if !uncategorized.is_empty() {
+        value_assign_options.push((
+            None,
+            category_name(None, &props.categories),
+            uncategorized,
+        ));
+    }
+
+    let on_apply_category_value = {
+        let on_update_values = props.on_update_values.clone();
+        let value_assign_options = value_assign_options.clone();
+        Callback::from(
+            move |(bucket, value): (Option<SpaceCategoryId>, Decimal)| {
+                if let Some((_, _, space_ids)) =
+                    value_assign_options.iter().find(|(id, _, _)| *id == bucket)
+                {
+                    on_update_values.emit(
+                        space_ids.iter().map(|id| (*id, value)).collect(),
+                    );
+                }
+            },
+        )
+    };
+
     html! {
         <div class="space-y-4">
             <div class="flex items-center justify-between">
@@ -212,6 +303,31 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                     {"Spaces"}
                 </h3>
             </div>
+
+            {bidding_capacity_panel(
+                &props.bidder_caps,
+                &cap_active,
+                &props.categories,
+            )}
+
+            {if !props.auction_ended && !value_assign_options.is_empty() {
+                html! {
+                    <CategoryValueAssign
+                        options={
+                            value_assign_options
+                                .iter()
+                                .map(|(id, name, spaces)| {
+                                    (*id, name.clone(), spaces.len())
+                                })
+                                .collect::<Vec<_>>()
+                        }
+                        currency={props.currency.clone()}
+                        on_apply={on_apply_category_value}
+                    />
+                }
+            } else {
+                html! {}
+            }}
 
             // Filters and Sort
             <div class="flex gap-2 sm:gap-4 items-center flex-wrap">
@@ -307,6 +423,44 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                             !props.user_eligibility.permits(new_activity)
                         };
 
+                        // Cap check, sharing the server's rule via
+                        // cap_permits: bidding a space the user already
+                        // bid on or is winning adds nothing to the bucket,
+                        // otherwise the space's points must fit in the
+                        // bucket's remaining cap. A missing bucket means a
+                        // cap of 0, which still permits zero-point spaces.
+                        let cap_message: Option<AttrValue> = if user_has_bid
+                            || is_high_bidder
+                            || props.auction_ended
+                        {
+                            None
+                        } else if let Some(caps) = &props.bidder_caps {
+                            let bucket = space.space_details.category_id;
+                            let active =
+                                cap_active.get(&bucket).copied().unwrap_or(0.0);
+                            let points =
+                                space.space_details.eligibility_points;
+                            let cap = caps.get(&bucket).copied();
+                            if payloads::cap_permits(cap, active, points) {
+                                None
+                            } else if cap.is_none() {
+                                Some(AttrValue::Static(
+                                    "No cap assigned for this category",
+                                ))
+                            } else {
+                                Some(AttrValue::Static(
+                                    "Category cap reached",
+                                ))
+                            }
+                        } else {
+                            None
+                        };
+
+                        let category_label = space
+                            .space_details
+                            .category_id
+                            .and_then(|id| category_names.get(&id).cloned());
+
                         let on_value_enter = {
                             let click_next_value = click_next_value.clone();
                             Callback::from(move |()| {
@@ -318,6 +472,8 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                             <SpaceRow
                                 key={space_id.0.to_string()}
                                 space={space.clone()}
+                                category_label={category_label}
+                                cap_message={cap_message}
                                 price={row.price}
                                 bid_increment={props.bid_increment}
                                 currency={props.currency.clone()}
@@ -343,6 +499,189 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                 }}
             </div>
         </div>
+    }
+}
+
+/// Per-bucket capacity summary for capped auctions: how many of the
+/// user's cap points are used (standing wins plus current-round bids) in
+/// each bucket they hold a cap for. Hidden for uncapped auctions; shown
+/// even for ended or canceled ones, where the caps (and final usage)
+/// remain useful information.
+fn bidding_capacity_panel(
+    bidder_caps: &Option<MyCapsMap>,
+    cap_active: &HashMap<Option<SpaceCategoryId>, f64>,
+    categories: &[responses::SpaceCategory],
+) -> Html {
+    let Some(caps) = bidder_caps else {
+        return html! {};
+    };
+
+    let mut buckets: Vec<(String, f64, f64)> = caps
+        .iter()
+        .map(|(bucket, cap)| {
+            let name = category_name(*bucket, categories);
+            let used = cap_active.get(bucket).copied().unwrap_or(0.0);
+            (name, used, *cap)
+        })
+        .collect();
+    buckets.sort_by(|a, b| a.0.cmp(&b.0));
+
+    html! {
+        <div class="border border-neutral-200 dark:border-neutral-700 \
+                    rounded-lg p-4 bg-white dark:bg-neutral-800">
+            <div class="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+                {"Your bidding capacity (points used of your cap, counting \
+                  bids and standing wins)"}
+            </div>
+            {if buckets.is_empty() {
+                html! {
+                    <p class="text-sm text-neutral-600 \
+                              dark:text-neutral-400">
+                        {"You have no caps in this auction, so you cannot \
+                          bid. A community leader assigns caps."}
+                    </p>
+                }
+            } else {
+                html! {
+                    <div class="flex flex-wrap gap-x-6 gap-y-1">
+                        {for buckets.iter().map(|(name, used, cap)| html! {
+                            <span class="text-sm text-neutral-900 \
+                                         dark:text-white">
+                                <span class="font-medium">{name}</span>
+                                {format!(
+                                    ": {} of {} used",
+                                    format_points(*used),
+                                    format_points(*cap),
+                                )}
+                            </span>
+                        })}
+                    </div>
+                }
+            }}
+        </div>
+    }
+}
+
+/// The select value encoding the uncategorized bucket ("" is the
+/// unselected placeholder, so None needs its own sentinel).
+const UNCATEGORIZED_OPTION: &str = "uncategorized";
+
+#[derive(Properties, PartialEq)]
+struct CategoryValueAssignProps {
+    /// (bucket, name, number of spaces it would apply to); the None
+    /// bucket is the uncategorized spaces.
+    options: Vec<(Option<SpaceCategoryId>, String, usize)>,
+    currency: CurrencySettings,
+    on_apply: Callback<(Option<SpaceCategoryId>, Decimal)>,
+}
+
+/// Compact control to set one value on every listed space of a bucket at
+/// once — identical spaces in a category are interchangeable, so one
+/// value for all of them is the common case.
+#[function_component]
+fn CategoryValueAssign(props: &CategoryValueAssignProps) -> Html {
+    let select_ref = use_node_ref();
+    let value_ref = use_node_ref();
+    let selected = use_state(|| None::<Option<SpaceCategoryId>>);
+
+    let on_select_change = {
+        let selected = selected.clone();
+        Callback::from(move |e: Event| {
+            let select =
+                e.target().unwrap().dyn_into::<HtmlSelectElement>().unwrap();
+            let value = select.value();
+            selected.set(match value.as_str() {
+                "" => None,
+                UNCATEGORIZED_OPTION => Some(None),
+                id => id.parse().ok().map(|id| Some(SpaceCategoryId(id))),
+            });
+        })
+    };
+
+    let on_submit = {
+        let value_ref = value_ref.clone();
+        let selected = selected.clone();
+        let on_apply = props.on_apply.clone();
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+            let Some(bucket) = *selected else {
+                return;
+            };
+            let input = value_ref.cast::<HtmlInputElement>().unwrap();
+            let Ok(value) = input.value().parse::<Decimal>() else {
+                return;
+            };
+            on_apply.emit((bucket, value));
+        })
+    };
+
+    let count_for_selected = selected.and_then(|bucket| {
+        props
+            .options
+            .iter()
+            .find(|(option_bucket, _, _)| *option_bucket == bucket)
+            .map(|(_, _, count)| *count)
+    });
+
+    html! {
+        <form
+            onsubmit={on_submit}
+            class="flex gap-2 items-center flex-wrap text-sm"
+        >
+            <span class="text-neutral-700 dark:text-neutral-300">
+                {"Set one value for all spaces in"}
+            </span>
+            <select
+                ref={select_ref}
+                onchange={on_select_change}
+                class="px-2 py-1.5 border border-neutral-300 \
+                       dark:border-neutral-600 rounded-md bg-white \
+                       dark:bg-neutral-700 text-neutral-900 \
+                       dark:text-neutral-100 text-sm focus:outline-none \
+                       focus:ring-2 focus:ring-neutral-500"
+            >
+                <option value="" selected={selected.is_none()}>
+                    {"Choose category"}
+                </option>
+                {for props.options.iter().map(|(bucket, name, count)| {
+                    let value = match bucket {
+                        Some(id) => id.to_string(),
+                        None => UNCATEGORIZED_OPTION.to_string(),
+                    };
+                    html! {
+                        <option value={value}>
+                            {format!("{} ({} spaces)", name, count)}
+                        </option>
+                    }
+                })}
+            </select>
+            <input
+                ref={value_ref}
+                type="text"
+                inputmode="decimal"
+                placeholder={props.currency.placeholder_value()}
+                class="w-24 px-2 py-1.5 border border-neutral-300 \
+                       dark:border-neutral-600 rounded-md bg-white \
+                       dark:bg-neutral-700 text-neutral-900 \
+                       dark:text-neutral-100 text-sm focus:outline-none \
+                       focus:ring-2 focus:ring-neutral-500"
+            />
+            <button
+                type="submit"
+                disabled={selected.is_none()}
+                class="py-1.5 px-3 rounded-md text-sm font-medium text-white \
+                       bg-neutral-900 hover:bg-neutral-800 \
+                       dark:bg-neutral-100 dark:text-neutral-900 \
+                       dark:hover:bg-neutral-200 disabled:opacity-50 \
+                       disabled:cursor-not-allowed transition-colors \
+                       duration-200"
+            >
+                {match count_for_selected {
+                    Some(count) => format!("Apply to {} spaces", count),
+                    None => "Apply".to_string(),
+                }}
+            </button>
+        </form>
     }
 }
 
@@ -423,6 +762,13 @@ struct SpaceRowProps {
     is_deleted: bool,
     value_ref: NodeRef,
     on_value_enter: Callback<()>,
+    /// Name of the space's category, shown under the space name.
+    #[prop_or_default]
+    category_label: Option<String>,
+    /// Set when the user's cap blocks bidding on this space; the message
+    /// replaces the bid button.
+    #[prop_or_default]
+    cap_message: Option<AttrValue>,
 }
 
 /// Small trailing label that appears next to a negative price/reserve to
@@ -516,6 +862,16 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                             html! {}
                         }}
                     </div>
+                    {if let Some(category) = &props.category_label {
+                        html! {
+                            <div class="text-xs text-neutral-500 \
+                                        dark:text-neutral-400">
+                                {category}
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
                 <div>
@@ -669,6 +1025,14 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     } else if !props.auction_started {
                         // Auction hasn't started yet - no bidding allowed
                         html! {}
+                    } else if let Some(message) = &props.cap_message {
+                        // The user's per-category cap blocks this bid
+                        html! {
+                            <span class="text-xs text-neutral-600 \
+                                         dark:text-neutral-400 text-right">
+                                {message}
+                            </span>
+                        }
                     } else if props.would_exceed_eligibility {
                         // Cannot bid because it would exceed eligibility
                         html! {

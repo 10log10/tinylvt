@@ -22,6 +22,7 @@ pub fn AuctionRoundsPage(props: &Props) -> Html {
             <div>
                 <AuctionTabHeader
                     auction={ctx.auction.clone()}
+                    user_role={ctx.community.user_role}
                     active_tab={ActiveTab::Rounds}
                 />
                 <div class="py-6">

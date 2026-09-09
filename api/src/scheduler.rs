@@ -2234,6 +2234,27 @@ async fn run_proxy_item_work(
         .filter(|rsr| rsr.winning_user_id == settings.user_id)
         .count();
 
+    // In a capped auction, precompute the user's cap budgets so the walk
+    // never attempts a bid that cap validation would reject. The
+    // enforcement rule is shared with `create_bid_tx`
+    // (`CapBudgets::check`), so the pre-filter cannot diverge from the
+    // authoritative check; the walk debits each placed bid to keep the
+    // state current. Spaces whose category the user has no cap for
+    // (including the NULL bucket) are skipped entirely. None when the
+    // auction is uncapped.
+    //
+    // Caps get this precomputation while eligibility stays reactive (attempt
+    // the bid, skip on rejection) for historical reasons. Pre-checking reduces
+    // round-trips and could be implemented for eligibility points as well.
+    // Eligibility is useful when space quantity is encoded in eligibility, and
+    // bidders may set max_items high since eligibility points are what then set
+    // their bidding limits, rather than the number of spaces. Defining proxy
+    // bid limits by points would be more useful to bidders in that case.
+    let mut cap_budgets =
+        store::caps::fetch_cap_budgets(round, &settings.user_id, ttx.tx())
+            .await
+            .context("failed to fetch cap budgets")?;
+
     // Calculate surpluses for spaces where user has set values
     // user_values is already ordered by space name in mock-time mode
     // Tuples: (space_id, surplus, value)
@@ -2301,6 +2322,20 @@ async fn run_proxy_item_work(
             break;
         }
 
+        if let Some(budgets) = &cap_budgets {
+            let space = &spaces[&space_id];
+            if budgets
+                .check(space.category_id, space.eligibility_points)
+                .is_err()
+            {
+                tracing::debug!(
+                    "Skipping {:?}: category cap budget exhausted or missing",
+                    space_id
+                );
+                continue;
+            }
+        }
+
         tracing::info!(
             "Attempting to bid on {:?} with surplus {}",
             space_id,
@@ -2318,15 +2353,23 @@ async fn run_proxy_item_work(
         {
             Ok(_) => {
                 successful_bids += 1;
+                if let Some(budgets) = &mut cap_budgets {
+                    let space = &spaces[&space_id];
+                    budgets.debit(space.category_id, space.eligibility_points);
+                }
                 tracing::info!("Successfully placed bid on {:?}", space_id);
             }
             Err(store::StoreError::Api(
                 ApiError::ExceedsEligibility { .. }
+                | ApiError::ExceedsBidderCap { .. }
                 | ApiError::AlreadyWinningSpace,
             )) => {
-                // Expected errors - try next space
+                // Expected errors - try next space. A cap rejection should
+                // not occur given the pre-filter above, but is handled the
+                // same way defensively.
                 tracing::info!(
-                    "Failed to bid on {:?}: eligibility or already winning",
+                    "Failed to bid on {:?}: eligibility, cap, or already \
+                     winning",
                     space_id
                 );
                 continue;

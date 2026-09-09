@@ -1,14 +1,19 @@
-use payloads::{CommunityId, Role, responses::CommunityWithRole};
+use payloads::{CommunityId, Role, requests, responses::CommunityWithRole};
 use yew::prelude::*;
+use yewdux::prelude::*;
 
-use crate::Route;
 use crate::components::{
     ActiveStatusToggle, ActiveTab, BulkActivateModal, ChangeRoleModal,
-    CommunityPageWrapper, CommunityTabHeader, EditCreditLimitModal, MenuItem,
-    OverflowMenu, RemoveMemberModal,
-    user_identity_display::{render_user_avatar, render_user_name},
+    CommunityPageWrapper, CommunityTabHeader, ConfirmationModal,
+    EditCreditLimitModal, MenuItem, OverflowMenu, ProfileLinkModal,
+    RemoveMemberModal,
+    user_identity_display::{
+        format_user_name_unambiguous, render_profile_link, render_user_avatar,
+        render_user_name,
+    },
 };
 use crate::hooks::{render_section, use_members, use_push_route};
+use crate::{AuthState, Route, State, get_api_client};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -249,6 +254,16 @@ fn MemberRow(props: &MemberRowProps) -> Html {
     let show_edit_modal = use_state(|| false);
     let show_remove_modal = use_state(|| false);
     let show_change_role_modal = use_state(|| false);
+    let show_profile_link_modal = use_state(|| false);
+    let show_clear_link_modal = use_state(|| false);
+    let clear_link_loading = use_state(|| false);
+    let clear_link_error = use_state(|| None::<String>);
+
+    let (state, _) = use_store::<State>();
+    let is_self = match &state.auth_state {
+        AuthState::LoggedIn(profile) => profile.user_id == member.user.user_id,
+        _ => false,
+    };
 
     // Check if credit limits are supported and user can edit them
     let can_edit_credit_limit = community.user_role.can_edit_credit_limit()
@@ -299,6 +314,31 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                     show_change_role_modal.set(true)
                 }),
                 danger: false,
+            });
+        }
+
+        if is_self {
+            let show_profile_link_modal = show_profile_link_modal.clone();
+            items.push(MenuItem {
+                label: "Edit Profile Link".into(),
+                on_click: Callback::from(move |_| {
+                    show_profile_link_modal.set(true)
+                }),
+                danger: false,
+            });
+        }
+
+        if !is_self
+            && member.profile_link.is_some()
+            && community.user_role.can_clear_profile_link()
+        {
+            let show_clear_link_modal = show_clear_link_modal.clone();
+            items.push(MenuItem {
+                label: "Clear Profile Link".into(),
+                on_click: Callback::from(move |_| {
+                    show_clear_link_modal.set(true)
+                }),
+                danger: true,
             });
         }
 
@@ -371,6 +411,23 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                   dark:text-neutral-100">
                             {render_user_name(&member.user)}
                         </p>
+                        {if let Some(link) = &member.profile_link {
+                            html! { <p>{render_profile_link(link)}</p> }
+                        } else {
+                            html! {}
+                        }}
+                        // Join provenance, served only to moderator+: the
+                        // email on the invite this member joined through.
+                        {if let Some(email) = &member.invite_email {
+                            html! {
+                                <p class="text-xs text-neutral-500 \
+                                          dark:text-neutral-400">
+                                    {format!("Invited: {}", email)}
+                                </p>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </div>
                 </div>
                 <div class="flex items-center gap-3 flex-wrap justify-end \
@@ -471,6 +528,108 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                         actor_role={community.user_role}
                         on_success={on_change_role_success}
                         on_close={on_change_role_modal_close}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+
+            // Edit own profile link modal
+            {if *show_profile_link_modal {
+                let on_close = {
+                    let show_profile_link_modal =
+                        show_profile_link_modal.clone();
+                    Callback::from(move |_: ()| {
+                        show_profile_link_modal.set(false);
+                    })
+                };
+                let on_success = {
+                    let show_profile_link_modal =
+                        show_profile_link_modal.clone();
+                    let on_update = props.on_update.clone();
+                    Callback::from(move |_: ()| {
+                        show_profile_link_modal.set(false);
+                        on_update.emit(());
+                    })
+                };
+                html! {
+                    <ProfileLinkModal
+                        community_id={community.id}
+                        current_link={member.profile_link.clone()}
+                        on_close={on_close}
+                        on_success={on_success}
+                    />
+                }
+            } else {
+                html! {}
+            }}
+
+            // Clear another member's profile link (moderation)
+            {if *show_clear_link_modal {
+                let on_close = {
+                    let show_clear_link_modal = show_clear_link_modal.clone();
+                    let clear_link_error = clear_link_error.clone();
+                    Callback::from(move |_: ()| {
+                        show_clear_link_modal.set(false);
+                        clear_link_error.set(None);
+                    })
+                };
+                let on_confirm = {
+                    let community_id = community.id;
+                    let member_user_id = member.user.user_id;
+                    let show_clear_link_modal = show_clear_link_modal.clone();
+                    let clear_link_loading = clear_link_loading.clone();
+                    let clear_link_error = clear_link_error.clone();
+                    let on_update = props.on_update.clone();
+                    Callback::from(move |_: ()| {
+                        let show_clear_link_modal =
+                            show_clear_link_modal.clone();
+                        let clear_link_loading = clear_link_loading.clone();
+                        let clear_link_error = clear_link_error.clone();
+                        let on_update = on_update.clone();
+                        yew::platform::spawn_local(async move {
+                            clear_link_loading.set(true);
+                            clear_link_error.set(None);
+                            let request = requests::ClearProfileLink {
+                                community_id,
+                                user_id: member_user_id,
+                            };
+                            match get_api_client()
+                                .clear_profile_link(&request)
+                                .await
+                            {
+                                Ok(()) => {
+                                    show_clear_link_modal.set(false);
+                                    on_update.emit(());
+                                }
+                                Err(e) => {
+                                    clear_link_error.set(Some(format!(
+                                        "Failed to clear profile link: {}",
+                                        e
+                                    )));
+                                }
+                            }
+                            clear_link_loading.set(false);
+                        });
+                    })
+                };
+                html! {
+                    <ConfirmationModal
+                        title="Clear Profile Link"
+                        message={format!(
+                            "Remove the profile link set by {}?",
+                            format_user_name_unambiguous(&member.user)
+                        )}
+                        confirm_text="Clear Link"
+                        is_irreversible={false}
+                        is_loading={*clear_link_loading}
+                        error_message={
+                            clear_link_error
+                                .as_ref()
+                                .map(|e| AttrValue::from(e.clone()))
+                        }
+                        on_confirm={on_confirm}
+                        on_close={on_close}
                     />
                 }
             } else {

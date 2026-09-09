@@ -46,6 +46,8 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     let site_id = props.site_with_role.site.site_id;
     let site_details = &props.site_with_role.site.site_details;
 
+    let name_ref = use_node_ref();
+    let description_ref = use_node_ref();
     let auction_start_ref = use_node_ref();
     let possession_start_ref = use_node_ref();
     let possession_end_ref = use_node_ref();
@@ -61,6 +63,18 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     // When set, the auction is created without a start time and must be
     // started manually (or scheduled) later.
     let start_manually = use_state(|| true);
+
+    // Whether per-bidder caps gate bids. Immutable after creation.
+    let capped = use_state(|| false);
+
+    let on_capped_toggle = {
+        let capped = capped.clone();
+        Callback::from(move |e: Event| {
+            let target = e.target().unwrap();
+            let input = target.dyn_into::<web_sys::HtmlInputElement>().unwrap();
+            capped.set(input.checked());
+        })
+    };
 
     let on_start_manually_toggle = {
         let start_manually = start_manually.clone();
@@ -99,6 +113,8 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
     };
 
     let on_submit = {
+        let name_ref = name_ref.clone();
+        let description_ref = description_ref.clone();
         let auction_start_ref = auction_start_ref.clone();
         let possession_start_ref = possession_start_ref.clone();
         let possession_end_ref = possession_end_ref.clone();
@@ -110,9 +126,23 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
         let refetch_auctions = auctions_hook.refetch.clone();
         let site_timezone = site_details.timezone.clone();
         let start_manually = start_manually.clone();
+        let capped = capped.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
+
+            let non_empty = |value: String| {
+                let trimmed = value.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            };
+            let name =
+                non_empty(name_ref.cast::<HtmlInputElement>().unwrap().value());
+            let description = non_empty(
+                description_ref
+                    .cast::<web_sys::HtmlTextAreaElement>()
+                    .unwrap()
+                    .value(),
+            );
 
             let possession_start_input =
                 possession_start_ref.cast::<HtmlInputElement>().unwrap();
@@ -208,9 +238,12 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
 
             let auction = Auction {
                 site_id,
+                name,
+                description,
                 possession_start_at: possession_start,
                 possession_end_at: possession_end,
                 start_at: auction_start,
+                capped: *capped,
                 auction_params: (*auction_params).clone(),
             };
 
@@ -279,6 +312,57 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                     } else {
                         html! {}
                     }}
+
+                    // Name and Description Section
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+                            {"Name and Description"}
+                        </h3>
+
+                        <div>
+                            <label for="auction-name" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                                {"Name"}
+                            </label>
+                            <input
+                                ref={name_ref}
+                                type="text"
+                                id="auction-name"
+                                name="auction_name"
+                                maxlength="255"
+                                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
+                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
+                                       text-neutral-900 dark:text-neutral-100
+                                       focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
+                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
+                            />
+                            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                                {"Optional. Distinguishes auctions on the \
+                                  same site and names dates. Can't be \
+                                  changed after creation, since bids attach \
+                                  to what the name denotes."}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label for="auction-description" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                                {"Description"}
+                            </label>
+                            <textarea
+                                ref={description_ref}
+                                id="auction-description"
+                                name="auction_description"
+                                rows="3"
+                                class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600
+                                       rounded-md shadow-sm bg-white dark:bg-neutral-700
+                                       text-neutral-900 dark:text-neutral-100
+                                       focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500
+                                       dark:focus:ring-neutral-400 dark:focus:border-neutral-400"
+                            />
+                            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                                {"Optional. Shown on the auction page."}
+                            </p>
+                        </div>
+                    </div>
 
                     // Possession Period Section
                     <div class="space-y-4">
@@ -452,6 +536,43 @@ pub fn CreateAuctionForm(props: &CreateAuctionFormProps) -> Html {
                                     }}
                                 </>
                             }
+                        }}
+                    </div>
+
+                    // Bidder Caps Section
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+                            {"Bidder Caps"}
+                        </h3>
+
+                        <div class="flex items-center">
+                            <input
+                                type="checkbox"
+                                id="capped"
+                                name="capped"
+                                checked={*capped}
+                                onchange={on_capped_toggle}
+                                class="h-4 w-4 text-neutral-600 focus:ring-neutral-500 border-neutral-300 dark:border-neutral-600 rounded"
+                            />
+                            <label for="capped" class="ml-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                                {"Limit bidders with per-category caps"}
+                            </label>
+                        </div>
+                        {if *capped {
+                            html! {
+                                <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900 p-3 rounded border border-neutral-200 dark:border-neutral-700">
+                                    {"Each bidder can only hold active bids \
+                                      and wins up to their assigned cap for \
+                                      each space category, and cannot bid at \
+                                      all without a cap. You assign caps \
+                                      from the auction page after creation, \
+                                      by hand or by carrying over another \
+                                      auction's results. This setting can't \
+                                      be changed after creation."}
+                                </p>
+                            }
+                        } else {
+                            html! {}
                         }}
                     </div>
 

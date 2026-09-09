@@ -13,13 +13,14 @@ use components::layout::MainLayout;
 use hooks::use_authentication;
 use pages::{
     AcceptInvitePage, AuctionDetailPage, AuctionGuidePage, AuctionRoundsPage,
-    CommunitiesPage, CommunityBillingPage, CommunityCurrencyPage,
-    CommunityDetailPage, CommunityImagesPage, CommunityInvitesPage,
-    CommunityMembersPage, CommunitySettingsPage, CommunityTreasuryPage,
-    CreateAuctionPage, CreateCommunityPage, CreateSitePage, ForgotPasswordPage,
-    LandingPage, LoginPage, NotFoundPage, OrphanedAccountsPage, PricingPage,
-    ProfilePage, ResetPasswordPage, SiteAuctionsPage, SiteOverviewPage,
-    SiteSettingsPage, SiteSpacesPage, TermsPage, VerifyEmailPage, docs,
+    AuctionSettingsPage, CommunitiesPage, CommunityBillingPage,
+    CommunityCurrencyPage, CommunityDetailPage, CommunityImagesPage,
+    CommunityInvitesPage, CommunityMembersPage, CommunitySettingsPage,
+    CommunityTreasuryPage, CreateAuctionPage, CreateCommunityPage,
+    CreateSitePage, ForgotPasswordPage, LandingPage, LoginPage, NotFoundPage,
+    OrphanedAccountsPage, PricingPage, ProfilePage, ResetPasswordPage,
+    SiteAuctionsPage, SiteOverviewPage, SiteSettingsPage, SiteSpacesPage,
+    TermsPage, VerifyEmailPage, docs,
 };
 pub(crate) use state::{AuthState, State, ThemeMode};
 
@@ -83,6 +84,8 @@ pub enum Route {
     DocsDeskAllocation,
     #[at("/docs/rent-splitting")]
     DocsRentSplitting,
+    #[at("/docs/vendor-markets")]
+    DocsVendorMarkets,
     #[at("/auction-guide")]
     AuctionGuide,
     #[at("/profile")]
@@ -129,6 +132,8 @@ pub enum Route {
     AuctionDetail { id: AuctionId },
     #[at("/auctions/:id/rounds")]
     AuctionRounds { id: AuctionId },
+    #[at("/auctions/:id/settings")]
+    AuctionSettings { id: AuctionId },
     #[at("/sites/:id/settings")]
     SiteSettings { id: SiteId },
     #[not_found]
@@ -151,6 +156,7 @@ fn switch(routes: Route) -> Html {
         Route::DocsAuctions => html! { <docs::AuctionsPage /> },
         Route::DocsDeskAllocation => html! { <docs::DeskAllocationPage /> },
         Route::DocsRentSplitting => html! { <docs::RentSplittingPage /> },
+        Route::DocsVendorMarkets => html! { <docs::VendorMarketsPage /> },
         Route::AuctionGuide => html! { <AuctionGuidePage /> },
         Route::Profile => html! { <ProfilePage /> },
         Route::ForgotPassword => html! { <ForgotPasswordPage /> },
@@ -207,6 +213,9 @@ fn switch(routes: Route) -> Html {
         }
         Route::AuctionRounds { id } => {
             html! { <AuctionRoundsPage auction_id={id} /> }
+        }
+        Route::AuctionSettings { id } => {
+            html! { <AuctionSettingsPage auction_id={id} /> }
         }
         Route::SiteSettings { id } => {
             html! { <SiteSettingsPage site_id={id} /> }

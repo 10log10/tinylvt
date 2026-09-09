@@ -59,6 +59,18 @@ pub async fn delete_auction(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[post("/update_auction")]
+pub async fn update_auction(
+    user: Identity,
+    details: web::Json<payloads::requests::UpdateAuction>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    store::update_auction(&details, &user_id, &pool, &time_source).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[post("/schedule_auction")]
 pub async fn schedule_auction(
     user: Identity,

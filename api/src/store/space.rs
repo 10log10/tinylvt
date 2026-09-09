@@ -79,11 +79,39 @@ fn validate_eligibility_points(
     Ok(())
 }
 
+/// Validate that the space's category (if any) exists and belongs to the
+/// community owning the space's site. The plain FK cannot enforce
+/// community agreement. Callers pass the community of the site the space
+/// actually lives in, never one derived from the request, so an update
+/// cannot attach another community's category.
+async fn validate_category_community(
+    category_id: Option<payloads::SpaceCategoryId>,
+    community_id: &CommunityId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
+    let Some(category_id) = category_id else {
+        return Ok(());
+    };
+    let category_community = sqlx::query_scalar::<_, CommunityId>(
+        "SELECT community_id FROM space_categories WHERE id = $1",
+    )
+    .bind(category_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::SpaceCategoryNotFound)?;
+    if category_community != *community_id {
+        return Err(ApiError::SpaceCategoryCommunityMismatch.into());
+    }
+    Ok(())
+}
+
 /// Internal transaction-aware space creation function.
 /// Caller is responsible for managing the transaction and validating
-/// permissions.
+/// permissions. The space is created in `site`, which the caller has
+/// already resolved; the request's site id is not consulted.
 async fn create_space_tx(
     details: &payloads::Space,
+    site: &Site,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     time_source: &TimeSource,
 ) -> Result<Space, StoreError> {
@@ -108,6 +136,8 @@ async fn create_space_tx(
     }
 
     validate_eligibility_points(details)?;
+    validate_category_community(details.category_id, &site.community_id, tx)
+        .await?;
 
     let space = sqlx::query_as::<_, Space>(
         "INSERT INTO spaces (
@@ -115,17 +145,19 @@ async fn create_space_tx(
             name,
             description,
             eligibility_points,
+            category_id,
             is_available,
             site_image_id,
             reserve_price,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING *",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING *",
     )
-    .bind(details.site_id)
+    .bind(site.id)
     .bind(&details.name)
     .bind(&details.description)
     .bind(details.eligibility_points)
+    .bind(details.category_id)
     .bind(details.is_available)
     .bind(details.site_image_id)
     .bind(details.reserve_price)
@@ -170,7 +202,7 @@ pub async fn create_space(
     .await?;
 
     let mut tx = pool.begin().await?;
-    let space = create_space_tx(details, &mut tx, time_source).await?;
+    let space = create_space_tx(details, &site, &mut tx, time_source).await?;
     tx.commit().await?;
 
     Ok(space)
@@ -224,18 +256,22 @@ async fn space_has_auction_history(
     Ok(has_history)
 }
 
-/// Check if update contains nontrivial changes (name, eligibility_points, or
-/// reserve_price). These fields trigger copy-on-write when the space has
-/// auction history. reserve_price is included because a pending bid placed
-/// before any prior round result reads the reserve live at settlement time;
-/// editing it would retroactively change the bid's value out from under the
-/// bidder.
+/// Check if update contains nontrivial changes (name, eligibility_points,
+/// category_id, or reserve_price). These fields trigger copy-on-write when
+/// the space has auction history. reserve_price is included because a
+/// pending bid placed before any prior round result reads the reserve live
+/// at settlement time; editing it would retroactively change the bid's
+/// value out from under the bidder. category_id is included because in a
+/// capped auction it selects which cap bucket governs bids on the space,
+/// so changing it would likewise retroactively change what bidders
+/// committed to.
 fn has_nontrivial_changes(
     old_space: &Space,
     new_details: &payloads::Space,
 ) -> bool {
     old_space.name != new_details.name
         || old_space.eligibility_points != new_details.eligibility_points
+        || old_space.category_id != new_details.category_id
         || old_space.reserve_price != new_details.reserve_price
 }
 
@@ -268,10 +304,6 @@ async fn update_space_tx(
         .into());
     }
 
-    // Validate up front so an invalid value is rejected before the
-    // copy-on-write path soft-deletes the old space.
-    validate_eligibility_points(details)?;
-
     let (old_space, _) = get_validated_space_conn(
         space_id,
         user_id,
@@ -280,9 +312,21 @@ async fn update_space_tx(
     )
     .await?;
 
-    let community_id =
-        get_site_community_id(&old_space.site_id, &mut **tx).await?;
-    validate_reserve_price_quantized(&community_id, details, &mut **tx).await?;
+    // The space stays in its current site: the request's site id is not
+    // consulted, so neither the category check nor the copy-on-write
+    // create below can move it or cross communities.
+    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = $1")
+        .bind(old_space.site_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+    // Validate up front so an invalid value is rejected before the
+    // copy-on-write path soft-deletes the old space.
+    validate_eligibility_points(details)?;
+    validate_category_community(details.category_id, &site.community_id, tx)
+        .await?;
+    validate_reserve_price_quantized(&site.community_id, details, &mut **tx)
+        .await?;
 
     // Check for auction history and nontrivial changes
     let has_history = space_has_auction_history(space_id, tx).await?;
@@ -303,7 +347,8 @@ async fn update_space_tx(
         .execute(&mut **tx)
         .await?;
 
-        let new_space = create_space_tx(details, tx, time_source).await?;
+        let new_space =
+            create_space_tx(details, &site, tx, time_source).await?;
 
         return Ok(payloads::responses::UpdateSpaceResult {
             space: new_space.into(),
@@ -318,16 +363,18 @@ async fn update_space_tx(
             name = $1,
             description = $2,
             eligibility_points = $3,
-            is_available = $4,
-            site_image_id = $5,
-            reserve_price = $6,
-            updated_at = $8
-        WHERE id = $7
+            category_id = $4,
+            is_available = $5,
+            site_image_id = $6,
+            reserve_price = $7,
+            updated_at = $9
+        WHERE id = $8
         RETURNING *",
     )
     .bind(&details.name)
     .bind(&details.description)
     .bind(details.eligibility_points)
+    .bind(details.category_id)
     .bind(details.is_available)
     .bind(details.site_image_id)
     .bind(details.reserve_price)

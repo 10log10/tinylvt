@@ -41,6 +41,10 @@ pub enum ApiError {
     FieldTooLong,
     #[error("Invalid invite")]
     InvalidInvite,
+    #[error("This invite has already been used or revoked")]
+    CommunityInviteClosed,
+    #[error("Email-targeted invites must be single-use")]
+    EmailInviteMustBeSingleUse,
     #[error("Already a member of this community")]
     AlreadyMember,
     #[error("Member not found")]
@@ -69,6 +73,18 @@ pub enum ApiError {
     SpanTooLarge(String),
     #[error("A space with the name '{name}' already exists in this site")]
     SpaceNameNotUnique { name: String },
+    #[error(
+        "A space category with the name '{name}' already exists in this \
+         community"
+    )]
+    SpaceCategoryNameNotUnique { name: String },
+    #[error(
+        "Cannot delete a space category still referenced by spaces or \
+         bidder caps"
+    )]
+    SpaceCategoryInUse,
+    #[error("Space category belongs to a different community")]
+    SpaceCategoryCommunityMismatch,
     #[error("Insufficient permissions. Required: {required:?}")]
     InsufficientPermissions { required: PermissionLevel },
     #[error("Auction not found")]
@@ -105,6 +121,8 @@ pub enum ApiError {
     SiteNotFound,
     #[error("Space not found")]
     SpaceNotFound,
+    #[error("Space category not found")]
+    SpaceCategoryNotFound,
     #[error("Site image not found")]
     SiteImageNotFound,
     #[error("Image too large. Maximum size is 1MB, received {size} bytes")]
@@ -131,8 +149,37 @@ pub enum ApiError {
         "Space name too long. Maximum is {max} characters, received {size}"
     )]
     SpaceNameTooLong { size: usize, max: usize },
+    #[error(
+        "Auction name too long. Maximum is {max} characters, received {size}"
+    )]
+    AuctionNameTooLong { size: usize, max: usize },
+    #[error(
+        "Space category name too long. Maximum is {max} characters, \
+         received {size}"
+    )]
+    SpaceCategoryNameTooLong { size: usize, max: usize },
+    #[error("Space category name cannot be empty")]
+    SpaceCategoryNameEmpty,
+    #[error(
+        "Auction description too long. Maximum is {max} characters, received {size}"
+    )]
+    AuctionDescriptionTooLong { size: usize, max: usize },
     #[error("Eligibility points must be a finite, non-negative number")]
     InvalidEligibilityPoints,
+    #[error("Cap points must be a finite, non-negative number")]
+    InvalidCapPoints,
+    #[error("Auction does not use bidder caps")]
+    AuctionNotCapped,
+    #[error("Caps cannot change after the auction has ended")]
+    CapsFrozenAfterConclusion,
+    #[error("Cap delegations cannot change after the auction has started")]
+    CapDelegationsFrozenAfterStart,
+    #[error("Cannot delegate cap to yourself")]
+    CapDelegationToSelf,
+    #[error("Cap seeding requires a concluded (not canceled) source auction")]
+    SeedSourceNotConcluded,
+    #[error("Source auction belongs to a different community")]
+    SeedSourceCommunityMismatch,
     #[error(
         "Journal note too long. Maximum is {max} characters, received {size}"
     )]
@@ -149,8 +196,22 @@ pub enum ApiError {
         "Exceeds eligibility. Available: {available}, Required: {required}"
     )]
     ExceedsEligibility { available: f64, required: f64 },
+    #[error(
+        "Exceeds your bidding cap for {}. Available: {available}, \
+         Required: {required}",
+        category.as_deref().unwrap_or("uncategorized spaces")
+    )]
+    ExceedsBidderCap {
+        available: f64,
+        required: f64,
+        /// The governing category's name; None for the uncategorized
+        /// bucket.
+        category: Option<String>,
+    },
     #[error("Cannot bid on a space you are already winning")]
     AlreadyWinningSpace,
+    #[error("You have already bid on this space in this round")]
+    AlreadyBidOnSpace,
     #[error("Space is not available for bidding")]
     SpaceNotAvailable,
     #[error("Space has been deleted")]

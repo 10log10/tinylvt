@@ -19,6 +19,24 @@ pub async fn create_or_update_user_value(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[post("/create_or_update_user_values")]
+pub async fn create_or_update_user_values(
+    user: Identity,
+    details: web::Json<payloads::requests::UserValues>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    store::create_or_update_user_values(
+        &details,
+        &user_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[post("/get_user_value")]
 pub async fn get_user_value(
     user: Identity,

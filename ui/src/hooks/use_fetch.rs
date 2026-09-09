@@ -105,6 +105,17 @@ impl<T: Clone + PartialEq> Deref for SubscribedFetchHookReturn<T> {
 
 #[allow(dead_code)]
 impl<T: Clone + PartialEq> Fetch<T> {
+    /// An already-fetched value: not loading, no errors. For handing a
+    /// known-constant value to code that expects a `Fetch` (e.g. an
+    /// uncapped auction's caps slot is a fetched `None`).
+    pub fn fetched(value: T) -> Self {
+        Self {
+            data: FetchData::Fetched(value),
+            is_loading: false,
+            errors: Vec::new(),
+        }
+    }
+
     /// Map the fetched value to a new type. `is_loading` and `errors` are
     /// preserved.
     pub fn map<U, F>(self, f: F) -> Fetch<U>

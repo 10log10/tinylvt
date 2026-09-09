@@ -1,7 +1,8 @@
 use crate::{
     Account, ApiError, Auction, AuctionId, AuctionRoundId, Bid, CommunityId,
     InviteId, MembershipSchedule, RoundSpaceResult, Site, SiteId, SiteImageId,
-    Space, SpaceId, TreasuryOperationResult, requests, responses,
+    Space, SpaceCategory, SpaceCategoryId, SpaceId, TreasuryOperationResult,
+    requests, responses,
 };
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -245,6 +246,22 @@ impl APIClient {
         ok_empty(response).await
     }
 
+    pub async fn set_profile_link(
+        &self,
+        details: &requests::SetProfileLink,
+    ) -> Result<(), ClientError> {
+        let response = self.post("set_profile_link", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn clear_profile_link(
+        &self,
+        details: &requests::ClearProfileLink,
+    ) -> Result<(), ClientError> {
+        let response = self.post("clear_profile_link", details).await?;
+        ok_empty(response).await
+    }
+
     /// Get the communities for the currently logged in user.
     pub async fn get_members(
         &self,
@@ -450,6 +467,106 @@ impl APIClient {
         ok_body(response).await
     }
 
+    pub async fn create_space_category(
+        &self,
+        category: &SpaceCategory,
+    ) -> Result<SpaceCategoryId, ClientError> {
+        let response = self.post("create_space_category", &category).await?;
+        ok_body(response).await
+    }
+
+    pub async fn update_space_category(
+        &self,
+        details: &requests::UpdateSpaceCategory,
+    ) -> Result<responses::SpaceCategory, ClientError> {
+        let response = self.post("space_category", details).await?;
+        ok_body(response).await
+    }
+
+    pub async fn delete_space_category(
+        &self,
+        category_id: &SpaceCategoryId,
+    ) -> Result<(), ClientError> {
+        let response = self.post("delete_space_category", &category_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn list_space_categories(
+        &self,
+        community_id: &CommunityId,
+    ) -> Result<Vec<responses::SpaceCategory>, ClientError> {
+        let response = self.post("space_categories", &community_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn set_bidder_cap(
+        &self,
+        details: &requests::SetBidderCap,
+    ) -> Result<(), ClientError> {
+        let response = self.post("set_bidder_cap", details).await?;
+        ok_empty(response).await
+    }
+
+    /// All cap rows of the auction (coleader+).
+    pub async fn list_bidder_caps(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::BidderCap>, ClientError> {
+        let response = self.post("bidder_caps", &auction_id).await?;
+        ok_body(response).await
+    }
+
+    /// The current user's effective caps in the auction.
+    pub async fn my_bidder_caps(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::EffectiveCap>, ClientError> {
+        let response = self.post("my_bidder_caps", &auction_id).await?;
+        ok_body(response).await
+    }
+
+    pub async fn seed_bidder_caps(
+        &self,
+        details: &requests::SeedBidderCaps,
+    ) -> Result<(), ClientError> {
+        let response = self.post("seed_bidder_caps", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn set_bidder_cap_for_all(
+        &self,
+        details: &requests::SetBidderCapForAll,
+    ) -> Result<(), ClientError> {
+        let response = self.post("set_bidder_cap_for_all", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn set_cap_delegation(
+        &self,
+        details: &requests::SetCapDelegation,
+    ) -> Result<(), ClientError> {
+        let response = self.post("set_cap_delegation", details).await?;
+        ok_empty(response).await
+    }
+
+    /// All delegations of the auction (coleader+).
+    pub async fn list_cap_delegations(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::CapDelegation>, ClientError> {
+        let response = self.post("cap_delegations", &auction_id).await?;
+        ok_body(response).await
+    }
+
+    /// Delegations the current user gave or received in the auction.
+    pub async fn my_cap_delegations(
+        &self,
+        auction_id: &AuctionId,
+    ) -> Result<Vec<responses::CapDelegation>, ClientError> {
+        let response = self.post("my_cap_delegations", &auction_id).await?;
+        ok_body(response).await
+    }
+
     pub async fn create_auction(
         &self,
         auction: &Auction,
@@ -540,6 +657,14 @@ impl APIClient {
         auction_id: &AuctionId,
     ) -> Result<(), ClientError> {
         let response = self.post("delete_auction", &auction_id).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn update_auction(
+        &self,
+        details: &requests::UpdateAuction,
+    ) -> Result<(), ClientError> {
+        let response = self.post("update_auction", &details).await?;
         ok_empty(response).await
     }
 
@@ -661,6 +786,15 @@ impl APIClient {
     ) -> Result<(), ClientError> {
         let response =
             self.post("create_or_update_user_value", details).await?;
+        ok_empty(response).await
+    }
+
+    pub async fn create_or_update_user_values(
+        &self,
+        details: &requests::UserValues,
+    ) -> Result<(), ClientError> {
+        let response =
+            self.post("create_or_update_user_values", details).await?;
         ok_empty(response).await
     }
 

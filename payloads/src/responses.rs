@@ -57,6 +57,13 @@ pub struct IssuedCommunityInvite {
     pub single_use: bool,
     #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
     pub created_at: Timestamp,
+    /// Set when the invite was closed (used or revoked). A closed invite is
+    /// a read-only record kept for member join provenance.
+    #[cfg_attr(
+        feature = "use-sqlx",
+        sqlx(try_from = "crate::OptionalTimestamp")
+    )]
+    pub deleted_at: Option<Timestamp>,
 }
 
 /// Details about a community invite, excluding the target community id.
@@ -78,6 +85,13 @@ pub struct CommunityMember {
     /// Balance is included if user is coleader+ or
     /// balances_visible_to_members is true
     pub balance: Option<rust_decimal::Decimal>,
+    /// The email on the invite this member joined through, linking the
+    /// member back to the invite without exposing their account email.
+    /// Included only for viewers with `Role::can_see_invite_provenance`,
+    /// and only when the invite was email-targeted.
+    pub invite_email: Option<String>,
+    /// Self-set URL or social handle, visible to all members.
+    pub profile_link: Option<String>,
 }
 
 /// Community information with the current user's role in that community.
@@ -128,6 +142,67 @@ pub struct Space {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub deleted_at: Option<Timestamp>,
+}
+
+/// A space category row, matching the `space_categories` table so the
+/// backend reads it directly (no separate store type).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct SpaceCategory {
+    pub id: crate::SpaceCategoryId,
+    pub community_id: CommunityId,
+    pub name: String,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub created_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub updated_at: Timestamp,
+}
+
+/// One bidder cap row, matching the `auction_bidder_caps` table so the
+/// backend reads it directly. `category_id` None is the uncategorized
+/// bucket.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct BidderCap {
+    pub auction_id: crate::AuctionId,
+    pub user_id: UserId,
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub created_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub updated_at: Timestamp,
+}
+
+/// A bidder's effective cap in one bucket: their assigned cap adjusted by
+/// the backed delegations they gave and received. This is the number the
+/// bid-time check enforces. `category_id` None is the uncategorized
+/// bucket.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct EffectiveCap {
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+}
+
+/// One cap delegation row plus the points of it the delegator's assigned
+/// cap actually backs. Delegations are backed in creation order, so
+/// `backed` is `points` when the cap covers this and every earlier
+/// delegation, a smaller amount when it runs out partway, and 0 when the
+/// cap is absent or already spent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "use-sqlx", derive(sqlx::FromRow))]
+pub struct CapDelegation {
+    pub auction_id: crate::AuctionId,
+    pub from_user_id: UserId,
+    pub to_user_id: UserId,
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+    pub backed: f64,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub created_at: Timestamp,
+    #[cfg_attr(feature = "use-sqlx", sqlx(try_from = "SqlxTs"))]
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

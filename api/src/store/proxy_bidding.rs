@@ -50,6 +50,77 @@ pub async fn create_or_update_user_value(
     Ok(())
 }
 
+/// Bulk upsert of space values in one transaction, used for category-wide value
+/// assignment. Validates access to every space up front; duplicate space ids
+/// keep the last entry. One proxy-reprocessing flag and one funding event per
+/// affected auction, rather than one per value.
+pub async fn create_or_update_user_values(
+    details: &payloads::requests::UserValues,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    // Last entry wins among duplicates, and deduplication keeps the
+    // multi-row upsert from touching one row twice (a Postgres error).
+    let deduped: std::collections::HashMap<SpaceId, rust_decimal::Decimal> =
+        details
+            .values
+            .iter()
+            .map(|v| (v.space_id, v.value))
+            .collect();
+    let space_ids: Vec<SpaceId> = deduped.keys().copied().collect();
+    let values: Vec<rust_decimal::Decimal> =
+        space_ids.iter().map(|id| deduped[id]).collect();
+    if space_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Validate access: every space must exist, and the user must be a
+    // member of each involved community (normally exactly one).
+    let found: Vec<(SpaceId, CommunityId)> = sqlx::query_as(
+        "SELECT s.id, si.community_id FROM spaces s
+        JOIN sites si ON s.site_id = si.id
+        WHERE s.id = ANY($1)",
+    )
+    .bind(&space_ids)
+    .fetch_all(pool)
+    .await?;
+    if found.len() != space_ids.len() {
+        return Err(ApiError::SpaceNotFound.into());
+    }
+    let communities: std::collections::HashSet<CommunityId> =
+        found.iter().map(|(_, c)| *c).collect();
+    for community_id in &communities {
+        get_validated_member(user_id, community_id, pool).await?;
+    }
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "INSERT INTO user_values (user_id, space_id, value, created_at, updated_at)
+        SELECT $1, space_id, value, $4, $4
+        FROM UNNEST($2::uuid[], $3::numeric[]) AS t (space_id, value)
+        ON CONFLICT (user_id, space_id)
+        DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+    )
+    .bind(user_id)
+    .bind(&space_ids)
+    .bind(&values)
+    .bind(time_source.now().to_sqlx())
+    .execute(&mut *tx)
+    .await?;
+
+    flag_proxy_rows_for_spaces(&space_ids, user_id, &mut tx).await?;
+    super::funding::emit_funding_changed_for_spaces(
+        &space_ids, user_id, &mut tx,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(())
+}
+
 /// Mark the user's proxy rows dirty for open auctions of the space's site,
 /// in the same transaction as the value write, so the proxy processor
 /// re-selects the (round, user) item. Setting the flag in the writer's own
@@ -60,6 +131,15 @@ async fn flag_proxy_rows_for_space(
     user_id: &UserId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
+    flag_proxy_rows_for_spaces(&[*space_id], user_id, tx).await
+}
+
+/// Bulk variant of [`flag_proxy_rows_for_space`].
+async fn flag_proxy_rows_for_spaces(
+    space_ids: &[SpaceId],
+    user_id: &UserId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
     sqlx::query(
         "UPDATE use_proxy_bidding SET needs_processing = TRUE
         WHERE user_id = $1
@@ -67,11 +147,11 @@ async fn flag_proxy_rows_for_space(
             SELECT a.id FROM auctions a
             JOIN sites si ON a.site_id = si.id
             JOIN spaces s ON s.site_id = si.id
-            WHERE s.id = $2 AND a.end_at IS NULL
+            WHERE s.id = ANY($2) AND a.end_at IS NULL
         )",
     )
     .bind(user_id)
-    .bind(space_id)
+    .bind(space_ids)
     .execute(&mut **tx)
     .await?;
 

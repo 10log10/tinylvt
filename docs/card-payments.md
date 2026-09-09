@@ -61,6 +61,10 @@ sized:
   charge) that grows as your bids need it. Holds stay small when bidding
   stays low, but each increase replaces the hold on your statement.
 
+Budget holds don't account for bidder caps, so in a capped auction the
+hold can be larger than your bids could ever need. Use minimum start if
+you'd rather the hold track actual bidding.
+
 When a hold needs to grow, TinyLVT places the new, larger hold first and
 then cancels the old one, so your bids are never left unbacked. Both holds
 may appear as pending entries on your statement until your bank processes

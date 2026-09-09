@@ -44,9 +44,11 @@ pub(crate) struct AuctionSubscriptionRefetches {
     pub on_round_ended: Callback<()>,
     pub on_auction_ended: Callback<()>,
     pub on_auction_schedule_changed: Callback<()>,
+    pub on_auction_description_changed: Callback<()>,
     pub on_bids_changed: Callback<()>,
     pub on_funding_changed: Callback<()>,
     pub on_card_charge_grant_changed: Callback<()>,
+    pub on_bidder_caps_changed: Callback<()>,
 }
 
 /// The routing-only auction event kinds that the SSE stream delivers.
@@ -58,9 +60,11 @@ pub enum SubscribedEvent {
     RoundEnded,
     AuctionEnded,
     AuctionScheduleChanged,
+    AuctionDescriptionChanged,
     BidsChanged,
     FundingChanged,
     CardChargeGrantChanged,
+    BidderCapsChanged,
 }
 
 impl SubscribedEvent {
@@ -84,11 +88,15 @@ impl SubscribedEvent {
             on_auction_schedule_changed: cb(
                 SubscribedEvent::AuctionScheduleChanged,
             ),
+            on_auction_description_changed: cb(
+                SubscribedEvent::AuctionDescriptionChanged,
+            ),
             on_bids_changed: cb(SubscribedEvent::BidsChanged),
             on_funding_changed: cb(SubscribedEvent::FundingChanged),
             on_card_charge_grant_changed: cb(
                 SubscribedEvent::CardChargeGrantChanged,
             ),
+            on_bidder_caps_changed: cb(SubscribedEvent::BidderCapsChanged),
         }
     }
 }
@@ -289,6 +297,9 @@ pub(crate) mod registry {
                 AuctionEvent::AuctionScheduleChanged { .. } => {
                     h.on_auction_schedule_changed.emit(());
                 }
+                AuctionEvent::AuctionDescriptionChanged { .. } => {
+                    h.on_auction_description_changed.emit(());
+                }
                 AuctionEvent::BidsChanged { .. } => {
                     h.on_bids_changed.emit(());
                 }
@@ -297,6 +308,9 @@ pub(crate) mod registry {
                 }
                 AuctionEvent::CardChargeGrantChanged { .. } => {
                     h.on_card_charge_grant_changed.emit(());
+                }
+                AuctionEvent::BidderCapsChanged { .. } => {
+                    h.on_bidder_caps_changed.emit(());
                 }
             }
         }

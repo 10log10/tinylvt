@@ -142,6 +142,47 @@ async fn bid_beyond_balance_mints_authorization() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A cap-rejected bid on the card path creates no funding intent or
+/// authorization: the attempt-first shape runs every bid-time validation
+/// before any Stripe machinery.
+#[tokio::test]
+async fn cap_rejected_bid_mints_no_authorization() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = card_enabled_setup(&app).await?;
+
+    // Capped auction with no cap rows: bob's bid fails on the cap, not
+    // on funding, despite his empty balance.
+    app.login_alice().await?;
+    let site_id = app
+        .client
+        .create_site(&test_helpers::site_details_b(community_id))
+        .await?;
+    let mut space_details = test_helpers::space_details_a(site_id);
+    space_details.reserve_price = payloads::ReservePrice(dec!(10));
+    let space_id = app.client.create_space(&space_details).await?;
+    let mut auction_details =
+        test_helpers::auction_details_a(site_id, &app.time_source);
+    auction_details.start_at = Some(app.time_source.now());
+    auction_details.capped = true;
+    let auction_id = app.client.create_auction(&auction_details).await?;
+    app.tick().await;
+
+    app.login_bob().await?;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let result = app.client.create_bid(&space_id, &rounds[0].round_id).await;
+    assert_api_error(
+        result,
+        ApiError::ExceedsBidderCap {
+            available: 0.0,
+            required: 10.0,
+            category: None,
+        },
+    );
+    assert!(intent_rows(&app, &auction_id).await?.is_empty());
+
+    Ok(())
+}
+
 /// Free balance stays transferable while commitments are card-backed: the
 /// generic credit check gates backed-mode debits on balance − Σ balance
 /// commitments (`max(0, commitment − live auth)` per auction), not balance −

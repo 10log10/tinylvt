@@ -18,6 +18,9 @@ pub struct UserSpaceValuesHookReturn {
     pub inner: Fetch<HashMap<SpaceId, Decimal>>,
     pub refetch: Callback<()>,
     pub update_value: Callback<(SpaceId, Decimal)>,
+    /// Bulk upsert (category-wide value assignment): one request, one
+    /// proxy-reprocessing flag, one refetch.
+    pub update_values: Callback<Vec<(SpaceId, Decimal)>>,
     pub delete_value: Callback<SpaceId>,
 }
 
@@ -78,6 +81,39 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
         })
     };
 
+    let update_values = {
+        let refetch = fetch_hook.refetch.clone();
+        let mutation_errors = mutation_errors.clone();
+
+        use_callback((), move |values: Vec<(SpaceId, Decimal)>, _| {
+            let refetch = refetch.clone();
+            let mutation_errors = mutation_errors.clone();
+
+            yew::platform::spawn_local(async move {
+                let api_client = get_api_client();
+                let request = requests::UserValues {
+                    values: values
+                        .into_iter()
+                        .map(|(space_id, value)| requests::UserValue {
+                            space_id,
+                            value,
+                        })
+                        .collect(),
+                };
+
+                match api_client.create_or_update_user_values(&request).await {
+                    Ok(_) => {
+                        mutation_errors.set(vec![]);
+                        refetch.emit(());
+                    }
+                    Err(e) => {
+                        mutation_errors.set(vec![e.to_string()]);
+                    }
+                }
+            });
+        })
+    };
+
     let delete_value = {
         let refetch = fetch_hook.refetch.clone();
         let mutation_errors = mutation_errors.clone();
@@ -111,6 +147,7 @@ pub fn use_user_space_values(site_id: SiteId) -> UserSpaceValuesHookReturn {
         inner,
         refetch: fetch_hook.refetch,
         update_value,
+        update_values,
         delete_value,
     }
 }

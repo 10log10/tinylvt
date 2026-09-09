@@ -34,6 +34,7 @@ pub mod row_estimates {
     // Spaces category (descriptions add ~200 bytes avg if present)
     pub const SITE: i64 = 400; // many columns + description text
     pub const SPACE: i64 = 350; // UUID refs, name, description, floats
+    pub const SPACE_CATEGORY: i64 = 100; // 2 UUIDs, name, timestamps
 
     // Auctions category
     pub const AUCTION: i64 = 180; // UUID refs, timestamps, integers

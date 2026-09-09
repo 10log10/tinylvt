@@ -39,6 +39,10 @@ pub const DOC_NAV_ITEMS: &[DocNavItem] = &[
         title: "Rent Splitting",
         route: Route::DocsRentSplitting,
     },
+    DocNavItem {
+        title: "Vendor Markets",
+        route: Route::DocsVendorMarkets,
+    },
 ];
 
 #[derive(Properties, PartialEq)]

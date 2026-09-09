@@ -57,6 +57,106 @@ async fn test_auction_crud() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_auction_name_and_description() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+
+    // Creation stores the trimmed name and description.
+    let mut details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    details.name = Some("  October 2026 Fair  ".into());
+    details.description = Some("Auction for the October fair.".into());
+    let auction_id = app.client.create_auction(&details).await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(
+        retrieved.auction_details.name.as_deref(),
+        Some("October 2026 Fair")
+    );
+    assert_eq!(
+        retrieved.auction_details.description.as_deref(),
+        Some("Auction for the October fair.")
+    );
+
+    // Length limits are enforced at creation.
+    details.name = Some("x".repeat(256));
+    assert_api_error(
+        app.client.create_auction(&details).await,
+        ApiError::AuctionNameTooLong {
+            size: 256,
+            max: payloads::requests::AUCTION_NAME_MAX_LEN,
+        },
+    );
+    details.name = None;
+    details.description = Some("x".repeat(10_001));
+    assert_api_error(
+        app.client.create_auction(&details).await,
+        ApiError::AuctionDescriptionTooLong {
+            size: 10_001,
+            max: payloads::MAX_AUCTION_DESCRIPTION_LENGTH,
+        },
+    );
+
+    // A plain member may not edit the description.
+    app.login_bob().await?;
+    assert_api_error(
+        app.client
+            .update_auction(&requests::UpdateAuction {
+                auction_id,
+                description: Some("hijacked".into()),
+            })
+            .await,
+        ApiError::InsufficientPermissions {
+            required: PermissionLevel::Coleader,
+        },
+    );
+
+    // A coleader update replaces the description (the name has no update
+    // path at all: changing what an auction denotes requires canceling and
+    // recreating it); an over-long description is rejected and
+    // whitespace-only input clears.
+    app.login_alice().await?;
+    assert_api_error(
+        app.client
+            .update_auction(&requests::UpdateAuction {
+                auction_id,
+                description: Some("x".repeat(10_001)),
+            })
+            .await,
+        ApiError::AuctionDescriptionTooLong {
+            size: 10_001,
+            max: payloads::MAX_AUCTION_DESCRIPTION_LENGTH,
+        },
+    );
+    app.client
+        .update_auction(&requests::UpdateAuction {
+            auction_id,
+            description: Some("Rescheduled to the riverside park.".into()),
+        })
+        .await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(
+        retrieved.auction_details.name.as_deref(),
+        Some("October 2026 Fair")
+    );
+    assert_eq!(
+        retrieved.auction_details.description.as_deref(),
+        Some("Rescheduled to the riverside park.")
+    );
+
+    app.client
+        .update_auction(&requests::UpdateAuction {
+            auction_id,
+            description: Some("   ".into()),
+        })
+        .await?;
+    let retrieved = app.client.get_auction(&auction_id).await?;
+    assert_eq!(retrieved.auction_details.description, None);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_auction_unauthorized() -> anyhow::Result<()> {
     let app = spawn_app().await;
     let community_id = app.create_two_person_community().await?;
@@ -85,6 +185,15 @@ async fn test_auction_unauthorized() -> anyhow::Result<()> {
     );
     assert_api_error(
         app.client.delete_auction(&auction.auction_id).await,
+        ApiError::MemberNotFound,
+    );
+    assert_api_error(
+        app.client
+            .update_auction(&requests::UpdateAuction {
+                auction_id: auction.auction_id,
+                description: None,
+            })
+            .await,
         ApiError::MemberNotFound,
     );
     assert_api_error(
@@ -771,6 +880,7 @@ async fn test_bid_eligibility() -> anyhow::Result<()> {
             name: "test space b".into(),
             description: None,
             eligibility_points: 15.0, // Higher points than space_a
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
@@ -890,6 +1000,7 @@ async fn test_eligibility_disabled_at_zero() -> anyhow::Result<()> {
             name: "test space b".into(),
             description: None,
             eligibility_points: 15.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
@@ -967,6 +1078,7 @@ async fn test_eligibility_required_when_nonzero() -> anyhow::Result<()> {
             name: "free space".into(),
             description: None,
             eligibility_points: 0.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
@@ -1053,6 +1165,7 @@ async fn test_eligibility_progression_activates_midway() -> anyhow::Result<()> {
             name: "test space b".into(),
             description: None,
             eligibility_points: 15.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),

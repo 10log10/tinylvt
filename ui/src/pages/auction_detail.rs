@@ -1,18 +1,21 @@
 use payloads::{CurrencyMode, CurrencySettings, SpaceId};
 use std::collections::HashSet;
 use yew::prelude::*;
+use yew_router::prelude::*;
 
+use crate::Route;
 use crate::components::{
-    AuctionAdminControls, AuctionContext, AuctionFundingSection,
-    AuctionPageWrapper, AuctionTabHeader, AuctionToplineInfo,
+    AuctionContext, AuctionFundingSection, AuctionPageWrapper,
+    AuctionTabHeader, AuctionToplineInfo, CapDelegationPanel,
     ConnectionStatusIndicator, CountdownTimer, ProxyBiddingControls,
-    ProxyBiddingParticipants, RoundIndicator, SpaceListForBidding,
-    UserEligibilityDisplay, auction_tab_header::ActiveTab,
+    RoundIndicator, SpaceListForBidding, UserEligibilityDisplay,
+    auction_tab_header::ActiveTab,
 };
 use crate::hooks::{
-    Fetch, ProxyBiddingSettingsHookReturn, UserSpaceValuesHookReturn,
-    render_section, stale_data_banner, use_last_round,
-    use_proxy_bidding_settings, use_round_prices, use_spaces, use_user_bids,
+    Fetch, MyCapsMap, ProxyBiddingSettingsHookReturn,
+    UserSpaceValuesHookReturn, render_section, stale_data_banner,
+    use_last_round, use_my_bidder_caps, use_proxy_bidding_settings,
+    use_round_prices, use_space_categories, use_spaces, use_user_bids,
     use_user_eligibility, use_user_space_values,
 };
 use payloads::AuctionId;
@@ -29,6 +32,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
             <div>
                 <AuctionTabHeader
                     auction={ctx.auction.clone()}
+                    user_role={ctx.community.user_role}
                     active_tab={ActiveTab::Current}
                 />
                 <div class="py-6">
@@ -63,16 +67,81 @@ struct AuctionContentProps {
     community_id: payloads::CommunityId,
 }
 
+/// Branches on `capped` at a component boundary (the dependent-hook
+/// convention): only capped auctions mount the wrapper that fetches the
+/// user's caps, so uncapped pages issue no caps request and don't gate
+/// the space list on one.
 #[function_component]
 fn AuctionContent(props: &AuctionContentProps) -> Html {
+    if props.auction.auction_details.capped {
+        html! {
+            <CappedAuctionContent
+                auction={props.auction.clone()}
+                site_timezone={props.site_timezone.clone()}
+                currency={props.currency.clone()}
+                current_user={props.current_user.clone()}
+                user_role={props.user_role}
+                community_id={props.community_id}
+            />
+        }
+    } else {
+        html! {
+            <AuctionContentBody
+                auction={props.auction.clone()}
+                site_timezone={props.site_timezone.clone()}
+                currency={props.currency.clone()}
+                current_user={props.current_user.clone()}
+                user_role={props.user_role}
+                community_id={props.community_id}
+                my_caps={Fetch::fetched(None)}
+            />
+        }
+    }
+}
+
+/// Capped arm: fetches the user's own caps and hands them to the body.
+#[function_component]
+fn CappedAuctionContent(props: &AuctionContentProps) -> Html {
+    let my_caps_hook = use_my_bidder_caps(props.auction.auction_id);
+    html! {
+        <AuctionContentBody
+            auction={props.auction.clone()}
+            site_timezone={props.site_timezone.clone()}
+            currency={props.currency.clone()}
+            current_user={props.current_user.clone()}
+            user_role={props.user_role}
+            community_id={props.community_id}
+            my_caps={my_caps_hook.inner.map_ref(|m| Some(m.clone()))}
+        />
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct AuctionContentBodyProps {
+    auction: payloads::responses::Auction,
+    site_timezone: Option<String>,
+    currency: CurrencySettings,
+    current_user: payloads::responses::UserProfile,
+    user_role: payloads::Role,
+    community_id: payloads::CommunityId,
+    /// The user's own caps: fetched for capped auctions, an
+    /// already-fetched `None` otherwise. Caps are useful information in
+    /// every auction state, canceled included.
+    my_caps: Fetch<Option<MyCapsMap>>,
+}
+
+#[function_component]
+fn AuctionContentBody(props: &AuctionContentBodyProps) -> Html {
     let auction_id = props.auction.auction_id;
     let site_id = props.auction.auction_details.site_id;
 
-    // Fetch all the data we need
+    // Fetch all the data we need. Categories are fetched here rather than
+    // per-branch since every branch uses them.
     let last_round_hook = use_last_round(auction_id);
     let proxy_bidding_hook = use_proxy_bidding_settings(auction_id);
     let spaces_hook = use_spaces(site_id);
     let user_values_hook = use_user_space_values(site_id);
+    let categories_hook = use_space_categories(props.community_id);
 
     // The fetch hooks now own their own SSE subscriptions; the connection
     // status is shared per-auction in the registry, so reading from any
@@ -98,9 +167,11 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         site_timezone={props.site_timezone.clone()}
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
-                        user_role={props.user_role}
+                        community_id={props.community_id}
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
+                        categories={categories_hook.inner.clone()}
+                        my_caps={props.my_caps.clone()}
                     />
                 }
             } else if let Some(last_round_info) = last_round_info_opt {
@@ -111,7 +182,6 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                             auction={props.auction.clone()}
                             site_timezone={props.site_timezone.clone()}
                             currency={props.currency.clone()}
-                            user_role={props.user_role}
                             community_id={props.community_id}
                             last_round={last_round_info.last_round.clone()}
                             previous_round_id={
@@ -124,6 +194,8 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                             spaces={spaces_hook.inner.clone()}
                             user_values={user_values_hook.clone()}
                             proxy_bidding={proxy_bidding_hook.clone()}
+                            categories={categories_hook.inner.clone()}
+                            my_caps={props.my_caps.clone()}
                         />
                     </>
                 }
@@ -140,6 +212,8 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
                         proxy_bidding={proxy_bidding_hook.clone()}
+                        categories={categories_hook.inner.clone()}
+                        my_caps={props.my_caps.clone()}
                     />
                 }
             };
@@ -159,14 +233,18 @@ struct AuctionCancelledContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
-    user_role: payloads::Role,
+    community_id: payloads::CommunityId,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
+    categories: Fetch<Vec<payloads::responses::SpaceCategory>>,
+    my_caps: Fetch<Option<MyCapsMap>>,
 }
 
 /// Auction was canceled before any rounds existed. Show topline info, a
 /// cancellation banner, and the space list (for reference; bidding is
 /// disabled and proxy bidding is hidden since the auction never ran).
+/// The user's own caps and delegations stay visible since they remain
+/// useful information; coleaders manage caps on the Settings tab.
 #[function_component]
 fn AuctionCancelledContent(props: &AuctionCancelledContentProps) -> Html {
     let no_op_bid = Callback::from(|_: SpaceId| {});
@@ -191,17 +269,25 @@ fn AuctionCancelledContent(props: &AuctionCancelledContentProps) -> Html {
                 </div>
             </div>
 
-            <AuctionAdminControls
+            <CapDelegationPanel
                 auction={props.auction.clone()}
-                user_role={props.user_role}
+                community_id={props.community_id}
+                current_user_id={props.current_user.user_id}
+                started={false}
+                categories={props.categories.clone()}
             />
 
             // Auction was cancelled before any rounds existed, so prices and
-            // bids are empty by definition; gate on spaces + user_values.
+            // bids are empty by definition; gate on spaces + user_values +
+            // categories + caps.
             {render_section(
-                &props.spaces.zip_ref(&props.user_values.inner),
+                &props
+                    .spaces
+                    .zip_ref(&props.user_values.inner)
+                    .zip_ref(&props.categories)
+                    .zip_ref(&props.my_caps),
                 "spaces",
-                |(spaces, user_values), _, errors| html! {
+                |(((spaces, user_values), categories), my_caps), _, errors| html! {
                     <>
                         {stale_data_banner(errors)}
                         <SpaceListForBidding
@@ -225,6 +311,8 @@ fn AuctionCancelledContent(props: &AuctionCancelledContentProps) -> Html {
                                 props.user_values.delete_value.clone()
                             }
                             auction_ended={true}
+                            categories={(*categories).clone()}
+                            bidder_caps={(*my_caps).clone()}
                         />
                     </>
                 },
@@ -245,6 +333,8 @@ struct AuctionNotStartedContentProps {
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
     proxy_bidding: ProxyBiddingSettingsHookReturn,
+    categories: Fetch<Vec<payloads::responses::SpaceCategory>>,
+    my_caps: Fetch<Option<MyCapsMap>>,
 }
 
 /// Auction has not yet started. Show topline info, a countdown (or a
@@ -253,6 +343,30 @@ struct AuctionNotStartedContentProps {
 #[function_component]
 fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
     let no_op_bid = Callback::from(|_: SpaceId| {});
+    // Scheduling lives on the Settings tab; point coleaders there.
+    let scheduling_note = if props.user_role.is_ge_coleader() {
+        html! {
+            <p class="text-neutral-600 dark:text-neutral-400">
+                {"Schedule or start it from "}
+                <Link<Route>
+                    to={Route::AuctionSettings {
+                        id: props.auction.auction_id,
+                    }}
+                    classes="underline hover:text-neutral-800 \
+                             dark:hover:text-neutral-200"
+                >
+                    {"Settings"}
+                </Link<Route>>
+                {"."}
+            </p>
+        }
+    } else {
+        html! {
+            <p class="text-neutral-600 dark:text-neutral-400">
+                {"A community leader will schedule or start this auction."}
+            </p>
+        }
+    };
     html! {
         <div class="space-y-6">
             <AuctionToplineInfo
@@ -291,11 +405,7 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                                            text-neutral-900 dark:text-white">
                                     {"Auction Not Yet Scheduled"}
                                 </h3>
-                                <p class="text-neutral-600 \
-                                          dark:text-neutral-400">
-                                    {"A community leader will schedule or \
-                                      start this auction."}
-                                </p>
+                                {scheduling_note}
                             </>
                         },
                     }}
@@ -307,14 +417,12 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                 </div>
             </div>
 
-            <AuctionAdminControls
+            <CapDelegationPanel
                 auction={props.auction.clone()}
-                user_role={props.user_role}
-            />
-
-            <ProxyBiddingParticipants
-                auction_id={props.auction.auction_id}
-                user_role={props.user_role}
+                community_id={props.community_id}
+                current_user_id={props.current_user.user_id}
+                started={false}
+                categories={props.categories.clone()}
             />
 
             <ProxyBiddingControls
@@ -343,14 +451,16 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
 
             // Space list for setting values (bidding disabled). The auction
             // hasn't started, so no prices or bids exist; gate on spaces +
-            // user_values + proxy_bidding being fetched.
+            // user_values + proxy_bidding + categories + caps being fetched.
             {render_section(
                 &props
                     .spaces
                     .zip_ref(&props.user_values.inner)
-                    .zip_ref(&props.proxy_bidding.inner),
+                    .zip_ref(&props.proxy_bidding.inner)
+                    .zip_ref(&props.categories)
+                    .zip_ref(&props.my_caps),
                 "spaces",
-                |((spaces, user_values), proxy_bidding_opt), _, errors| html! {
+                |((((spaces, user_values), proxy_bidding_opt), categories), my_caps), _, errors| html! {
                     <>
                         {stale_data_banner(errors)}
                         <SpaceListForBidding
@@ -374,6 +484,11 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                                 props.user_values.delete_value.clone()
                             }
                             auction_ended={false}
+                            categories={(*categories).clone()}
+                            bidder_caps={(*my_caps).clone()}
+                            on_update_values={
+                                props.user_values.update_values.clone()
+                            }
                         />
                     </>
                 },
@@ -387,7 +502,6 @@ struct AuctionRoundContentProps {
     auction: payloads::responses::Auction,
     site_timezone: Option<String>,
     currency: CurrencySettings,
-    user_role: payloads::Role,
     community_id: payloads::CommunityId,
     last_round: payloads::responses::AuctionRound,
     /// Round id of the round before `last_round`, used to fetch prices.
@@ -397,6 +511,8 @@ struct AuctionRoundContentProps {
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
     proxy_bidding: ProxyBiddingSettingsHookReturn,
+    categories: Fetch<Vec<payloads::responses::SpaceCategory>>,
+    my_caps: Fetch<Option<MyCapsMap>>,
 }
 
 #[function_component]
@@ -524,11 +640,6 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 html! {}
             }}
 
-            <AuctionAdminControls
-                auction={props.auction.clone()}
-                user_role={props.user_role}
-            />
-
             // Current round indicator
             // IMPORTANT: key prop forces remount on round change to avoid stale
             // closure captures. The interval closure captures round_concluded state,
@@ -541,6 +652,14 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 round_end_at={props.last_round.round_details.end_at}
                 auction_end_at={props.auction.end_at}
                 on_round_end={Option::<Callback<()>>::None}
+            />
+
+            <CapDelegationPanel
+                auction={props.auction.clone()}
+                community_id={props.community_id}
+                current_user_id={props.current_user.user_id}
+                started={true}
+                categories={props.categories.clone()}
             />
 
             // User eligibility
@@ -608,9 +727,11 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                     .zip_ref(&props.user_values.inner)
                     .zip_ref(&eligibility)
                     .zip_ref(&current_activity)
-                    .zip_ref(&props.proxy_bidding.inner),
+                    .zip_ref(&props.proxy_bidding.inner)
+                    .zip_ref(&props.categories)
+                    .zip_ref(&props.my_caps),
                 "spaces",
-                |((((((spaces, prices), user_bids), user_values), eligibility_opt), activity), proxy_bidding_opt), _, errors| html! {
+                |((((((((spaces, prices), user_bids), user_values), eligibility_opt), activity), proxy_bidding_opt), categories), my_caps), _, errors| html! {
                     <>
                         {stale_data_banner(errors)}
                         <SpaceListForBidding
@@ -630,6 +751,9 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                             auction_started={true}
                             user_eligibility={**eligibility_opt}
                             current_activity={**activity}
+                            categories={(*categories).clone()}
+                            bidder_caps={(*my_caps).clone()}
+                            on_update_values={props.user_values.update_values.clone()}
                         />
                     </>
                 },

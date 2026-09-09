@@ -16,9 +16,11 @@
 //! item's bidding claim) runs as its own later transaction — an authorization
 //! without bids is a legal state, so the steps need no shared atomicity. The
 //! full rationale and the pair lock's holder criteria live in
-//! `api/CONCURRENCY.md`. The bid flow keeps a lock-free peek in front purely as
-//! an economy gate — balance-covered bids never touch a pair lock, and the
-//! peek's result carries no authority.
+//! `api/CONCURRENCY.md`. The bid flow is attempt-first: `store::create_bid`
+//! runs before any card machinery, so balance-covered bids never touch Stripe
+//! and every bid-time validation rejection returns before an authorization
+//! exists; only an `InsufficientBalance` rejection in backed mode opens the
+//! order → execute sequence.
 //!
 //! Two module-wide rules: no data row lock ever spans a Stripe call (pre-call
 //! the execute claim holds only the advisory lock), and no transaction ever
@@ -27,7 +29,10 @@
 //! Stripe-spanning claims and blocking pair-lock waits run on the dedicated
 //! worker pool (`WorkerPool`): they pin a connection for the call's (or wait's)
 //! duration, and drawing them from the shared API pool would starve it at round
-//! boundaries.
+//! boundaries. That includes the ordinary bid transaction in backed_credits
+//! mode, whose pair-lock wait can queue behind an execute claim; in other
+//! modes no claim ever holds the lock across a network call, so the bid
+//! stays on the shared pool.
 
 use std::collections::HashMap;
 
@@ -77,10 +82,11 @@ pub struct FlowDeps<'a> {
 /// single-transaction `store::create_bid` path with no claim.
 ///
 /// The card path is the order → execute sequence (see the module docs),
-/// then the same ordinary bid transaction the balance-covered path uses
+/// then the same ordinary bid transaction the first attempt already ran
 /// — an authorization without its bid is a legal state, so the bid
 /// needs no atomicity with the claim, and a crashed gap re-converges on
-/// the member's re-click with no second Stripe call.
+/// the member's re-click: the first attempt simply succeeds against the
+/// enlarged backing, with no second Stripe call.
 pub async fn create_bid_with_funding(
     space_id: &SpaceId,
     round_id: &AuctionRoundId,
@@ -88,7 +94,6 @@ pub async fn create_bid_with_funding(
     pool: &PgPool,
     deps: FlowDeps<'_>,
 ) -> Result<(), StoreError> {
-    // Peek: does this bid need the card path at all?
     let (space, _) = store::get_validated_space(
         space_id,
         user_id,
@@ -98,36 +103,31 @@ pub async fn create_bid_with_funding(
     .await?;
     let community_id =
         store::get_site_community_id(&space.site_id, pool).await?;
+    let backed = funding::is_backed_mode(&community_id, pool).await?;
+    // Only in backed mode can the bid transaction's blocking pair-lock
+    // wait queue behind a Stripe-spanning claim, so only there does it
+    // draw from the worker pool (see the module docs).
+    let bid_pool = if backed { &deps.worker_pool.0 } else { pool };
+    let time_source = deps.time_source;
 
-    let peek = if !funding::is_backed_mode(&community_id, pool).await? {
-        None
-    } else {
-        let mut tx = pool.begin().await?;
-        let (round, gap) = bid_card_gap_tx(
-            &space,
-            &community_id,
-            round_id,
-            user_id,
-            deps.time_source,
-            &mut tx,
-        )
-        .await?;
-        gap.map(|_| round.auction_id)
-    };
-
-    let Some(auction_id) = peek else {
-        // Balance-covered (or informal mode / chore bid): the ordinary
-        // single-tx path. A mid-flight race can still surface
-        // InsufficientBalance — the member's re-click is a fresh attempt.
-        return store::create_bid(
-            space_id,
-            round_id,
-            user_id,
-            pool,
-            deps.time_source,
-        )
-        .await;
-    };
+    // Attempt first: balance-covered, informal-mode, and chore bids
+    // succeed here with no card machinery touched, and every bid-time
+    // validation rejection (caps, eligibility, liveness, ...) returns
+    // before any authorization exists. Only the backed-mode shortfall
+    // continues into the card path below.
+    match store::create_bid(space_id, round_id, user_id, bid_pool, time_source)
+        .await
+    {
+        Err(StoreError::Api(ApiError::InsufficientBalance)) if backed => {}
+        result => return result,
+    }
+    // The failed attempt already proved the round exists.
+    let auction_id: AuctionId = sqlx::query_scalar(
+        "SELECT auction_id FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(pool)
+    .await?;
 
     // Card path. Prerequisites produce contextual errors prompting
     // setup/grant in-context; a community without a charges-enabled
@@ -147,7 +147,6 @@ pub async fn create_bid_with_funding(
     // worker pool, since a blocking wait can queue behind a
     // Stripe-spanning claim for that call's duration.
     let sizing = ctx.sizing.clone();
-    let time_source = deps.time_source;
     let order = place_auth_order(
         &deps.worker_pool.0,
         &community_id,
@@ -206,15 +205,15 @@ pub async fn create_bid_with_funding(
         .into());
     }
 
-    // The bid itself: the same ordinary transaction as the
-    // balance-covered path, re-validating against the committed backing.
-    match store::create_bid(space_id, round_id, user_id, pool, time_source)
+    // Retry the bid against the committed backing. The first attempt's
+    // InsufficientBalance was the expected card-path trigger; this one
+    // means the balance genuinely moved between plan and bid — the
+    // enlarged auth is persisted, so the member's re-click sizes a
+    // smaller (usually zero) gap and succeeds.
+    match store::create_bid(space_id, round_id, user_id, bid_pool, time_source)
         .await
     {
         Ok(()) => Ok(()),
-        // The balance genuinely moved between plan and bid: the enlarged
-        // auth is persisted, so the member's re-click sizes a smaller
-        // (usually zero) gap and succeeds.
         Err(StoreError::Api(ApiError::InsufficientBalance)) => {
             Err(ApiError::BalanceChangedDuringProcessing.into())
         }
@@ -1847,8 +1846,9 @@ pub(crate) struct CardContext {
 /// Load the member's `CardContext` for a community, or the contextual
 /// error for the first missing prerequisite
 /// (`CardPaymentsNotEnabled` / `SavedCardRequired` /
-/// `CardChargeGrantRequired`). Called at peek time by every card-path
-/// entry point (bid flow, pre-authorize, the proxy leg); the bid flow
+/// `CardChargeGrantRequired`). Called ahead of the order transaction by
+/// every card-path entry point (bid flow, pre-authorize, the proxy leg);
+/// the bid flow
 /// remaps `CardPaymentsNotEnabled` to `InsufficientBalance`, since a
 /// community without a card path leaves the bid simply short on
 /// balance.
@@ -1896,10 +1896,10 @@ pub(crate) async fn load_card_context(
     })
 }
 
-/// The member's funding gap picture for one auction, as computed
-/// lock-free by `gap_view_tx`: how much backing the target requires
-/// beyond what unclaimed balance and the live authorization can
-/// deliver. Consumed by every card-path peek and claim-phase plan.
+/// The member's funding gap picture for one auction, as computed by
+/// `gap_view_tx`: how much backing the target requires beyond what
+/// unclaimed balance and the live authorization can deliver. Consumed
+/// by every card-path order plan.
 pub(crate) struct GapView {
     /// The live authorization, if any (active, authorized, in-window).
     pub live_auth: Option<FundingIntent>,
@@ -1942,8 +1942,7 @@ impl GapView {
 
 /// Compute a `GapView` for a target backing requirement `required`
 /// (commitment + planned bids), reading balance backing and the live
-/// authorization lock-free. Used in both the peek (outside any lock)
-/// and the claim's fresh plan (under the pair lock).
+/// authorization. Called from the order plans under the pair lock.
 pub(crate) async fn gap_view_tx(
     community_id: &CommunityId,
     auction_id: &AuctionId,
@@ -1973,9 +1972,9 @@ pub(crate) async fn gap_view_tx(
 /// The bid flow's plan reads on the current transaction: reject a closed round,
 /// then compute the card gap the planned bid leaves after balance and the live
 /// authorization. Returns the round plus Some(view) only when a positive bid
-/// needs the card path (chore bids never do). Shared by the lock-free peek and
-/// the order transaction's fresh plan under the pair lock, so the two can't
-/// drift.
+/// needs the card path (chore bids never do). Shared by the bid flow's order
+/// transaction and the proxy claim's reactive order
+/// (`order_proxy_bid_auth_tx`), so the two can't drift.
 async fn bid_card_gap_tx(
     space: &store::Space,
     community_id: &CommunityId,

@@ -71,6 +71,17 @@ pub fn AuctionToplineInfo(props: &Props) -> Html {
                     </span>
                 </div>
 
+                {if let Some(description) = &auction_details.description {
+                    html! {
+                        <p class="text-sm text-neutral-600 \
+                                  dark:text-neutral-400 whitespace-pre-line">
+                            {description}
+                        </p>
+                    }
+                } else {
+                    html! {}
+                }}
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     // Possession Period
                     <div class="space-y-2">

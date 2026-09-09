@@ -372,6 +372,30 @@ CREATE TABLE tokens (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
+-- Defined before community_members, which references invites for join
+-- provenance. Invites carrying provenance are closed by soft delete
+-- (deleted_at) instead of vanishing: accepting a single-use invite sets
+-- deleted_at, and revocation sets it when members reference the invite
+-- (hard-deleting when none do — an unused invite carries no provenance).
+-- A closed invite rejects acceptance.
+CREATE TABLE community_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    -- If provided, the accepting user email must match. Otherwise it's an open
+    -- invite to anyone with the invite id.
+    email VARCHAR(255),
+    -- Invites match against a user's email, so the match compares normalized
+    -- forms on both sides. Nullable, matching the nullable `email`.
+    email_normalized VARCHAR(255)
+        GENERATED ALWAYS AS (lower(email)) STORED,
+    single_use BOOLEAN NOT NULL,
+    -- Email-targeted invites are single-use by definition; multi-use
+    -- invites are anonymous links.
+    CONSTRAINT email_invites_single_use CHECK (email IS NULL OR single_use),
+    created_at TIMESTAMPTZ NOT NULL,
+    deleted_at TIMESTAMPTZ
+);
+
 CREATE TABLE community_members (
     -- Cascade: if a community is deleted, memberships are deleted too
     community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
@@ -387,28 +411,28 @@ CREATE TABLE community_members (
     -- new authorizations and raises; existing holds back binding bids
     -- and release via settlement/cancel.
     card_charges_granted_at TIMESTAMPTZ,
+    -- The invite the member joined through, linking "@username" back to the
+    -- invite email a coleader typed without exposing the member's account
+    -- email. The plain FK (no ON DELETE action) means a referenced invite
+    -- cannot be deleted by anyone: provenance never silently degrades, and
+    -- an out-of-band delete fails loudly.
+    invite_id UUID REFERENCES community_invites (id),
+    -- Self-set URL or social handle, shown beside the username. Moderators
+    -- can clear an abusive one.
+    profile_link VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (community_id, user_id)
 );
 
+-- Serves the reference check on invite revocation and the FK enforcement
+-- on invite deletes.
+CREATE INDEX idx_community_members_invite_id
+    ON community_members (invite_id);
+
 CREATE UNIQUE INDEX one_leader_per_community
 ON community_members (community_id)
 WHERE role = 'leader';
-
-CREATE TABLE community_invites (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
-    -- If provided, the accepting user email must match. Otherwise it's an open
-    -- invite to anyone with the invite id.
-    email VARCHAR(255),
-    -- Invites match against a user's email, so the match compares normalized
-    -- forms on both sides. Nullable, matching the nullable `email`.
-    email_normalized VARCHAR(255)
-        GENERATED ALWAYS AS (lower(email)) STORED,
-    single_use BOOLEAN NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
-);
 
 -- A future schedule of community membership that results in automatic
 -- updating of the `is_active` state.
@@ -535,6 +559,20 @@ CREATE TABLE sites (
 CREATE INDEX idx_sites_deleted_at ON sites (deleted_at)
 WHERE deleted_at IS NULL;
 
+-- Space categories stratify spaces for per-bidder bidding caps. They are
+-- community-scoped rather than site-scoped so that related auctions on
+-- different sites share category ids (e.g. an auction of fungible
+-- pseudo-spaces on one site bounding a later auction of concrete locations
+-- on another).
+CREATE TABLE space_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    community_id UUID NOT NULL REFERENCES communities (id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (community_id, name)
+);
+
 -- An individual space available for possession.
 CREATE TABLE spaces (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -542,6 +580,10 @@ CREATE TABLE spaces (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     eligibility_points DOUBLE PRECISION NOT NULL,
+    -- NULL = uncategorized. Deletion of a referenced category is restricted
+    -- (default FK behavior): a category vanishing under a capped auction
+    -- would silently change what bidders may bid on.
+    category_id UUID REFERENCES space_categories (id),
     -- Whether this space is available for auction, which can be changed based
     -- on bundling.
     is_available BOOLEAN NOT NULL DEFAULT true,
@@ -564,6 +606,10 @@ CREATE TABLE spaces (
 CREATE INDEX idx_spaces_deleted_at ON spaces (deleted_at)
 WHERE deleted_at IS NULL;
 
+-- Serves the category-delete in-use check and the FK RESTRICT enforcement
+-- on space_categories deletes.
+CREATE INDEX idx_spaces_category_id ON spaces (category_id);
+
 -- Space names are unique only among non-deleted spaces, so a name can be
 -- reused after soft-delete (copy-on-write).
 CREATE UNIQUE INDEX spaces_site_id_name_unique
@@ -573,6 +619,12 @@ WHERE deleted_at IS NULL;
 CREATE TABLE auctions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     site_id UUID NOT NULL REFERENCES sites (id) ON DELETE CASCADE,
+    -- Optional identity to help distinguish auctions on the same site. The
+    -- name is fixed at creation: space values depend on what the name denotes,
+    -- so changing its meaning requires canceling and recreating the auction.
+    -- The description stays editable (coleader+).
+    name VARCHAR(255),
+    description TEXT,
     -- The specific possession period being auctioned.
     possession_start_at TIMESTAMPTZ NOT NULL,
     possession_end_at TIMESTAMPTZ NOT NULL,
@@ -588,6 +640,10 @@ CREATE TABLE auctions (
     -- they remain hard-deletable (journal_entries.auction_id is ON DELETE
     -- RESTRICT for settled auctions).
     was_canceled BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Whether per-bidder caps gate bids (see auction_bidder_caps). Immutable
+    -- after creation, like the name: toggling it mid-auction would change the
+    -- bidding rules under bidders and their proxy plans.
+    capped BOOLEAN NOT NULL DEFAULT FALSE,
     -- The auction params used in this auction.
     auction_params_id UUID NOT NULL REFERENCES auction_params (id),
     -- Scheduler failure tracking for debugging and backoff
@@ -670,6 +726,64 @@ CREATE TABLE user_eligibilities (
     PRIMARY KEY (user_id, round_id),
     CHECK (eligibility >= 0)
 );
+
+-- Per-bidder, per-category ceilings on active eligibility points in a
+-- capped auction, enforced at bid time in every round (including round 0,
+-- unlike the eligibility activity rule, which starts at round 1). A missing
+-- row means 0: participation in a capped auction requires a cap. The NULL
+-- category row governs uncategorized spaces only; it is a bucket like any
+-- other, not a wildcard or default.
+CREATE TABLE auction_bidder_caps (
+    auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    category_id UUID REFERENCES space_categories (id),
+    -- Denominated in eligibility points to match the active-points sum the
+    -- eligibility engine computes; with 1-point spaces caps read as item
+    -- counts. Booth-style counts are integral and exact in floats. Strictly
+    -- positive: a 0-points cap means the same as no row, so writers delete
+    -- instead of storing 0.
+    points DOUBLE PRECISION NOT NULL CHECK (points > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE NULLS NOT DISTINCT (auction_id, user_id, category_id)
+);
+
+-- Serves the category-delete in-use check and the FK RESTRICT enforcement
+-- on space_categories deletes.
+CREATE INDEX idx_auction_bidder_caps_category_id
+    ON auction_bidder_caps (category_id);
+
+-- Cap delegations: members hand cap points to another member so a group can
+-- bid through one bidder (e.g. three people pooling for a shared office).
+-- Rows are promises, not transfers: a delegation only has effect to the
+-- extent the delegator's own cap row backs it. Backing is resolved at read
+-- time in creation order per (delegator, category), so an over-promised cap
+-- honors the earliest delegations first. Effective cap = assigned cap -
+-- backed points out + backed points in.
+--
+-- Only directly assigned cap backs a delegation, never received cap, so
+-- delegations do not chain. Delegator-owned: only the delegator writes;
+-- coleaders only read (they override via the cap itself). Frozen once the
+-- auction starts.
+CREATE TABLE auction_cap_delegations (
+    auction_id UUID NOT NULL REFERENCES auctions (id) ON DELETE CASCADE,
+    from_user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    to_user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    category_id UUID REFERENCES space_categories (id),
+    -- Strictly positive like caps: 0 deletes the row.
+    points DOUBLE PRECISION NOT NULL CHECK (points > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE NULLS NOT DISTINCT (
+        auction_id, from_user_id, to_user_id, category_id
+    ),
+    CHECK (from_user_id <> to_user_id)
+);
+
+-- Serves the category-delete in-use check and the FK RESTRICT enforcement
+-- on space_categories deletes.
+CREATE INDEX idx_auction_cap_delegations_category_id
+    ON auction_cap_delegations (category_id);
 
 -- User-assigned values for each space, for proxy bidding.
 --

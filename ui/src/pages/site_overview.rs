@@ -186,6 +186,17 @@ fn AuctionHighlightCard(props: &AuctionHighlightCardProps) -> Html {
                                      -m-3 p-3 rounded-lg transition-colors"
                         >
                             <div class="space-y-3 text-sm">
+                                {if let Some(name) = &auction_details.name {
+                                    html! {
+                                        <p class="font-medium
+                                                  text-neutral-900
+                                                  dark:text-neutral-100">
+                                            {name}
+                                        </p>
+                                    }
+                                } else {
+                                    html! {}
+                                }}
                                 <div>
                                     <span class="font-medium text-neutral-700
                                                  dark:text-neutral-300">
@@ -328,6 +339,16 @@ fn OngoingAuctionCard(props: &OngoingAuctionCardProps) -> Html {
                                      dark:text-green-400">
                             {"Ongoing"}
                         </span>
+                        {if let Some(name) = &auction_details.name {
+                            html! {
+                                <span class="font-medium text-neutral-900
+                                             dark:text-neutral-100">
+                                    {name}
+                                </span>
+                            }
+                        } else {
+                            html! {}
+                        }}
                     </div>
 
                     <div class="text-sm">

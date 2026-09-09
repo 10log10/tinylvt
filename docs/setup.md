@@ -39,12 +39,17 @@ member at a time. Examples: "Desk 1", "Spot A-15", "Room 101".
 **Auction** — A time-bounded event associated with a site, where all of that
 site's spaces are allocated for a possession period.
 
+**Category** — An optional label grouping similar spaces (e.g., "Standard
+booth"). Categories belong to the community and are shared across its
+sites. They enable bidder caps and one-step value entry — see
+[Auctions](/docs/auctions).
+
 ## Member Roles
 
 | Role | Can do |
 |------|--------|
 | **Member** | Participate in auctions, receive distributions |
-| **Moderator** | + Add/remove members, set active status |
+| **Moderator** | + Add/remove members, set active status, see invite provenance, clear profile links |
 | **Coleader** | + Full community management (sites, spaces, auctions, moderators) |
 | **Leader** | + Manage coleaders, transfer leadership |
 
@@ -55,9 +60,28 @@ Coleaders, and only the Leader can transfer leadership to someone else.
 ## Inviting Members
 
 1. Go to your community's Invites page
-2. Create an invite link
+2. Create an invite — either an open invite link anyone can use, or an
+   invite addressed to a specific email
 3. Share the link with people you want to join
 4. They'll create an account (if needed) and join your community
+
+Open invite links can be single-use or multi-use. Email-addressed invites
+are always single-use.
+
+Invites keep a record of who joined through them. Once a single-use invite
+is accepted, or an invite that members joined through is revoked, it stays
+in the issued list as a closed, read-only record. In the member list,
+moderators see which invite email each member joined through ("Invited:
+jane@example.com"), which connects self-chosen usernames to the people you
+invited without exposing anyone's account email. Revoking an invite nobody
+used simply removes it.
+
+## Member Profiles
+
+Members can add a **profile link** to their entry in the member list — a
+website or social handle shown under their username, so others can see who
+they are. Set yours from your own row's menu in the member list.
+Moderators can clear an inappropriate link.
 
 ## Active vs Inactive Members
 
@@ -85,6 +109,14 @@ available for collaboration.
 **Tip:** Think about how spaces relate to each other. If people often want
 adjacent spaces together, consider creating bundles.
 
+### Categories
+
+If your spaces fall into types, define categories on the site's Spaces
+page and assign one to each space when creating or editing it. Categories
+belong to the community, so the same set is available on every site.
+They're used for bidder caps and for setting one proxy value across a
+whole category — see [Auctions](/docs/auctions).
+
 ### Reserve Prices
 
 Each space has a **reserve price** — the starting price the first bid is
@@ -106,12 +138,19 @@ See [Auctions](/docs/auctions) for how reserves shape bidding.
 1. Navigate to a site
 2. Click "Create Auction"
 3. Set the auction parameters:
+   - Name and description (optional; the description can be edited later,
+     the name cannot)
    - Start time
    - Round duration
    - Bid increment
    - Possession period
 4. Members can enter proxy bids before the auction starts
 5. The auction runs automatically at the scheduled time
+
+To limit how much each bidder can win by category, create the auction as
+**capped** and assign per-bidder caps from the auction's Settings tab —
+entered by hand or carried over from a concluded auction's results. See
+[Auctions](/docs/auctions) for how caps work.
 
 In Backed Credits communities with card payments enabled, auctions must
 finish within 48 hours of starting, and members place card holds in the 24

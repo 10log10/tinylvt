@@ -611,6 +611,7 @@ async fn setup_bob_left_with_committed_bid(
             name: "reserved space".into(),
             description: None,
             eligibility_points: 10.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(Decimal::new(1000, 2)),

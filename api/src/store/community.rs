@@ -1,6 +1,8 @@
 use super::*;
 use jiff_sqlx::ToSqlx;
-use payloads::{ApiError, CommunityId, InviteId, Role, UserId, requests};
+use payloads::{
+    ApiError, CommunityId, InviteId, PermissionLevel, Role, UserId, requests,
+};
 use sqlx::{PgPool, Row};
 use tracing::Level;
 
@@ -151,6 +153,21 @@ pub async fn get_validated_member(
     Ok(ValidatedMember(member))
 }
 
+/// Fetch the user's membership and require at least the given permission
+/// level, the community-scoped counterpart of `get_validated_auction`.
+pub async fn get_validated_member_with_permission(
+    user_id: &UserId,
+    community_id: &CommunityId,
+    required: PermissionLevel,
+    executor: impl sqlx::PgExecutor<'_>,
+) -> Result<ValidatedMember, StoreError> {
+    let member = get_validated_member(user_id, community_id, executor).await?;
+    if !required.validate(member.0.role) {
+        return Err(ApiError::InsufficientPermissions { required }.into());
+    }
+    Ok(member)
+}
+
 /// Batch fetch user identities for a list of user IDs
 ///
 /// Returns a HashMap of user_id -> UserIdentity. This is useful for
@@ -238,6 +255,11 @@ pub async fn invite_community_member(
     if !actor.0.role.is_ge_moderator() {
         return Err(ApiError::RequiresModeratorPermissions.into());
     }
+    // Email-targeted invites are single-use by definition; multi-use invites
+    // are anonymous links (a schema CHECK backs this invariant).
+    if new_member_email.is_some() && !single_use {
+        return Err(ApiError::EmailInviteMustBeSingleUse.into());
+    }
     let invite = sqlx::query_as::<_, CommunityInvite>(
         "INSERT INTO community_invites (community_id, email, single_use, created_at)
         VALUES ($1, $2, $3, $4) RETURNING *;",
@@ -251,12 +273,15 @@ pub async fn invite_community_member(
     Ok(invite.id)
 }
 
+/// The community an open invite joins, for the accept page. A closed
+/// invite reports the same error acceptance would, so a stale link shows
+/// it up front instead of after a click.
 pub async fn get_invite_community_name(
     invite_id: &payloads::InviteId,
     pool: &PgPool,
 ) -> Result<String, StoreError> {
-    let community_name = sqlx::query_scalar::<_, String>(
-        "SELECT c.name
+    let invite = sqlx::query_as::<_, (String, bool)>(
+        "SELECT c.name, ci.deleted_at IS NOT NULL
          FROM community_invites ci
          JOIN communities c ON ci.community_id = c.id
          WHERE ci.id = $1;",
@@ -265,11 +290,11 @@ pub async fn get_invite_community_name(
     .fetch_optional(pool)
     .await?;
 
-    let Some(community_name) = community_name else {
-        return Err(ApiError::CommunityInviteNotFound.into());
-    };
-
-    Ok(community_name)
+    match invite {
+        None => Err(ApiError::CommunityInviteNotFound.into()),
+        Some((_, true)) => Err(ApiError::CommunityInviteClosed.into()),
+        Some((community_name, false)) => Ok(community_name),
+    }
 }
 
 pub async fn accept_invite(
@@ -282,15 +307,27 @@ pub async fn accept_invite(
     if !user.email_verified {
         return Err(ApiError::UnverifiedEmail.into());
     }
+
+    let mut tx = pool.begin().await?;
+
+    // KEY SHARE conflicts with the revoke path's FOR UPDATE, so an
+    // acceptance racing a revocation waits and then sees the closed or
+    // removed row instead of joining through a revoked invite (or failing
+    // on the membership FK). Concurrent acceptances don't conflict here;
+    // the single-use guard below settles those.
     let invite = sqlx::query_as::<_, CommunityInvite>(
-        "SELECT * FROM community_invites WHERE id = $1;",
+        "SELECT * FROM community_invites WHERE id = $1 FOR KEY SHARE;",
     )
     .bind(invite_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
     let Some(invite) = invite else {
         return Err(ApiError::CommunityInviteNotFound.into());
     };
+    // Closed invites (used or revoked) are read-only provenance records.
+    if invite.deleted_at.is_some() {
+        return Err(ApiError::CommunityInviteClosed.into());
+    }
     // Compare the database-normalized forms so the match is case-insensitive
     // and uses the exact value Postgres computed for the unique index.
     if let Some(ref invite_email_normalized) = invite.email_normalized
@@ -299,11 +336,14 @@ pub async fn accept_invite(
         return Err(ApiError::MismatchedInviteEmail.into());
     }
 
-    // Fetch community to get new_members_default_active setting
-    let community = get_community_by_id(&invite.community_id, pool).await?;
-    let is_active = community.currency.new_members_default_active;
-
-    let mut tx = pool.begin().await?;
+    // Read on the transaction: a pool query here would hold this
+    // connection while waiting on a second one.
+    let is_active = sqlx::query_scalar::<_, bool>(
+        "SELECT new_members_default_active FROM communities WHERE id = $1",
+    )
+    .bind(invite.community_id)
+    .fetch_one(&mut *tx)
+    .await?;
 
     // Check if an orphaned account exists (user previously left)
     let orphaned_account_exists: bool = sqlx::query_scalar(
@@ -321,15 +361,17 @@ pub async fn accept_invite(
     .fetch_one(&mut *tx)
     .await?;
 
-    // Insert community_members row (new member or returning member)
+    // Insert community_members row (new member or returning member),
+    // recording the invite as join provenance.
     let result = sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role, is_active, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $5);",
+        "INSERT INTO community_members (community_id, user_id, role, is_active, invite_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $6);",
     )
     .bind(invite.community_id)
     .bind(user_id)
     .bind(Role::Member)
     .bind(is_active)
+    .bind(invite.id)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await;
@@ -351,11 +393,25 @@ pub async fn accept_invite(
     }
     // else: Orphaned account exists, member is reconnecting to it
 
-    if invite.email.is_some() || invite.single_use {
-        sqlx::query("DELETE FROM community_invites WHERE id = $1")
-            .bind(invite_id)
-            .execute(&mut *tx)
-            .await?;
+    // Consuming a single-use invite closes it as a soft-deleted record
+    // preserving the new member's join provenance (email-targeted invites
+    // are single-use by definition). The deleted_at guard makes concurrent
+    // acceptances settle on one winner: both hold KEY SHARE, which doesn't
+    // block this UPDATE, so the loser's UPDATE waits on the winner's row
+    // lock, re-evaluates against the closed row, and rolls its membership
+    // insert back with the transaction.
+    if invite.single_use {
+        let result = sqlx::query(
+            "UPDATE community_invites SET deleted_at = $2
+            WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(invite_id)
+        .bind(time_source.now().to_sqlx())
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(ApiError::CommunityInviteClosed.into());
+        }
     }
 
     tx.commit().await?;
@@ -363,33 +419,68 @@ pub async fn accept_invite(
     Ok(())
 }
 
+/// Revoke a community invite (moderator+).
+///
+/// An invite that members joined through is closed as a soft-deleted
+/// read-only record so their join provenance survives; an unreferenced
+/// invite carries no provenance and is removed outright. Already-closed
+/// invites are not revocable and report not-found like a missing row.
 pub async fn delete_invite(
     actor: &ValidatedMember,
     invite_id: &payloads::InviteId,
     pool: &PgPool,
+    time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     if !actor.0.role.is_ge_moderator() {
         return Err(ApiError::RequiresModeratorPermissions.into());
     }
 
-    // Verify the invite exists and belongs to this community
-    let invite_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM community_invites WHERE id = $1 AND community_id = $2)",
+    let mut tx = pool.begin().await?;
+
+    // Lock the row so concurrent revocations and acceptances settle on one
+    // outcome for the reference check below. Integrity doesn't depend on
+    // this (the FK forbids deleting a referenced invite), but without it a
+    // racing acceptance would surface here as an FK-violation error instead
+    // of a clean soft delete or not-found.
+    let locked_invite = sqlx::query_scalar::<_, payloads::InviteId>(
+        "SELECT id FROM community_invites
+        WHERE id = $1 AND community_id = $2 AND deleted_at IS NULL
+        FOR UPDATE",
     )
     .bind(invite_id)
     .bind(actor.0.community_id)
-    .fetch_one(pool)
+    .fetch_optional(&mut *tx)
     .await?;
 
-    if !invite_exists {
+    if locked_invite.is_none() {
         return Err(ApiError::CommunityInviteNotFound.into());
     }
 
-    // Delete the invite
-    sqlx::query("DELETE FROM community_invites WHERE id = $1")
+    let referenced = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1 FROM community_members WHERE invite_id = $1
+        )",
+    )
+    .bind(invite_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if referenced {
+        sqlx::query(
+            "UPDATE community_invites SET deleted_at = $2 WHERE id = $1",
+        )
         .bind(invite_id)
-        .execute(pool)
+        .bind(time_source.now().to_sqlx())
+        .execute(&mut *tx)
         .await?;
+    } else {
+        sqlx::query("DELETE FROM community_invites WHERE id = $1")
+            .bind(invite_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -458,7 +549,8 @@ pub async fn get_received_invites(
             b.name as community_name
         FROM community_invites a
         JOIN communities b ON a.community_id = b.id
-        WHERE a.email_normalized = lower($1)",
+        WHERE a.email_normalized = lower($1)
+            AND a.deleted_at IS NULL",
     )
     .bind(user.email)
     .fetch_all(pool)
@@ -478,7 +570,8 @@ pub async fn get_issued_invites(
             id,
             email as new_member_email,
             single_use,
-            created_at
+            created_at,
+            deleted_at
         FROM community_invites
         WHERE community_id = $1
         ORDER BY created_at DESC",
@@ -502,23 +595,30 @@ pub async fn get_members(
         .fetch_one(pool)
         .await?;
 
+    let include_provenance = actor.0.role.can_see_invite_provenance();
+
     #[derive(sqlx::FromRow)]
     struct DbMember {
         user_id: UserId,
         role: Role,
         is_active: bool,
         balance: Option<rust_decimal::Decimal>,
+        invite_email: Option<String>,
+        profile_link: Option<String>,
     }
 
     let db_members: Vec<DbMember> = if should_include_balances {
         sqlx::query_as(
             "SELECT cm.user_id, cm.role, cm.is_active,
-                    a.balance_cached AS balance
+                    a.balance_cached AS balance,
+                    ci.email AS invite_email,
+                    cm.profile_link
             FROM community_members cm
             LEFT JOIN accounts a
                 ON a.community_id = cm.community_id
                 AND a.owner_id = cm.user_id
                 AND a.owner_type = 'member_main'
+            LEFT JOIN community_invites ci ON ci.id = cm.invite_id
             WHERE cm.community_id = $1
             ORDER BY cm.created_at ASC",
         )
@@ -527,11 +627,14 @@ pub async fn get_members(
         .await?
     } else {
         sqlx::query_as(
-            "SELECT user_id, role, is_active,
-                    NULL::numeric AS balance
-            FROM community_members
-            WHERE community_id = $1
-            ORDER BY created_at ASC",
+            "SELECT cm.user_id, cm.role, cm.is_active,
+                    NULL::numeric AS balance,
+                    ci.email AS invite_email,
+                    cm.profile_link
+            FROM community_members cm
+            LEFT JOIN community_invites ci ON ci.id = cm.invite_id
+            WHERE cm.community_id = $1
+            ORDER BY cm.created_at ASC",
         )
         .bind(actor.0.community_id)
         .fetch_all(pool)
@@ -547,12 +650,87 @@ pub async fn get_members(
                 role: m.role,
                 is_active: m.is_active,
                 balance: m.balance,
+                invite_email: if include_provenance {
+                    m.invite_email
+                } else {
+                    None
+                },
+                profile_link: m.profile_link,
             })
         },
         &actor.0.community_id,
         pool,
     )
     .await
+}
+
+/// Set (or clear, with None) the actor's own profile link.
+///
+/// The link is a URL or social handle shown beside the member's username.
+/// A trimmed-empty value clears it, like None.
+pub async fn set_profile_link(
+    actor: &ValidatedMember,
+    profile_link: &Option<String>,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let link = profile_link
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(link) = link
+        && link.len() > payloads::MAX_PROFILE_LINK_LENGTH
+    {
+        return Err(ApiError::FieldTooLong.into());
+    }
+
+    sqlx::query(
+        "UPDATE community_members SET profile_link = $3, updated_at = $4
+        WHERE community_id = $1 AND user_id = $2",
+    )
+    .bind(actor.0.community_id)
+    .bind(actor.0.user_id)
+    .bind(link)
+    .bind(time_source.now().to_sqlx())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Clear another member's profile link as moderation (moderator+).
+pub async fn clear_profile_link(
+    actor: &ValidatedMember,
+    target_user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    if !actor.0.role.can_clear_profile_link() {
+        return Err(ApiError::RequiresModeratorPermissions.into());
+    }
+
+    let result = sqlx::query(
+        "UPDATE community_members SET profile_link = NULL, updated_at = $3
+        WHERE community_id = $1 AND user_id = $2",
+    )
+    .bind(actor.0.community_id)
+    .bind(target_user_id)
+    .bind(time_source.now().to_sqlx())
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::MemberNotFound.into());
+    }
+
+    tracing::info!(
+        community_id = %actor.0.community_id,
+        moderator = %actor.0.user_id,
+        member = %target_user_id,
+        "profile link cleared by moderator"
+    );
+
+    Ok(())
 }
 
 pub async fn remove_member(

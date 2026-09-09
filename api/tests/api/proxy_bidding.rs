@@ -624,6 +624,86 @@ async fn test_proxy_bidding_deleted_on_community_exit() -> anyhow::Result<()> {
 
 /// (processed_at, failure_count, last_failed_at) for a user's marker row,
 /// timestamps as text for cheap change/equality comparisons.
+#[tokio::test]
+async fn test_bulk_user_values() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space_a = app.create_test_space(&site.site_id).await?;
+    let space_b_id = app
+        .client
+        .create_space(&test_helpers::space_details_b(site.site_id))
+        .await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(app.time_source.now());
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    app.login_bob().await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+    // The tick claims the round-0 item and clears the dirty flag, so the
+    // bulk write below is what sets it again.
+    app.tick().await;
+    assert!(!needs_processing(&app.db_pool, &auction_id, "bob").await?);
+
+    // One request upserts several values; the last entry wins among
+    // duplicate space ids.
+    app.client
+        .create_or_update_user_values(&requests::UserValues {
+            values: vec![
+                requests::UserValue {
+                    space_id: space_a.space_id,
+                    value: Decimal::new(3, 0),
+                },
+                requests::UserValue {
+                    space_id: space_b_id,
+                    value: Decimal::new(4, 0),
+                },
+                requests::UserValue {
+                    space_id: space_a.space_id,
+                    value: Decimal::new(5, 0),
+                },
+            ],
+        })
+        .await?;
+
+    let values = app.client.list_user_values(&site.site_id).await?;
+    assert_eq!(values.len(), 2);
+    let value_of = |space_id| {
+        values
+            .iter()
+            .find(|v| v.space_id == space_id)
+            .unwrap()
+            .value
+    };
+    assert_eq!(value_of(space_a.space_id), Decimal::new(5, 0));
+    assert_eq!(value_of(space_b_id), Decimal::new(4, 0));
+
+    // The bulk write flags proxy reprocessing like the single-value path.
+    assert!(needs_processing(&app.db_pool, &auction_id, "bob").await?);
+
+    // A space id from outside the community is rejected as a whole.
+    let bogus = payloads::SpaceId(uuid::Uuid::new_v4());
+    let result = app
+        .client
+        .create_or_update_user_values(&requests::UserValues {
+            values: vec![requests::UserValue {
+                space_id: bogus,
+                value: Decimal::ONE,
+            }],
+        })
+        .await;
+    assert_api_error(result, ApiError::SpaceNotFound);
+
+    Ok(())
+}
+
 async fn proxy_marker(
     pool: &sqlx::PgPool,
     round_id: &payloads::AuctionRoundId,

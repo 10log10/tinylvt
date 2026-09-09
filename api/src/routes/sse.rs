@@ -127,7 +127,8 @@ fn event_matches(
         AuctionEvent::RoundCreated { auction_id: a, .. }
         | AuctionEvent::RoundEnded { auction_id: a, .. }
         | AuctionEvent::AuctionEnded { auction_id: a }
-        | AuctionEvent::AuctionScheduleChanged { auction_id: a } => {
+        | AuctionEvent::AuctionScheduleChanged { auction_id: a }
+        | AuctionEvent::AuctionDescriptionChanged { auction_id: a } => {
             *a == auction_id
         }
         AuctionEvent::BidsChanged {
@@ -136,6 +137,10 @@ fn event_matches(
             ..
         }
         | AuctionEvent::FundingChanged {
+            auction_id: a,
+            user_id: u,
+        }
+        | AuctionEvent::BidderCapsChanged {
             auction_id: a,
             user_id: u,
         } => *a == auction_id && *u == user_id,

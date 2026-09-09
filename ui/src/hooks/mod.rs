@@ -151,6 +151,7 @@ pub mod use_auction_rounds;
 pub mod use_auction_user_bids;
 pub mod use_auctions;
 pub mod use_authentication;
+pub mod use_bidder_caps;
 pub mod use_card_charge_grant;
 pub mod use_communities;
 pub mod use_community_images;
@@ -174,6 +175,7 @@ pub mod use_require_auth;
 pub mod use_round_prices;
 pub mod use_site;
 pub mod use_sites;
+pub mod use_space_categories;
 pub mod use_spaces;
 pub mod use_storage_usage;
 pub mod use_subscription_info;
@@ -193,6 +195,10 @@ pub use use_auction_rounds::use_auction_rounds;
 pub use use_auction_user_bids::use_auction_user_bids;
 pub use use_auctions::use_auctions;
 pub use use_authentication::use_authentication;
+pub use use_bidder_caps::{
+    MyCapsMap, use_bidder_caps, use_cap_delegations, use_my_bidder_caps,
+    use_my_cap_delegations,
+};
 pub use use_card_charge_grant::use_card_charge_grant;
 pub use use_communities::use_communities;
 pub use use_community_images::use_community_images;
@@ -223,6 +229,7 @@ pub use use_require_auth::{login_form, use_require_auth};
 pub use use_round_prices::use_round_prices;
 pub use use_site::use_site;
 pub use use_sites::use_sites;
+pub use use_space_categories::use_space_categories;
 pub use use_spaces::use_spaces;
 pub use use_storage_usage::use_storage_usage;
 pub use use_subscription_info::use_subscription_info;

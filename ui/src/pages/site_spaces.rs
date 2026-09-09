@@ -8,11 +8,14 @@ use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 use crate::components::{
-    CreateSpaceModal, ReservePriceField, SiteImageSelector, SitePageWrapper,
-    SiteTabHeader, SiteWithRole, WarningModal, site_tab_header::ActiveTab,
+    CategoryManager, CategorySelect, CreateSpaceModal, ReservePriceField,
+    SiteImageSelector, SitePageWrapper, SiteTabHeader, SiteWithRole,
+    WarningModal, site_tab_header::ActiveTab,
 };
 use crate::get_api_client;
-use crate::hooks::{render_section, use_auctions, use_spaces};
+use crate::hooks::{
+    render_section, use_auctions, use_space_categories, use_spaces,
+};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -58,15 +61,20 @@ pub struct SpacesTabProps {
 fn SpacesTab(props: &SpacesTabProps) -> Html {
     let spaces_hook = use_spaces(props.site_id);
     let auctions_hook = use_auctions(props.site_id);
+    let categories_hook = use_space_categories(props.community_id);
 
-    // Both spaces and auctions need to be loaded before we can render the
-    // edit UI safely: editing requires the spaces, and the warning gate
-    // requires knowing whether an auction is in progress. Zip the two and
-    // delegate to the inner component.
+    // Spaces, auctions, and categories all need to be loaded before we can
+    // render the edit UI safely: editing requires the spaces and the
+    // category options, and the warning gate requires knowing whether an
+    // auction is in progress. Zip the three and delegate to the inner
+    // component.
     render_section(
-        &spaces_hook.inner.zip_ref(&auctions_hook.inner),
+        &spaces_hook
+            .inner
+            .zip_ref(&auctions_hook.inner)
+            .zip_ref(&categories_hook.inner),
         "spaces",
-        |(spaces, auctions), _is_loading, _errors| {
+        |((spaces, auctions), categories), _is_loading, _errors| {
             html! {
                 <SpacesEditor
                     site_id={props.site_id}
@@ -74,7 +82,9 @@ fn SpacesTab(props: &SpacesTabProps) -> Html {
                     user_role={props.user_role}
                     spaces={(*spaces).clone()}
                     auctions={(*auctions).clone()}
+                    categories={(*categories).clone()}
                     refetch_spaces={spaces_hook.refetch.clone()}
+                    refetch_categories={categories_hook.refetch.clone()}
                     currency={props.currency.clone()}
                 />
             }
@@ -89,7 +99,9 @@ struct SpacesEditorProps {
     user_role: Role,
     spaces: Vec<SpaceResponse>,
     auctions: Vec<payloads::responses::Auction>,
+    categories: Vec<payloads::responses::SpaceCategory>,
     refetch_spaces: Callback<()>,
+    refetch_categories: Callback<()>,
     currency: CurrencySettings,
 }
 
@@ -383,6 +395,7 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
                                 key={space.space_id.to_string()}
                                 space={space.clone()}
                                 community_id={community_id}
+                                categories={props.categories.clone()}
                                 is_editing={*is_editing}
                                 edit_state={edit_states.get(&space_id).cloned()}
                                 on_edit_change={Callback::from(move |updated: Space| {
@@ -403,6 +416,17 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
 
     html! {
         <>
+            {if can_edit {
+                html! {
+                    <CategoryManager
+                        community_id={props.community_id}
+                        categories={props.categories.clone()}
+                        refetch={props.refetch_categories.clone()}
+                    />
+                }
+            } else {
+                html! {}
+            }}
             {spaces_content}
             {if *show_create_modal {
                 html! {
@@ -440,6 +464,7 @@ fn SpacesEditor(props: &SpacesEditorProps) -> Html {
 struct SpaceCardProps {
     space: SpaceResponse,
     community_id: CommunityId,
+    categories: Vec<payloads::responses::SpaceCategory>,
     is_editing: bool,
     edit_state: Option<Space>,
     on_edit_change: Callback<Space>,
@@ -707,6 +732,33 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
                         />
                     </div>
 
+                    {if props.categories.is_empty() {
+                        html! {}
+                    } else {
+                        let on_category_change = {
+                            let on_edit_change = props.on_edit_change.clone();
+                            let edit_state = edit_state.clone();
+                            Callback::from(move |v| {
+                                let mut updated = edit_state.clone();
+                                updated.category_id = v;
+                                on_edit_change.emit(updated);
+                            })
+                        };
+                        html! {
+                            <div>
+                                <label class="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                                    {"Category"}
+                                </label>
+                                <CategorySelect
+                                    categories={props.categories.clone()}
+                                    value={edit_state.category_id}
+                                    on_change={on_category_change}
+                                    disabled={*is_deleting}
+                                />
+                            </div>
+                        }
+                    }}
+
                     <div>
                         <label class="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
                             {"Reserve price"}
@@ -872,6 +924,15 @@ fn SpaceCard(props: &SpaceCardProps) -> Html {
 
                     <div class="text-sm text-neutral-600 dark:text-neutral-400 space-y-1">
                         <p>{"Eligibility Points: "}{props.space.space_details.eligibility_points}</p>
+                        {if let Some(name) = props.space.space_details.category_id
+                            .and_then(|id| props.categories.iter()
+                                .find(|c| c.id == id))
+                            .map(|c| c.name.clone())
+                        {
+                            html! { <p>{"Category: "}{name}</p> }
+                        } else {
+                            html! {}
+                        }}
                         <p>
                             {"Reserve price: "}
                             {props.currency.format_amount(

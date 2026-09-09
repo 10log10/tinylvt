@@ -273,12 +273,24 @@ async fn create_ongoing_auction_with_rounds(
     let possession_end_at =
         possession_day.at(21, 0, 0, 0).in_tz(TZ)?.timestamp();
 
-    // Create auction starting at the calculated past time
+    // Create auction starting at the calculated past time. Named after the
+    // fixed possession date so the dev UI exercises the auction-name
+    // display path; the work day auction below stays unnamed to exercise
+    // the fallback.
     let auction_details = Auction {
         site_id: *site_id,
+        name: Some(format!(
+            "Work day {}",
+            possession_day.strftime("%B %-d, %Y")
+        )),
+        description: Some(
+            "Ongoing demo auction with several rounds of bidding history."
+                .to_string(),
+        ),
         possession_start_at,
         possession_end_at,
         start_at: Some(auction_start),
+        capped: false,
         auction_params: AuctionParams {
             round_duration,
             bid_increment: BidIncrement(Decimal::new(100, 2)), // $1.00
@@ -308,6 +320,7 @@ async fn create_ongoing_auction_with_rounds(
         name: "Hot Desk Alpha".to_string(),
         description: Some("Prime desk with window view".to_string()),
         eligibility_points: 8.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -320,6 +333,7 @@ async fn create_ongoing_auction_with_rounds(
         name: "Hot Desk Beta".to_string(),
         description: Some("Quiet corner desk".to_string()),
         eligibility_points: 5.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -332,6 +346,7 @@ async fn create_ongoing_auction_with_rounds(
         name: "Hot Desk Gamma".to_string(),
         description: Some("Collaboration area desk".to_string()),
         eligibility_points: 10.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -469,9 +484,12 @@ async fn create_work_day_auction(
 
     let auction_details = Auction {
         site_id: *site_id,
+        name: None,
+        description: None,
         possession_start_at,
         possession_end_at,
         start_at: Some(auction_start_at),
+        capped: false,
         auction_params: AuctionParams {
             round_duration: Span::new().minutes(5),
             bid_increment: BidIncrement(Decimal::new(250, 2)), // $2.50
@@ -501,7 +519,7 @@ async fn create_cross_community_invite(
     let invite_details = requests::InviteCommunityMember {
         community_id: *bob_community_id,
         new_member_email: Some(alice_credentials.email.clone()),
-        single_use: false,
+        single_use: true,
     };
     let invite_id = app.client.invite_member(&invite_details).await?;
     Ok(invite_id)

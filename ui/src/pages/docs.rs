@@ -129,3 +129,14 @@ pub fn RentSplittingPage() -> Html {
         </DocsLayout>
     }
 }
+
+#[function_component]
+pub fn VendorMarketsPage() -> Html {
+    html! {
+        <DocsLayout title="Vendor Markets">
+            <div class="max-w-4xl mx-auto px-4 py-8">
+                <MarkdownContent html={markdown_html!(file: "docs/vendor-markets.md")} />
+            </div>
+        </DocsLayout>
+    }
+}

@@ -17,6 +17,12 @@ pub const MAX_COMMUNITY_DESCRIPTION_LENGTH: usize = 10_000;
 /// Maximum allowed length for space descriptions (500 characters)
 pub const MAX_SPACE_DESCRIPTION_LENGTH: usize = 500;
 
+/// Maximum allowed length for auction descriptions (10,000 characters)
+pub const MAX_AUCTION_DESCRIPTION_LENGTH: usize = 10_000;
+
+/// Maximum allowed length for member profile links (255 characters)
+pub const MAX_PROFILE_LINK_LENGTH: usize = 255;
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize,
 )]
@@ -121,6 +127,16 @@ impl Role {
     /// connection status.
     pub fn can_manage_stripe_connection(&self) -> bool {
         self.is_ge_coleader()
+    }
+
+    /// Seeing which invite (and invite email) a member joined through.
+    pub fn can_see_invite_provenance(&self) -> bool {
+        self.is_ge_moderator()
+    }
+
+    /// Clearing another member's profile link as moderation.
+    pub fn can_clear_profile_link(&self) -> bool {
+        self.is_ge_moderator()
     }
 }
 
@@ -387,9 +403,22 @@ pub struct Space {
     pub name: String,
     pub description: Option<String>,
     pub eligibility_points: f64,
+    /// None = uncategorized. In a capped auction the category selects
+    /// which bidder cap bucket governs bids on this space; the category
+    /// must belong to the site's community.
+    pub category_id: Option<SpaceCategoryId>,
     pub is_available: bool,
     pub site_image_id: Option<SiteImageId>,
     pub reserve_price: ReservePrice,
+}
+
+/// A community-scoped label stratifying spaces for per-bidder bidding
+/// caps. Community-scoped rather than site-scoped so that related
+/// auctions on different sites share category ids.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpaceCategory {
+    pub community_id: CommunityId,
+    pub name: String,
 }
 
 /// What a new bid placed right now would commit the bidder to. If a prior
@@ -422,6 +451,13 @@ pub fn current_space_price(
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Auction {
     pub site_id: SiteId,
+    /// Optional identity to help distinguish auctions on the same site.
+    /// The name is fixed at creation: bids and pre-set values attach to
+    /// whatever the name denotes, so changing its meaning requires
+    /// canceling and recreating the auction. The description stays
+    /// editable (see `requests::UpdateAuction`).
+    pub name: Option<String>,
+    pub description: Option<String>,
     /// The possession period is the only time that is localized to the
     /// site's timezone (if the site has a timezone). This reflects how
     /// possession is for a physical space at the site's location, and that
@@ -439,6 +475,11 @@ pub struct Auction {
     /// space values, enable proxy bidding) until a coleader+ starts the
     /// auction manually or schedules a start time.
     pub start_at: Option<Timestamp>,
+    /// Whether per-bidder caps gate bids (see `auction_bidder_caps`).
+    /// Immutable after creation, like the name: toggling it mid-auction
+    /// would change the bidding rules under bidders and their proxy
+    /// plans.
+    pub capped: bool,
     pub auction_params: AuctionParams,
 }
 
@@ -504,6 +545,15 @@ impl Eligibility {
             Eligibility::Finite(budget) => total_activity <= *budget,
         }
     }
+}
+
+/// Whether adding `points` of activity in a cap bucket holding `active`
+/// points stays within the bucket's cap. A missing cap row (`None`) means
+/// a cap of 0: no bidding on the bucket's spaces except zero-point ones,
+/// mirroring the zero-eligibility semantics. Shared by the backend bid
+/// check and the UI's bid gating so the rule cannot diverge.
+pub fn cap_permits(cap: Option<f64>, active: f64, points: f64) -> bool {
+    active + points <= cap.unwrap_or(0.0)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1018,6 +1068,10 @@ pub enum AuctionEvent {
     AuctionScheduleChanged {
         auction_id: AuctionId,
     },
+    /// The auction's description was edited.
+    AuctionDescriptionChanged {
+        auction_id: AuctionId,
+    },
     BidsChanged {
         auction_id: AuctionId,
         round_id: AuctionRoundId,
@@ -1036,6 +1090,12 @@ pub enum AuctionEvent {
     /// so it is delivered on every auction stream the user has open,
     /// keeping the funding section and the card-charge control in sync.
     CardChargeGrantChanged {
+        user_id: UserId,
+    },
+    /// A coleader changed the user's bidder caps for the auction (a
+    /// direct edit or a seeding apply). User-scoped like `BidsChanged`.
+    BidderCapsChanged {
+        auction_id: AuctionId,
         user_id: UserId,
     },
 }
@@ -1142,6 +1202,12 @@ impl std::str::FromStr for SpaceId {
         uuid::Uuid::parse_str(s).map(SpaceId)
     }
 }
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,
+)]
+#[cfg_attr(feature = "use-sqlx", derive(Type, FromRow), sqlx(transparent))]
+pub struct SpaceCategoryId(pub Uuid);
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Hash, Display, Serialize, Deserialize,

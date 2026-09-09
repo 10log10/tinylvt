@@ -196,3 +196,244 @@ async fn delete_community_with_financial_history() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn email_multi_use_invite_rejected() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+
+    let result = app
+        .client
+        .invite_member(&requests::InviteCommunityMember {
+            community_id,
+            new_member_email: Some(test_helpers::bob_credentials().email),
+            single_use: false,
+        })
+        .await;
+    assert_api_error(result, ApiError::EmailInviteMustBeSingleUse);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn acceptance_closes_invite_and_records_provenance() -> anyhow::Result<()>
+{
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let invite_id = app.invite_bob().await?;
+    app.create_bob_user().await?;
+    app.login_bob().await?;
+    app.accept_invite().await?;
+
+    // Provenance is recorded on the membership row.
+    let member_invite: Option<payloads::InviteId> = sqlx::query_scalar(
+        "SELECT cm.invite_id FROM community_members cm
+        JOIN users u ON u.id = cm.user_id
+        WHERE cm.community_id = $1 AND u.username = 'bob'",
+    )
+    .bind(community_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(member_invite, Some(invite_id));
+
+    // The consumed invite disappears from the recipient's received list.
+    let received = app.client.get_received_invites().await?;
+    assert!(received.is_empty());
+
+    // The invite is closed but kept as a record in the issued list.
+    app.login_alice().await?;
+    let issued = app.client.get_issued_invites(&community_id).await?;
+    assert_eq!(issued.len(), 1);
+    assert_eq!(issued[0].id, invite_id);
+    assert!(issued[0].deleted_at.is_some());
+
+    // A closed invite rejects acceptance, and its link no longer resolves
+    // to a community for the accept page.
+    app.create_charlie_user().await?;
+    app.login_charlie().await?;
+    let result = app.client.accept_invite(&invite_id).await;
+    assert_api_error(result, ApiError::CommunityInviteClosed);
+    let result = app.client.get_invite_community_name(&invite_id).await;
+    assert_api_error(result, ApiError::CommunityInviteClosed);
+
+    // Moderator+ sees the invite email beside the member; the member who
+    // joined without an invite (the leader) has none.
+    app.login_alice().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    assert_eq!(
+        bob.invite_email,
+        Some(test_helpers::bob_credentials().email)
+    );
+    let alice = members.iter().find(|m| m.user.username == "alice").unwrap();
+    assert_eq!(alice.invite_email, None);
+
+    // Plain members don't see provenance.
+    app.login_bob().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    assert_eq!(bob.invite_email, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn multi_use_invite_lifecycle() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let invite_id = app
+        .client
+        .invite_member(&requests::InviteCommunityMember {
+            community_id,
+            new_member_email: None,
+            single_use: false,
+        })
+        .await?;
+
+    app.create_bob_user().await?;
+    app.login_bob().await?;
+    app.client.accept_invite(&invite_id).await?;
+    app.create_charlie_user().await?;
+    app.login_charlie().await?;
+    app.client.accept_invite(&invite_id).await?;
+
+    // Stays open across acceptances.
+    app.login_alice().await?;
+    let issued = app.client.get_issued_invites(&community_id).await?;
+    assert_eq!(issued.len(), 1);
+    assert!(issued[0].deleted_at.is_none());
+
+    // Revoking a referenced invite closes it as a read-only record, keeping
+    // the members and their provenance.
+    app.client
+        .delete_invite(&requests::DeleteInvite {
+            community_id,
+            invite_id,
+        })
+        .await?;
+    let issued = app.client.get_issued_invites(&community_id).await?;
+    assert_eq!(issued.len(), 1);
+    assert!(issued[0].deleted_at.is_some());
+    let members = app.client.get_members(&community_id).await?;
+    assert_eq!(members.len(), 3);
+    let referencing: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM community_members WHERE invite_id = $1",
+    )
+    .bind(invite_id)
+    .fetch_one(&app.db_pool)
+    .await?;
+    assert_eq!(referencing, 2);
+
+    // A closed invite is not revocable again.
+    let result = app
+        .client
+        .delete_invite(&requests::DeleteInvite {
+            community_id,
+            invite_id,
+        })
+        .await;
+    assert_api_error(result, ApiError::CommunityInviteNotFound);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn revoking_unreferenced_invite_removes_it() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    app.create_alice_user().await?;
+    let community_id = app.create_test_community().await?;
+    let invite_id = app.create_link_invite().await?;
+
+    app.client
+        .delete_invite(&requests::DeleteInvite {
+            community_id,
+            invite_id,
+        })
+        .await?;
+    let issued = app.client.get_issued_invites(&community_id).await?;
+    assert!(issued.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_link_set_and_moderation() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+
+    app.login_bob().await?;
+    app.client
+        .set_profile_link(&requests::SetProfileLink {
+            community_id,
+            profile_link: Some("https://example.com/bob".into()),
+        })
+        .await?;
+
+    // Visible to everyone in the member list.
+    app.login_alice().await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    assert_eq!(bob.profile_link.as_deref(), Some("https://example.com/bob"));
+    let alice_id = members
+        .iter()
+        .find(|m| m.user.username == "alice")
+        .unwrap()
+        .user
+        .user_id;
+    let bob_id = bob.user.user_id;
+
+    // Over-long links are rejected.
+    app.login_bob().await?;
+    let result = app
+        .client
+        .set_profile_link(&requests::SetProfileLink {
+            community_id,
+            profile_link: Some("x".repeat(300)),
+        })
+        .await;
+    assert_api_error(result, ApiError::FieldTooLong);
+
+    // Clearing one's own link with None.
+    app.client
+        .set_profile_link(&requests::SetProfileLink {
+            community_id,
+            profile_link: None,
+        })
+        .await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    assert_eq!(bob.profile_link, None);
+
+    // Members cannot clear someone else's link.
+    let result = app
+        .client
+        .clear_profile_link(&requests::ClearProfileLink {
+            community_id,
+            user_id: alice_id,
+        })
+        .await;
+    assert_api_error(result, ApiError::RequiresModeratorPermissions);
+
+    // Moderator+ can clear another member's link.
+    app.client
+        .set_profile_link(&requests::SetProfileLink {
+            community_id,
+            profile_link: Some("https://example.com/bob".into()),
+        })
+        .await?;
+    app.login_alice().await?;
+    app.client
+        .clear_profile_link(&requests::ClearProfileLink {
+            community_id,
+            user_id: bob_id,
+        })
+        .await?;
+    let members = app.client.get_members(&community_id).await?;
+    let bob = members.iter().find(|m| m.user.username == "bob").unwrap();
+    assert_eq!(bob.profile_link, None);
+
+    Ok(())
+}

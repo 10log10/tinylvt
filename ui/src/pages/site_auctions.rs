@@ -382,7 +382,12 @@ fn AuctionCard(props: &AuctionCardProps) -> Html {
                 <div class="flex-1">
                     <h3 class="text-lg font-semibold text-neutral-900 \
                                dark:text-neutral-100">
-                        {"Auction for "}{&site_details.name}
+                        {match &auction_details.name {
+                            Some(name) => html! { {name} },
+                            None => html! {
+                                <>{"Auction for "}{&site_details.name}</>
+                            },
+                        }}
                     </h3>
                 </div>
                 <span class={format!(

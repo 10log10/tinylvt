@@ -130,6 +130,17 @@ const DOCS_PAGES: &[DocsPage] = &[
         markdown_file: "rent-splitting.md",
         output_file: "docs/rent-splitting/index.html",
     },
+    DocsPage {
+        meta: PageMeta {
+            title: "Vendor Markets Example - TinyLVT",
+            description: "How to use TinyLVT to allocate booths for a \
+                market or fair: posted-price sales, a booth auction for \
+                remaining supply, and a placement auction for locations.",
+            path: "/docs/vendor-markets",
+        },
+        markdown_file: "vendor-markets.md",
+        output_file: "docs/vendor-markets/index.html",
+    },
 ];
 
 const MARKDOWN_PAGES: &[MarkdownPage] = &[
@@ -367,6 +378,7 @@ fn render_page(
 <li><a href="/docs/auctions" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Auctions</a></li>
 <li><a href="/docs/desk-allocation" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Desk Allocation</a></li>
 <li><a href="/docs/rent-splitting" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Rent Splitting</a></li>
+<li><a href="/docs/vendor-markets" class="block px-4 py-2 text-sm transition-colors text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800">Vendor Markets</a></li>
 </ul>
 </nav>
 </aside>

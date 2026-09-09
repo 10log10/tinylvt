@@ -177,7 +177,7 @@ async fn create_points_allocation_community(
         let invite = requests::InviteCommunityMember {
             community_id: *community_id,
             new_member_email: Some(creds.email.clone()),
-            single_use: false,
+            single_use: true,
         };
         app.client.invite_member(&invite).await?;
 
@@ -274,6 +274,7 @@ async fn create_grad_office_desks(
             name: name.to_string(),
             description: Some(description.to_string()),
             eligibility_points: 1.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: payloads::ReservePrice(rust_decimal::Decimal::ZERO),
@@ -333,9 +334,12 @@ async fn create_desk_auction_with_bidding(
 
     let auction_details = Auction {
         site_id: site.site_id,
+        name: None,
+        description: None,
         possession_start_at,
         possession_end_at,
         start_at: Some(auction_start),
+        capped: false,
         auction_params,
     };
 

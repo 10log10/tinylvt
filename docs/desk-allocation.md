@@ -141,5 +141,30 @@ desks pay more points, balancing access over time.
 
 ---
 
+## Variant: Guaranteed Seats
+
+When every member must end up with a desk (say, 200 desks for 200
+staff), the auction should decide who gets *which* desk rather than
+*whether* they get one. Bidder caps do this:
+
+1. Create the auction as **capped** and give every active member a cap of
+   1 point in the desks' category (the "All active members" option in
+   the cap editor does this in one step)
+2. Give each space eligibility points equal to the desks it holds: 1 for
+   a private office, 2 for a two-desk office, and so on
+
+Each bidder can then hold at most one desk's worth of space, so however
+the auction goes, the unclaimed spaces always have at least as many desks
+as there are members without a win. Assign those members to the
+remainder afterwards.
+
+Members who want to share an office transfer currency to one bidder
+and **delegate their cap** to that person on the auction page, so the
+group's bidder can hold a multi-desk office. Any
+eligibility threshold works here; with caps of 1, it only affects whether
+a member can sit out a round and return later.
+
+---
+
 *Learn more about [Auctions](/docs/auctions) and
 [Currency Modes](/docs/currency).*

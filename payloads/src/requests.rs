@@ -202,6 +202,8 @@ pub struct CreateAccount {
 pub const COMMUNITY_NAME_MAX_LEN: usize = 255;
 pub const SITE_NAME_MAX_LEN: usize = 255;
 pub const SPACE_NAME_MAX_LEN: usize = 255;
+pub const AUCTION_NAME_MAX_LEN: usize = 255;
+pub const SPACE_CATEGORY_NAME_MAX_LEN: usize = 255;
 pub const JOURNAL_NOTE_MAX_LEN: usize = 100;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -235,6 +237,20 @@ pub struct InviteCommunityMember {
 pub struct DeleteInvite {
     pub community_id: CommunityId,
     pub invite_id: crate::InviteId,
+}
+
+/// Set (or clear, with None) one's own profile link.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetProfileLink {
+    pub community_id: CommunityId,
+    pub profile_link: Option<String>,
+}
+
+/// Clear another member's profile link as moderation (moderator+).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClearProfileLink {
+    pub community_id: CommunityId,
+    pub user_id: crate::UserId,
 }
 
 /// An empty schedule can be used to delete the schedule entirely.
@@ -295,6 +311,67 @@ pub struct UpdateSpaces {
     pub spaces: Vec<UpdateSpace>,
 }
 
+/// Update an auction's description. The given value replaces the current
+/// one (None clears). Allowed at any point in the auction's lifecycle. The
+/// name is deliberately not editable: bids and pre-set values attach to
+/// whatever the name denotes, so changing its meaning requires canceling
+/// and recreating the auction.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateAuction {
+    pub auction_id: crate::AuctionId,
+    pub description: Option<String>,
+}
+
+/// Rename a space category.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateSpaceCategory {
+    pub category_id: crate::SpaceCategoryId,
+    pub name: String,
+}
+
+/// Set (upsert) one bidder cap row. `category_id` None targets the
+/// uncategorized bucket. Setting 0 points deletes the row: a 0-points
+/// row and a missing row mean the same thing at bid time, so the table
+/// only ever holds positive caps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetBidderCap {
+    pub auction_id: crate::AuctionId,
+    pub user_id: crate::UserId,
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+}
+
+/// Add each winner's final-round points per category in the concluded
+/// source auction to their caps in the target auction. Additive because
+/// overlap is expected: a pre-committed cap of 1 plus a won item should
+/// end at 2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeedBidderCaps {
+    pub target_auction_id: crate::AuctionId,
+    pub source_auction_id: crate::AuctionId,
+}
+
+/// Set every active member's cap in one bucket (coleader+), the bulk
+/// counterpart of [`SetBidderCap`] with the same 0-deletes convention.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetBidderCapForAll {
+    pub auction_id: crate::AuctionId,
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+}
+
+/// Set (upsert) or clear one of the caller's own cap delegations; the
+/// caller is always the delegator. Setting 0 points deletes the row.
+/// Delegations are promises against the delegator's assigned cap and may
+/// be made before that cap exists; see `responses::CapDelegation::backed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetCapDelegation {
+    pub auction_id: crate::AuctionId,
+    pub to_user_id: crate::UserId,
+    pub category_id: Option<crate::SpaceCategoryId>,
+    pub points: f64,
+}
+
 /// Set or clear an auction's scheduled start time. Only valid before the
 /// auction has started.
 #[derive(Debug, Serialize, Deserialize)]
@@ -309,6 +386,14 @@ pub struct ScheduleAuction {
 pub struct UserValue {
     pub space_id: crate::SpaceId,
     pub value: Decimal,
+}
+
+/// Bulk upsert of space values, one write per entry. Used for
+/// category-wide value assignment; a single request keeps it to one
+/// proxy-reprocessing flag and one funding event per affected auction.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserValues {
+    pub values: Vec<UserValue>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

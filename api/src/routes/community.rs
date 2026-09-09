@@ -104,17 +104,66 @@ pub async fn get_issued_invites(
     Ok(HttpResponse::Ok().json(invites))
 }
 
-/// Delete/rescind a community invite (moderator+ only)
+/// Revoke a community invite (moderator+ only)
 #[post("/delete_invite")]
 pub async fn delete_invite(
     user: Identity,
     details: web::Json<requests::DeleteInvite>,
     pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
 ) -> Result<HttpResponse, RouteError> {
     let user_id = get_user_id(&user)?;
     let validated_member =
         get_validated_member(&user_id, &details.community_id, &pool).await?;
-    store::delete_invite(&validated_member, &details.invite_id, &pool).await?;
+    store::delete_invite(
+        &validated_member,
+        &details.invite_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+/// Set (or clear) one's own profile link
+#[post("/set_profile_link")]
+pub async fn set_profile_link(
+    user: Identity,
+    details: web::Json<requests::SetProfileLink>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+    store::set_profile_link(
+        &validated_member,
+        &details.profile_link,
+        &pool,
+        &time_source,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+/// Clear another member's profile link as moderation (moderator+ only)
+#[post("/clear_profile_link")]
+pub async fn clear_profile_link(
+    user: Identity,
+    details: web::Json<requests::ClearProfileLink>,
+    pool: web::Data<PgPool>,
+    time_source: web::Data<crate::time::TimeSource>,
+) -> Result<HttpResponse, RouteError> {
+    let user_id = get_user_id(&user)?;
+    let validated_member =
+        get_validated_member(&user_id, &details.community_id, &pool).await?;
+    store::clear_profile_link(
+        &validated_member,
+        &details.user_id,
+        &pool,
+        &time_source,
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
 

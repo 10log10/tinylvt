@@ -1,13 +1,14 @@
 use payloads::{
     CommunityId, CurrencySettings, ReservePrice, SiteId, SiteImageId, Space,
-    requests::SPACE_NAME_MAX_LEN,
+    SpaceCategoryId, requests::SPACE_NAME_MAX_LEN,
 };
 use rust_decimal::Decimal;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use super::{ReservePriceField, SiteImageSelector, TextInput};
+use super::{CategorySelect, ReservePriceField, SiteImageSelector, TextInput};
+use crate::hooks::use_space_categories;
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
@@ -25,6 +26,8 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
     let eligibility_ref = use_node_ref();
     let reserve_price = use_state(|| ReservePrice(Decimal::ZERO));
     let available_ref = use_node_ref();
+    let category_id = use_state(|| None::<SpaceCategoryId>);
+    let categories_hook = use_space_categories(props.community_id);
 
     let is_loading = use_state(|| false);
     let error = use_state(|| None::<String>);
@@ -96,6 +99,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
         let on_space_created = props.on_space_created.clone();
         let site_id = props.site_id;
         let selected_image_id = selected_image_id.clone();
+        let category_id = category_id.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -150,6 +154,7 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                 name,
                 description,
                 eligibility_points,
+                category_id: *category_id,
                 is_available,
                 site_image_id: *selected_image_id,
                 reserve_price: *reserve_price,
@@ -327,6 +332,35 @@ pub fn CreateSpaceModal(props: &Props) -> Html {
                                    disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                     </div>
+
+                    // The category field only appears once categories are
+                    // fetched and the community has at least one; loading
+                    // and errors leave the optional field hidden.
+                    {categories_hook.render(
+                        |categories, _, _| {
+                            if categories.is_empty() {
+                                return html! {};
+                            }
+                            html! {
+                                <div>
+                                    <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                                        {"Category"}
+                                    </label>
+                                    <CategorySelect
+                                        categories={categories.clone()}
+                                        value={*category_id}
+                                        on_change={Callback::from({
+                                            let category_id = category_id.clone();
+                                            move |v| category_id.set(v)
+                                        })}
+                                        disabled={*is_loading}
+                                    />
+                                </div>
+                            }
+                        },
+                        || html! {},
+                        |_| html! {},
+                    )}
 
                     <div>
                         <label class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">

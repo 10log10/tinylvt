@@ -28,10 +28,17 @@ enum AdminAction {
 /// into round 0.
 const START_NOW_DELAY_SECONDS: i64 = 15;
 
-/// Coleader+ controls for managing an auction's lifecycle: start it (a
-/// short countdown away), set/change/clear a scheduled start time, cancel
-/// it, and permanently delete it once canceled. Renders nothing for other
-/// roles or for concluded auctions.
+const SECONDARY_BUTTON_CLASSES: &str = "px-4 py-2 text-sm font-medium \
+    text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-700 \
+    border border-neutral-300 dark:border-neutral-600 rounded-md \
+    hover:bg-neutral-50 dark:hover:bg-neutral-600 disabled:opacity-50 \
+    disabled:cursor-not-allowed transition-colors";
+
+/// Coleader+ controls for managing an auction: edit its name and
+/// description (available in every lifecycle state, since naming is record
+/// keeping), start it (a short countdown away), set/change/clear a
+/// scheduled start time, cancel it, and permanently delete it once
+/// canceled. Renders nothing for other roles.
 ///
 /// Successful start/schedule/cancel actions don't refetch anything locally:
 /// the backend emits SSE events (`AuctionScheduleChanged` / `AuctionEnded`)
@@ -215,11 +222,7 @@ pub fn AuctionAdminControls(props: &Props) -> Html {
             .to_string()
     });
 
-    let secondary_button_classes = "px-4 py-2 text-sm font-medium \
-        text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-700 \
-        border border-neutral-300 dark:border-neutral-600 rounded-md \
-        hover:bg-neutral-50 dark:hover:bg-neutral-600 disabled:opacity-50 \
-        disabled:cursor-not-allowed transition-colors";
+    let secondary_button_classes = SECONDARY_BUTTON_CLASSES;
     let destructive_button_classes = "px-4 py-2 text-sm font-medium \
         text-red-700 dark:text-red-400 bg-white dark:bg-transparent border \
         border-red-300 dark:border-red-900 rounded-md hover:bg-red-50 \
@@ -340,7 +343,9 @@ pub fn AuctionAdminControls(props: &Props) -> Html {
                 </button>
             </div>
         },
-        AuctionStatus::Concluded => return html! {},
+        // No lifecycle actions remain; description editing below still
+        // applies.
+        AuctionStatus::Concluded => html! {},
     };
 
     html! {
@@ -365,6 +370,11 @@ pub fn AuctionAdminControls(props: &Props) -> Html {
             }}
 
             {body}
+
+            <div class="pt-4 border-t border-neutral-200 \
+                        dark:border-neutral-700">
+                <AuctionDescriptionEditor auction={props.auction.clone()} />
+            </div>
 
             {if *show_start_modal {
                 html! {
@@ -419,6 +429,137 @@ pub fn AuctionAdminControls(props: &Props) -> Html {
             } else {
                 html! {}
             }}
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct DescriptionEditorProps {
+    auction: responses::Auction,
+}
+
+/// Description editor within the admin controls. Saving replaces the
+/// description (a cleared input clears it); the resulting
+/// `AuctionDescriptionChanged` SSE event refreshes the auction for every
+/// viewer, including the actor. The name is deliberately not editable:
+/// bids and pre-set values attach to whatever the name denotes, so
+/// changing its meaning requires canceling and recreating the auction.
+#[function_component]
+fn AuctionDescriptionEditor(props: &DescriptionEditorProps) -> Html {
+    let error_message = use_state(|| None::<String>);
+    let is_submitting = use_state(|| false);
+
+    // Controlled draft of the textarea. A plain `value` prefill would be
+    // reapplied on every re-render (e.g. the is_submitting flip during
+    // save), clobbering the user's edit with the stale canonical value.
+    // The draft only resets when the canonical description itself changes
+    // (the refetch after this editor's own save, or another coleader's
+    // edit arriving via SSE).
+    let draft = use_state(String::new);
+    {
+        let draft = draft.clone();
+        use_effect_with(
+            props.auction.auction_details.description.clone(),
+            move |description| {
+                draft.set(description.clone().unwrap_or_default());
+            },
+        );
+    }
+
+    let auction_id = props.auction.auction_id;
+
+    let on_input = {
+        let draft = draft.clone();
+        Callback::from(move |e: InputEvent| {
+            let textarea: web_sys::HtmlTextAreaElement =
+                e.target_unchecked_into();
+            draft.set(textarea.value());
+        })
+    };
+
+    let on_save = {
+        let draft = draft.clone();
+        let error_message = error_message.clone();
+        let is_submitting = is_submitting.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let trimmed = draft.trim();
+            let description =
+                (!trimmed.is_empty()).then(|| trimmed.to_string());
+
+            let error_message = error_message.clone();
+            let is_submitting = is_submitting.clone();
+            yew::platform::spawn_local(async move {
+                is_submitting.set(true);
+                error_message.set(None);
+
+                let api_client = get_api_client();
+                if let Err(e) = api_client
+                    .update_auction(&requests::UpdateAuction {
+                        auction_id,
+                        description,
+                    })
+                    .await
+                {
+                    error_message.set(Some(format!(
+                        "Failed to update description: {}",
+                        e
+                    )));
+                }
+                is_submitting.set(false);
+            });
+        })
+    };
+
+    let input_classes = "w-full px-3 py-2 border border-neutral-300 \
+        dark:border-neutral-600 rounded-md shadow-sm bg-white \
+        dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 \
+        focus:outline-none focus:ring-2 focus:ring-neutral-500 \
+        dark:focus:ring-neutral-400";
+
+    html! {
+        <div class="space-y-3">
+            {if let Some(error) = &*error_message {
+                html! {
+                    <div class="p-3 rounded-md bg-red-50 dark:bg-red-900/20 \
+                                border border-red-200 dark:border-red-800">
+                        <p class="text-sm text-red-700 dark:text-red-400">
+                            {error}
+                        </p>
+                    </div>
+                }
+            } else {
+                html! {}
+            }}
+            <div class="space-y-2">
+                <label
+                    for="auction-description"
+                    class="block text-sm font-medium text-neutral-700 \
+                           dark:text-neutral-300"
+                >
+                    {"Description"}
+                </label>
+                <textarea
+                    id="auction-description"
+                    rows="3"
+                    value={(*draft).clone()}
+                    oninput={on_input}
+                    disabled={*is_submitting}
+                    class={input_classes}
+                />
+                <p class="text-xs text-neutral-500 dark:text-neutral-400">
+                    {"The name can't be edited: bids and values attach to \
+                      what it denotes, so renaming requires canceling and \
+                      recreating the auction."}
+                </p>
+            </div>
+            <button
+                onclick={on_save}
+                disabled={*is_submitting}
+                class={SECONDARY_BUTTON_CLASSES}
+            >
+                {"Save description"}
+            </button>
         </div>
     }
 }

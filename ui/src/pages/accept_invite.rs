@@ -44,10 +44,7 @@ pub fn AcceptInvitePage(props: &AcceptInvitePageProps) -> Html {
                         is_loading_name.set(false);
                     }
                     Err(err) => {
-                        error_message.set(Some(format!(
-                            "Failed to load community name: {}",
-                            err
-                        )));
+                        error_message.set(Some(err.to_string()));
                         is_loading_name.set(false);
                     }
                 }

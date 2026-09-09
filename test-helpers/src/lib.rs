@@ -355,7 +355,7 @@ impl TestApp {
         let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: Some(bob_credentials().email),
-            single_use: false,
+            single_use: true,
         };
         Ok(self.client.invite_member(&details).await?)
     }
@@ -474,7 +474,7 @@ impl TestApp {
         let details = requests::InviteCommunityMember {
             community_id,
             new_member_email: Some(charlie_credentials().email),
-            single_use: false,
+            single_use: true,
         };
         self.client.invite_member(&details).await?;
         self.create_charlie_user().await?;
@@ -804,6 +804,7 @@ pub fn space_details_a(site_id: SiteId) -> payloads::Space {
         name: "test space".into(),
         description: Some("test space description".into()),
         eligibility_points: 10.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -817,6 +818,7 @@ pub fn space_details_b(site_id: SiteId) -> payloads::Space {
         name: "test space b".into(),
         description: None,
         eligibility_points: 10.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -830,6 +832,7 @@ pub fn space_details_c(site_id: SiteId) -> payloads::Space {
         name: "test space c".into(),
         description: Some("test space c description".into()),
         eligibility_points: 10.0,
+        category_id: None,
         is_available: true,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -842,6 +845,7 @@ fn space_details_a_update(site_id: SiteId) -> payloads::Space {
         name: "test space a updated".into(),
         description: Some("updated test space description".into()),
         eligibility_points: 15.0,
+        category_id: None,
         is_available: false,
         site_image_id: None,
         reserve_price: ReservePrice(Decimal::ZERO),
@@ -1161,9 +1165,12 @@ pub fn auction_details_a(
     use jiff::Span;
     payloads::Auction {
         site_id,
+        name: None,
+        description: None,
         possession_start_at: time_source.now() + Span::new().hours(1),
         possession_end_at: time_source.now() + Span::new().hours(2),
         start_at: Some(time_source.now()),
+        capped: false,
         auction_params: auction_params_a(),
     }
 }
@@ -1173,6 +1180,9 @@ pub fn assert_auction_equal(
     retrieved: &payloads::Auction,
 ) -> anyhow::Result<()> {
     assert_eq!(auction.site_id, retrieved.site_id);
+    assert_eq!(auction.name, retrieved.name);
+    assert_eq!(auction.description, retrieved.description);
+    assert_eq!(auction.capped, retrieved.capped);
     assert_eq!(auction.possession_start_at, retrieved.possession_start_at);
     assert_eq!(auction.possession_end_at, retrieved.possession_end_at);
     assert_eq!(auction.start_at, retrieved.start_at);

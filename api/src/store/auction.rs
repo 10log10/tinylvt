@@ -1,4 +1,4 @@
-use super::locks::TrackedTx;
+use super::locks::{LockWait, TrackedTx};
 use super::*;
 use jiff_sqlx::ToSqlx;
 use payloads::{
@@ -9,20 +9,6 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 
 use crate::time::TimeSource;
-
-/// Calculate the total eligibility points required for a set of spaces
-async fn calculate_total_eligibility_points(
-    spaces: &[SpaceId],
-    executor: impl sqlx::PgExecutor<'_>,
-) -> Result<f64, StoreError> {
-    let spaces =
-        sqlx::query_as::<_, Space>("SELECT * FROM spaces WHERE id = ANY($1)")
-            .bind(spaces)
-            .fetch_all(executor)
-            .await?;
-
-    Ok(spaces.iter().map(|space| space.eligibility_points).sum())
-}
 
 /// Resolve a user's eligibility for a round into an `Eligibility`, given the
 /// *prior* round's threshold (which governs this round's bids).
@@ -213,6 +199,18 @@ pub async fn create_auction(
         return Err(ApiError::InvalidPossessionPeriod.into());
     }
 
+    let name = normalize_optional_text(&details.name);
+    if let Some(name) = &name
+        && name.len() > payloads::requests::AUCTION_NAME_MAX_LEN
+    {
+        return Err(ApiError::AuctionNameTooLong {
+            size: name.len(),
+            max: payloads::requests::AUCTION_NAME_MAX_LEN,
+        }
+        .into());
+    }
+    let description = validate_auction_description(&details.description)?;
+
     // A start time more than one round in the past would create round 0 already
     // ended, so nobody (human or proxy) could ever bid and the auction would
     // immediately self-conclude with no allocations. Starting exactly at now is
@@ -277,18 +275,24 @@ pub async fn create_auction(
     let auction_id = sqlx::query_as::<_, Auction>(
         "INSERT INTO auctions (
             site_id,
+            name,
+            description,
             possession_start_at,
             possession_end_at,
             start_at,
+            capped,
             auction_params_id,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING *",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING *",
     )
     .bind(details.site_id)
+    .bind(name)
+    .bind(description)
     .bind(details.possession_start_at.to_sqlx())
     .bind(details.possession_end_at.to_sqlx())
     .bind(details.start_at.map(|t| t.to_sqlx()))
+    .bind(details.capped)
     .bind(auction_params_id)
     .bind(time_source.now().to_sqlx())
     .fetch_one(&mut *tx)
@@ -298,6 +302,83 @@ pub async fn create_auction(
     tx.commit().await?;
 
     Ok(auction_id)
+}
+
+/// Trim an optional name/description, collapsing whitespace-only input to
+/// None so cleared fields are stored as NULL rather than empty strings.
+fn normalize_optional_text(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
+/// Normalize an auction description and enforce its length limit.
+fn validate_auction_description(
+    description: &Option<String>,
+) -> Result<Option<String>, StoreError> {
+    let description = normalize_optional_text(description);
+    if let Some(desc) = &description
+        && desc.len() > payloads::MAX_AUCTION_DESCRIPTION_LENGTH
+    {
+        return Err(ApiError::AuctionDescriptionTooLong {
+            size: desc.len(),
+            max: payloads::MAX_AUCTION_DESCRIPTION_LENGTH,
+        }
+        .into());
+    }
+    Ok(description)
+}
+
+/// Update an auction's description (coleader+). The given value replaces
+/// the current one (None clears). Allowed at any point in the auction's
+/// lifecycle. The name is deliberately not editable: bids and pre-set
+/// values attach to whatever the name denotes, so changing its meaning
+/// requires canceling and recreating the auction.
+pub async fn update_auction(
+    details: &payloads::requests::UpdateAuction,
+    user_id: &UserId,
+    pool: &PgPool,
+    time_source: &TimeSource,
+) -> Result<(), StoreError> {
+    let (_, _) = get_validated_auction(
+        &details.auction_id,
+        user_id,
+        PermissionLevel::Coleader,
+        pool,
+    )
+    .await?;
+
+    let description = validate_auction_description(&details.description)?;
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "UPDATE auctions SET description = $1, updated_at = $2 WHERE id = $3",
+    )
+    .bind(description)
+    .bind(time_source.now().to_sqlx())
+    .bind(details.auction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    crate::pubsub::emit(
+        &mut tx,
+        &payloads::AuctionEvent::AuctionDescriptionChanged {
+            auction_id: details.auction_id,
+        },
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(
+        auction_id = %details.auction_id,
+        "auction description updated",
+    );
+
+    Ok(())
 }
 
 pub async fn read_auction(
@@ -752,6 +833,16 @@ pub async fn list_round_space_results_for_round(
     .await
 }
 
+/// The ordinary single-transaction bid path, serving manual bids and the
+/// card flow's final bid.
+///
+/// Lock contract: acquires the pair lock (blocking — the member is
+/// waiting on the result) before `create_bid_tx`, so the eligibility and
+/// cap checks can't race a concurrent bid by the same member (see
+/// CONCURRENCY.md, pair-lock duty 3). The caller picks the pool: in
+/// backed_credits mode the wait can queue behind a Stripe-spanning claim
+/// holding the same lock, so `funding_flow` runs it on the worker pool
+/// there and on the shared pool otherwise.
 pub async fn create_bid(
     space_id: &SpaceId,
     round_id: &AuctionRoundId,
@@ -760,6 +851,20 @@ pub async fn create_bid(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     let mut ttx = TrackedTx::begin(pool).await?;
+    let auction_id = sqlx::query_scalar::<_, AuctionId>(
+        "SELECT auction_id FROM auction_rounds WHERE id = $1",
+    )
+    .bind(round_id)
+    .fetch_one(&mut **ttx.tx())
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => {
+            StoreError::Api(ApiError::AuctionRoundNotFound)
+        }
+        e => StoreError::Database(e),
+    })?;
+    ttx.acquire_pair(&auction_id, user_id, LockWait::Block)
+        .await?;
     create_bid_tx(space_id, round_id, user_id, &mut ttx, time_source).await?;
     ttx.commit().await?;
     Ok(())
@@ -805,6 +910,12 @@ pub(crate) async fn planned_bid_amount_tx(
     ))
 }
 
+/// Validate and insert one bid: liveness, cap and eligibility budgets,
+/// then funding.
+///
+/// Lock contract: caller holds the pair lock for (auction, user)
+/// (asserted); acquires the bidder's account row for the funding gate on
+/// positive amounts.
 pub async fn create_bid_tx(
     space_id: &SpaceId,
     round_id: &AuctionRoundId,
@@ -864,18 +975,51 @@ pub async fn create_bid_tx(
         return Err(ApiError::RoundEnded.into());
     }
 
-    if round.round_num > 0 {
-        let previous_round = sqlx::query_as::<_, AuctionRound>(
-            "SELECT * FROM auction_rounds
-            WHERE auction_id = $1 AND round_num = $2",
-        )
-        .bind(round.auction_id)
-        .bind(round.round_num - 1)
-        .fetch_one(&mut **tx)
-        .await?;
+    // The eligibility and cap checks below read the user's already-placed
+    // bids; the `auction_user` pair lock is what keeps a concurrent bid by
+    // the same user from also passing them against pre-insert state and
+    // together exceeding the budget. Manual bids acquire it in
+    // `create_bid`; the proxy claim's hold covers its bids.
+    ttx.expect_pair(&round.auction_id, user_id)?;
+    let tx = ttx.tx();
 
-        // Check if user is already the standing high bidder from the previous
-        // round
+    let previous_round = if round.round_num > 0 {
+        Some(
+            sqlx::query_as::<_, AuctionRound>(
+                "SELECT * FROM auction_rounds
+                WHERE auction_id = $1 AND round_num = $2",
+            )
+            .bind(round.auction_id)
+            .bind(round.round_num - 1)
+            .fetch_one(&mut **tx)
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    // Reject a bid the user already holds on this space, as a standing win
+    // from the previous round or a bid placed earlier this round. Both run
+    // ahead of the cap check because the cap check's active set counts
+    // them: re-bidding in a full bucket would double-count and report
+    // ExceedsBidderCap instead. (The eligibility check sits after this for
+    // the same reason.)
+    let already_bid = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1 FROM bids
+            WHERE space_id = $1 AND round_id = $2 AND user_id = $3
+        )",
+    )
+    .bind(space_id)
+    .bind(round_id)
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if already_bid {
+        return Err(ApiError::AlreadyBidOnSpace.into());
+    }
+
+    if let Some(previous_round) = &previous_round {
         let is_winning = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (
                 SELECT 1 FROM round_space_results
@@ -893,7 +1037,46 @@ pub async fn create_bid_tx(
         if is_winning {
             return Err(ApiError::AlreadyWinningSpace.into());
         }
+    }
 
+    // In a capped auction, the bidder's active points within the new space's
+    // category (current-round bids plus standing wins) must stay within
+    // their cap for that category; a missing cap row means 0. Unlike the
+    // eligibility check below, this runs in every round including round 0.
+    // It must stay ahead of the funding check: the proxy sizes card
+    // authorization orders off funding rejections, so a bid that can never
+    // be placed has to fail here first.
+    let mut active_by_category = None;
+    if let Some(budgets) =
+        super::caps::fetch_cap_budgets(&round, user_id, tx).await?
+    {
+        if let Err(exceeded) =
+            budgets.check(space.category_id, space.eligibility_points)
+        {
+            let category = match space.category_id {
+                Some(id) => Some(
+                    sqlx::query_scalar::<_, String>(
+                        "SELECT name FROM space_categories WHERE id = $1",
+                    )
+                    .bind(id)
+                    .fetch_one(&mut **tx)
+                    .await?,
+                ),
+                None => None,
+            };
+            return Err(ApiError::ExceedsBidderCap {
+                available: exceeded.available,
+                required: exceeded.required,
+                category,
+            }
+            .into());
+        }
+        // Keep the activity map for the eligibility check below, which
+        // needs the same current-bids-plus-standing-wins set.
+        active_by_category = Some(budgets.into_active());
+    }
+
+    if let Some(previous_round) = &previous_round {
         // Resolve the user's eligibility for this round the same way the read
         // path does (the prior round's threshold governs this round's bids).
         // Unlimited eligibility (prior threshold 0.0) needs no check, and the
@@ -907,34 +1090,20 @@ pub async fn create_bid_tx(
         .await?;
 
         if let payloads::Eligibility::Finite(budget) = eligibility {
-            // Get all spaces this user is currently bidding on or winning in
-            // this round
-            let active_spaces = sqlx::query_scalar::<_, SpaceId>(
-                "SELECT space_id FROM (
-                    SELECT space_id FROM bids
-                    WHERE round_id = $1 AND user_id = $2
-                    UNION
-                    SELECT space_id FROM round_space_results rsr
-                    JOIN auction_rounds ar ON rsr.round_id = ar.id
-                    WHERE ar.auction_id = $3
-                    AND ar.round_num = $4
-                    AND winning_user_id = $2
-                ) spaces",
-            )
-            .bind(round_id)
-            .bind(user_id)
-            .bind(round.auction_id)
-            .bind(round.round_num - 1)
-            .fetch_all(&mut **tx)
-            .await?;
-
             // The new bid's total activity is this space plus everything the
-            // user is already bidding on or winning. A zero-point space keeps
+            // user is already bidding on or winning: the sum across the
+            // per-category activity map, fetched by the cap check above in
+            // capped auctions and here otherwise. A zero-point space keeps
             // the total within a zero budget; positive points do not.
-            let mut total_points = space.eligibility_points;
-            total_points +=
-                calculate_total_eligibility_points(&active_spaces, &mut **tx)
-                    .await?;
+            let active = match active_by_category {
+                Some(active) => active,
+                None => {
+                    super::caps::active_points_by_category(&round, user_id, tx)
+                        .await?
+                }
+            };
+            let total_points =
+                space.eligibility_points + active.values().sum::<f64>();
 
             if total_points > budget {
                 return Err(ApiError::ExceedsEligibility {

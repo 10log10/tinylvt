@@ -127,7 +127,7 @@ async fn invite_existing_user(
     let invite = requests::InviteCommunityMember {
         community_id: *community_id,
         new_member_email: Some(creds.email.clone()),
-        single_use: false,
+        single_use: true,
     };
     app.client.invite_member(&invite).await?;
 
@@ -217,6 +217,7 @@ async fn create_chore_spaces(
             name: name.to_string(),
             description: Some(description.to_string()),
             eligibility_points: 1.0,
+            category_id: None,
             is_available: true,
             site_image_id: None,
             reserve_price: ReservePrice(Decimal::new(reserve, 0)),
@@ -265,9 +266,12 @@ async fn run_chore_auction(
 
     let auction_details = Auction {
         site_id: site.site_id,
+        name: None,
+        description: None,
         possession_start_at,
         possession_end_at,
         start_at: Some(auction_start),
+        capped: false,
         auction_params,
     };
 

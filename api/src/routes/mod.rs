@@ -1,5 +1,6 @@
 pub mod auction;
 pub mod billing;
+pub mod caps;
 pub mod community;
 pub mod connect;
 pub mod currency;
@@ -41,6 +42,8 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(community::get_received_invites)
         .service(community::get_issued_invites)
         .service(community::delete_invite)
+        .service(community::set_profile_link)
+        .service(community::clear_profile_link)
         .service(community::get_invite_community_name)
         .service(community::accept_invite)
         .service(community::get_members)
@@ -80,6 +83,7 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::get_auction)
         .service(auction::get_auction_funding)
         .service(auction::delete_auction)
+        .service(auction::update_auction)
         .service(auction::schedule_auction)
         .service(auction::cancel_auction)
         .service(auction::list_auctions)
@@ -95,7 +99,20 @@ pub fn api_services() -> impl HttpServiceFactory {
         .service(auction::get_bid)
         .service(auction::list_bids)
         .service(auction::delete_bid)
+        .service(caps::create_space_category)
+        .service(caps::update_space_category)
+        .service(caps::delete_space_category)
+        .service(caps::list_space_categories)
+        .service(caps::set_bidder_cap)
+        .service(caps::list_bidder_caps)
+        .service(caps::my_bidder_caps)
+        .service(caps::seed_bidder_caps)
+        .service(caps::set_bidder_cap_for_all)
+        .service(caps::set_cap_delegation)
+        .service(caps::list_cap_delegations)
+        .service(caps::my_cap_delegations)
         .service(proxy_bidding::create_or_update_user_value)
+        .service(proxy_bidding::create_or_update_user_values)
         .service(proxy_bidding::get_user_value)
         .service(proxy_bidding::delete_user_value)
         .service(proxy_bidding::list_user_values)
@@ -174,6 +191,7 @@ fn api_error_status(e: &ApiError) -> StatusCode {
         | ApiError::CommunityNotFound
         | ApiError::SiteNotFound
         | ApiError::SpaceNotFound
+        | ApiError::SpaceCategoryNotFound
         | ApiError::SiteImageNotFound
         | ApiError::AuctionNotFound
         | ApiError::AuctionRoundNotFound

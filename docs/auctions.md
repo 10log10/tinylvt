@@ -69,6 +69,11 @@ rooms. Chores aren't mutually exclusive in the same way: if you're willing
 to do three chores for the right compensation, set max items to 3 and the
 proxy will pursue the three with the most surplus relative to your values.
 
+**Setting values by category.** When spaces share a category (see
+Categories and Bidder Caps below), you can set one value for every space
+in the category at once — handy when the spaces are interchangeable and
+you'd pay the same for any of them.
+
 **Example:** You value Desk A at $80 and Desk B at $60. Prices start at $0.
 - Round 1: Proxy bids on Desk A (surplus: $80 vs $60)
 - Prices rise to $30: Still bids on Desk A (surplus: $50 vs $30)
@@ -99,6 +104,63 @@ and then jumping to expensive ones late in the auction. However, this also
 restricts legitimate flexibility, so only use it when category-switching would
 genuinely disrupt price discovery.
 
+## Categories and Bidder Caps
+
+Spaces can be grouped into **categories** — labels like "Standard booth"
+or "Electric booth" that are shared across all of a community's sites.
+Categories enable category-wide value entry for proxy bidding (see above)
+and bidder caps.
+
+An auction can be created as **capped**. In a capped auction, every
+bidder has a cap for each category: a ceiling on the eligibility points
+they can hold in active bids and standing wins on that category's spaces.
+A bidder with no cap for a category cannot bid on its spaces at all, so
+caps also define who may participate. Uncategorized spaces form their own
+bucket with its own cap. There is no combined limit across categories.
+
+Caps do a different job than activity rules. Eligibility is maintained by
+participating and shrinks when you sit out; it disciplines *when* you
+bid. Caps are fixed entitlements assigned before bidding that never
+shrink; they limit *how much* you can hold, and they apply from the very
+first round. In a capped auction your bids must fit within both.
+
+If spaces carry 1 eligibility point each, a cap of 2 means you can win up
+to two spaces.
+
+Community leaders assign caps on the auction's Settings tab, one member at
+a time or to every active member at once. Caps freeze at auction
+conclusion as a record of the rules that governed it.
+
+Members can **delegate** cap to one another before the auction starts, so
+a group can bid through a single member (for example, three people
+pooling for a shared office). A delegation is a promise against the
+delegator's own assigned cap: it counts only as far as that cap backs
+it, honored in the order the delegations were made, and received cap
+can't be passed on. The recipient's effective cap rises by the backed
+amount and the delegator's falls by the same, so the total stays what
+the leaders assigned. The delegator can change or cancel a delegation
+until the auction starts, after which delegations are locked. Leaders
+see all delegations but don't edit them; changing the delegator's cap is
+the override.
+
+Caps can also be **carried over from a concluded auction's results**:
+each winner's points per category are added to their caps in the new
+auction. This enables a two-stage pattern: first auction *quantities* of
+interchangeable items (how many of each type each bidder gets), then run
+a capped auction over specific locations, where what you won in stage one
+is what you may hold in stage two. Carry-over adds to existing caps, so
+entitlements sold or granted outside the first auction can be entered by
+hand and combined with auction results.
+
+There's no special mechanism for auctioning interchangeable items in
+stage one: create one space per identical item, put them in the same
+category, and let proxy bidding chase the cheapest one. With one value
+set for the whole category, the identical spaces behave like a quantity
+auction.
+
+See [Vendor Markets](/docs/vendor-markets) for a complete example of the
+two-stage pattern.
+
 ## The Exposure Problem
 
 Sometimes you want multiple spaces together (e.g., adjacent desks for
@@ -113,10 +175,16 @@ individual desks.
 
 When creating an auction, you'll configure:
 
+- **Name and description** — Optional identity for the auction, useful
+  when a site hosts more than one (e.g., one per event date). The
+  description can be edited later; the name is fixed at creation, since
+  bidders may set values and proxies based on what it promises
 - **Round duration** — How long each bidding round lasts
 - **Bid increment** — How much prices rise each round
 - **Activity thresholds** — How much bidding is required to maintain
   eligibility
+- **Bidder caps** — Whether the auction is capped (see above). Also fixed
+  at creation; the caps themselves are assigned afterwards
 
 ## After the Auction
 

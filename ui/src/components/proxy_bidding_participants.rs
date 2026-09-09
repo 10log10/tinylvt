@@ -16,9 +16,8 @@ pub struct Props {
 /// values or the number of spaces a member intends to win. Renders nothing
 /// for members and moderators.
 ///
-/// Collapsed by default to conserve vertical space on the already-dense
-/// auction page; the list is only fetched once expanded (the inner
-/// component mounts on demand).
+/// Collapsed by default; the list is only fetched once expanded (the
+/// inner component mounts on demand).
 #[function_component]
 pub fn ProxyBiddingParticipants(props: &Props) -> Html {
     if !props.user_role.is_ge_coleader() {

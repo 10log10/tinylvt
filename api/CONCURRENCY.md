@@ -134,13 +134,14 @@ paths section below is the derived map.
 
 ### `auction_user` pair lock
 
-One lock deliberately serving **two duties** with the same scope. Both
+One lock deliberately serving **three duties** with the same scope. All
 exclusion domains are one member in one auction, so mutual serialization
 costs nothing real (the worst case is a member's own re-click waiting
 ~1s behind their own proxy task) and buys the simple invariant: **at
 most one funding/bidding actor per (auction, user) at a time**. Splitting
-into two locks would require a documented nesting order between them and
-a re-audit of every pairwise argument, without closing a nameable race.
+into separate locks would require a documented nesting order between
+them and a re-audit of every pairwise argument, without closing a
+nameable race.
 
 **Duty 1 — Stripe-lineage mutex.** Hold iff the transaction reads the
 intent lineage (the pending order, the live authorization) to decide a
@@ -173,6 +174,19 @@ bids concurrently. The same hold is what lets the claim act as its own
 order transaction (duty 1) when a bid comes up short: proxy bidding
 never overlaps a same-member card sequence, so bid re-placement always
 sees settled lineage state and may extend it.
+
+**Duty 3 — bid-budget gate.** Hold iff placing a bid (`create_bid_tx`,
+which asserts it via `expect_pair`). The eligibility and bidder-cap
+checks read the member's already-placed bids and standing wins and
+compare the total against their budgets; the lock keeps two concurrent
+bids by the same member from both passing those checks against
+pre-insert state and together exceeding a budget. The ordinary bid
+transaction (`store::create_bid`, serving manual bids and the card
+flow's final bid) block-acquires; the proxy claim's duty-2 hold covers
+its `create_bid_tx` calls. In backed_credits mode that blocking wait can
+queue behind a Stripe-spanning execute claim, so `funding_flow` runs the
+bid transaction on the worker pool there and on the shared pool in
+other modes.
 
 Acquisition mode: member-present flows block (the member is waiting on
 the result); workers try and skip, relying on state-driven re-selection
@@ -238,9 +252,11 @@ one member serialize here. `activate_intent_tx`'s shrink guard joins
 this class for its reduction allowance: a checkout completion may
 replace a larger hold only at or above the auction's commitment less
 its balance backing, and it measures both terms holding the member's
-row. The bid gate holds no pair or processing lock, so without the row
-a gate could commit a bid (or an outflow could spend the measured
-balance) against the larger hold the reduction is about to demote.
+row. The bid gate's pair hold (duty 3) does not cover this exclusion —
+webhook-adoption activations hold no pair lock, and outflows hold no
+advisory lock at all — so the member's row is what keeps a gate from
+committing a bid (or an outflow from spending the measured balance)
+against the larger hold the reduction is about to demote.
 Always a single sorted batch acquired up front through
 `TrackedTx::lock_accounts` (or its by-owner/community variants); the
 sorted batch is the only thing making cross-member account contention
@@ -310,7 +326,8 @@ flowchart TB
     p1b --> p1s[/"Stripe create+confirm"/]
     p1s --> p1p(["processing (blocking)"])
     p1p --> p1i["intent rows: demote, promote"]
-    p1i -. "commit; ordinary bid tx" .-> p1c["member account (backing gate + bid insert)"]
+    p1i -. "commit; ordinary bid tx" .-> p1z(["pair (blocking)"])
+    p1z --> p1c["member account (backing gate + bid insert)"]
   end
   subgraph P2 ["P2 · pre-authorize — funding_flow::run_preauth (order → execute txs; blocking from authorize_funding, try from the scheduled pre-auth task)"]
     direction LR

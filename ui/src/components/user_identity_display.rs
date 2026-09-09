@@ -97,3 +97,30 @@ pub fn render_user_avatar<T: HasUserName>(
         </div>
     }
 }
+
+/// Renders a member's self-set profile link (a URL or social handle).
+///
+/// Only values with an explicit http(s) scheme become anchors; anything else
+/// renders as plain text, so a stored `javascript:` value can never become
+/// an href.
+pub fn render_profile_link(link: &str) -> Html {
+    let classes = "text-sm text-neutral-600 dark:text-neutral-400 break-all";
+    if link.starts_with("https://") || link.starts_with("http://") {
+        html! {
+            <a
+                href={link.to_string()}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={format!(
+                    "{} underline hover:text-neutral-900 \
+                     dark:hover:text-neutral-100",
+                    classes
+                )}
+            >
+                {link}
+            </a>
+        }
+    } else {
+        html! { <span class={classes}>{link}</span> }
+    }
+}

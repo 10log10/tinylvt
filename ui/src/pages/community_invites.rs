@@ -476,13 +476,21 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
     let is_deleting = use_state(|| false);
     let delete_error = use_state(|| None::<String>);
 
-    // Format timestamp for display
+    // Format timestamps for display
     let created_date = {
         use jiff::tz;
         let system_tz = tz::TimeZone::system();
         let zoned = invite.created_at.to_zoned(system_tz);
         zoned.strftime("%B %d, %Y at %l:%M %p").to_string()
     };
+    // A closed invite (used or revoked) is a read-only record kept for
+    // member join provenance; it can't be accepted or revoked again.
+    let closed_date = invite.deleted_at.map(|ts| {
+        use jiff::tz;
+        ts.to_zoned(tz::TimeZone::system())
+            .strftime("%B %d, %Y at %l:%M %p")
+            .to_string()
+    });
 
     // Build the full invite URL for sharing/copying.
     let invite_link = {
@@ -554,16 +562,32 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
                     } else {
                         html! {}
                     }}
+
+                    {if closed_date.is_some() {
+                        html! {
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-200 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-300">
+                                {"Closed"}
+                            </span>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
-                <button
-                    onclick={on_delete_click}
-                    disabled={*is_deleting}
-                    class="px-3 py-1 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Delete this invite"
-                >
-                    {if *is_deleting { "Deleting..." } else { "Delete" }}
-                </button>
+                {if closed_date.is_none() {
+                    html! {
+                        <button
+                            onclick={on_delete_click}
+                            disabled={*is_deleting}
+                            class="px-3 py-1 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete this invite"
+                        >
+                            {if *is_deleting { "Deleting..." } else { "Delete" }}
+                        </button>
+                    }
+                } else {
+                    html! {}
+                }}
             </div>
 
             {if let Some(error) = delete_error.as_ref() {
@@ -578,25 +602,33 @@ fn IssuedInviteCard(props: &IssuedInviteCardProps) -> Html {
 
             <div class="text-sm text-neutral-600 dark:text-neutral-400">
                 <p class="mb-2">{format!("Created on {}", created_date)}</p>
-                <div class="flex items-center gap-2">
-                    <label class="text-xs font-medium text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
-                        {"Invite Link:"}
-                    </label>
-                    <input
-                        type="text"
-                        value={invite_link.clone()}
-                        readonly={true}
-                        onfocus={Callback::from(move |e: FocusEvent| {
-                            if let Some(target) = e.target()
-                                && let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                    input.select();
-                                }
-                        })}
-                        class="flex-1 min-w-0 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
-                        title="Click to select all, then copy"
-                    />
-                    <CopyButton text={invite_link} />
-                </div>
+                {if let Some(closed) = closed_date {
+                    html! {
+                        <p>{format!("Closed on {}", closed)}</p>
+                    }
+                } else {
+                    html! {
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-medium text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                                {"Invite Link:"}
+                            </label>
+                            <input
+                                type="text"
+                                value={invite_link.clone()}
+                                readonly={true}
+                                onfocus={Callback::from(move |e: FocusEvent| {
+                                    if let Some(target) = e.target()
+                                        && let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                            input.select();
+                                        }
+                                })}
+                                class="flex-1 min-w-0 px-2 py-1 text-xs border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 font-mono cursor-pointer"
+                                title="Click to select all, then copy"
+                            />
+                            <CopyButton text={invite_link} />
+                        </div>
+                    }
+                }}
             </div>
         </div>
     }

@@ -9,9 +9,10 @@ use crate::{
 /// Hook to fetch and manage a single auction by ID.
 ///
 /// Subscribed to `AuctionEnded` so the auction's `end_at` becomes visible
-/// the moment the auction concludes (or is cancelled), and to
+/// the moment the auction concludes (or is cancelled), to
 /// `AuctionScheduleChanged` so manual starts and schedule changes propagate
-/// to every viewer. Always fetches fresh
+/// to every viewer, and to `AuctionDescriptionChanged` for description
+/// edits. Always fetches fresh
 /// from the API; doesn't read from yewdux. The yewdux `individual_auctions`
 /// cache is still populated by `use_auctions` (the per-site list) but isn't
 /// consulted here — that cache isn't SSE-subscribed and could be stale,
@@ -27,6 +28,7 @@ pub fn use_auction_detail(
         &[
             SubscribedEvent::AuctionEnded,
             SubscribedEvent::AuctionScheduleChanged,
+            SubscribedEvent::AuctionDescriptionChanged,
         ],
         move || async move {
             let api_client = get_api_client();

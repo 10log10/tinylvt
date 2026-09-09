@@ -2592,15 +2592,25 @@ pub(crate) async fn emit_funding_changed_for_space(
     user_id: &UserId,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StoreError> {
+    emit_funding_changed_for_spaces(&[*space_id], user_id, tx).await
+}
+
+/// Bulk variant of [`emit_funding_changed_for_space`]: one event per
+/// distinct live backed auction across all the given spaces' sites.
+pub(crate) async fn emit_funding_changed_for_spaces(
+    space_ids: &[SpaceId],
+    user_id: &UserId,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StoreError> {
     let auction_ids: Vec<AuctionId> = sqlx::query_scalar(
-        "SELECT a.id FROM auctions a \
+        "SELECT DISTINCT a.id FROM auctions a \
          JOIN sites si ON a.site_id = si.id \
          JOIN spaces sp ON sp.site_id = si.id \
          JOIN communities c ON si.community_id = c.id \
-         WHERE sp.id = $1 AND a.end_at IS NULL \
+         WHERE sp.id = ANY($1) AND a.end_at IS NULL \
            AND c.currency_mode = 'backed_credits'",
     )
-    .bind(space_id)
+    .bind(space_ids)
     .fetch_all(&mut **tx)
     .await?;
     for auction_id in auction_ids {
