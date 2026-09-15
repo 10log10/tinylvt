@@ -213,12 +213,12 @@ pub fn PricingPage() -> Html {
                     {"Communities that connect a Stripe \
                       account to accept card payments \
                       from members pay Stripe's standard \
-                      processing fees plus a 1% TinyLVT \
-                      platform fee on card charges, both \
-                      deducted from the community's \
-                      Stripe proceeds. Members always \
-                      pay face value. Communities that \
-                      don't take card payments pay no \
+                      processing fees, deducted from the \
+                      community's Stripe proceeds. The \
+                      TinyLVT platform fee on card charges \
+                      is currently suspended (0%). Members \
+                      always pay face value. Communities \
+                      that don't take card payments pay no \
                       fees beyond the plans above."}
                 </p>
             </div>

@@ -158,8 +158,8 @@ onboarding, where Stripe collects the community's business and bank details.
 Your community becomes the merchant of record with its own full Stripe
 dashboard: charges carry your statement descriptor, you pay Stripe's
 standard processing fees, and disputes are between your community and
-Stripe. TinyLVT additionally takes a 1% platform fee on card charges,
-deducted on Stripe's side; members always pay face value.
+Stripe. TinyLVT's platform fee on card charges is currently suspended (0%);
+members always pay face value.
 
 The settings section shows where you stand: onboarding incomplete, charges
 enabled, or disconnected (if TinyLVT's access was revoked from your Stripe

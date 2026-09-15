@@ -69,8 +69,8 @@ pub fn StripeConnectSection(props: &Props) -> Html {
                                       pay by card. Your community becomes the \
                                       merchant of record with its own Stripe \
                                       dashboard, paying Stripe's standard \
-                                      processing fees plus a 1% platform fee \
-                                      on card payments."}
+                                      processing fees. TinyLVT's platform \
+                                      fee is currently suspended."}
                                 </p>
                                 {connect_button("Connect Stripe Account")}
                             </div>

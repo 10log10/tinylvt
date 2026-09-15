@@ -153,7 +153,7 @@ async fn deliver(app: &TestApp, event: &Value) -> anyhow::Result<()> {
 /// The full journey: a member with no saved card mints a checkout (the
 /// session authorizes rather than charges, with no platform fee at
 /// mint), the completion webhook activates the hold, the hold backs a
-/// bid, and settlement captures from it with the fee applied at capture.
+/// bid, and settlement captures from it.
 #[tokio::test]
 async fn checkout_full_flow() -> anyhow::Result<()> {
     let app = spawn_app().await;
@@ -198,8 +198,8 @@ async fn checkout_full_flow() -> anyhow::Result<()> {
     assert!(rows[0].is_active);
 
     // The hold backs a bid like any other authorization, and settlement
-    // captures the win from it — 1% platform fee on the 10.00 capture,
-    // applied at capture time (the session set none).
+    // captures the win from it. Any platform fee is applied at capture
+    // time (the session set none); with the fee suspended, none is set.
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     app.client
         .create_bid(&space_id, &rounds[0].round_id)
@@ -213,7 +213,7 @@ async fn checkout_full_flow() -> anyhow::Result<()> {
         let pi = intents.get("pi_checkout_1").unwrap();
         assert_eq!(pi.status, "succeeded");
         assert_eq!(pi.amount_received, 1000);
-        assert_eq!(pi.application_fee_minor, Some(10));
+        assert_eq!(pi.application_fee_minor, None);
     }
     Ok(())
 }

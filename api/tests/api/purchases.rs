@@ -154,15 +154,15 @@ async fn top_up_purchase_issues_credits_once() -> anyhow::Result<()> {
     let session_id = rows[0].checkout_session_id.clone().unwrap();
     assert_eq!(session_id, format!("cs_mock_{}", rows[0].id));
 
-    // The session charges the full amount on the community's account
-    // with the 1% platform fee attached.
+    // The session charges the full amount on the community's account.
+    // The platform fee is suspended (rate zero), so none is attached.
     {
         let sessions = app.stripe_service.mock_sessions.lock().unwrap();
         let session = sessions.get(&session_id).unwrap();
         assert_eq!(session.account_id, "acct_mock_1");
         assert_eq!(session.amount_minor, 2500);
         assert_eq!(session.currency, "usd");
-        assert_eq!(session.application_fee_minor, Some(25));
+        assert_eq!(session.application_fee_minor, None);
     }
 
     // The member pays (card: the intent succeeds at completion); the

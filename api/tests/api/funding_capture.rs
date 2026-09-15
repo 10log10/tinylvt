@@ -87,8 +87,8 @@ async fn clear_worker_backoff(app: &TestApp) -> anyhow::Result<()> {
 }
 
 /// A card-backed winner's authorization is captured at conclusion, sized
-/// to what balance couldn't cover, with the platform fee attached and a
-/// stripe_payment issuance entry returning the balance to zero.
+/// to what balance couldn't cover, with a stripe_payment issuance entry
+/// returning the balance to zero.
 #[tokio::test]
 async fn winner_capture_full_flow() -> anyhow::Result<()> {
     let app = spawn_app().await;
@@ -119,8 +119,9 @@ async fn winner_capture_full_flow() -> anyhow::Result<()> {
         let pi = intents.get(&pi_id).unwrap();
         assert_eq!(pi.status, "succeeded");
         assert_eq!(pi.amount_received, 600);
-        // 1% platform fee on the 6.00 capture.
-        assert_eq!(pi.application_fee_minor, Some(6));
+        // The platform fee is suspended (rate zero), so the capture
+        // skips the fee parameter entirely.
+        assert_eq!(pi.application_fee_minor, None);
     }
     let (entry_type, entry_pi): (String, Option<String>) = sqlx::query_as(
         "SELECT entry_type::TEXT, payment_intent_id FROM journal_entries \

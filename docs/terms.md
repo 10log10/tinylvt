@@ -1,6 +1,6 @@
 # Terms of Service
 
-*Last updated: August 5, 2026*
+*Last updated: September 14, 2026*
 
 ## About
 
@@ -26,7 +26,7 @@ Payments are processed by Stripe. By subscribing, you agree to Stripe's [terms o
 
 Communities using the Backed Credits currency mode may connect a Stripe account to accept card payments from their members, such as auction charges and balance settlements. For these payments, the community, not TinyLVT, is the merchant of record: charges are made through the community's own Stripe account under its own name, the community pays Stripe's processing fees, and payment disputes are handled between the cardholder, the community, and Stripe. By connecting a Stripe account, the community also agrees to the [Stripe Connected Account Agreement](https://stripe.com/legal/connect-account). As merchant of record, the community is responsible for any tax obligations arising from its payments.
 
-TinyLVT initiates card authorizations and charges on the community's behalf, based on auction outcomes and payment authorizations members grant in the app, but never holds the funds. TinyLVT charges the community a platform fee of 1% of each card charge, deducted from the community's Stripe proceeds. Members always pay the face value of a charge.
+TinyLVT initiates card authorizations and charges on the community's behalf, based on auction outcomes and payment authorizations members grant in the app, but never holds the funds. TinyLVT may charge the community a platform fee as a percentage of each card charge, deducted from the community's Stripe proceeds. The platform fee is currently suspended and set to 0%; any future fee will be announced in these terms before it takes effect. Members always pay the face value of a charge.
 
 Community credits and card payments are obligations of the community, not of TinyLVT. Refunds of credits and of card payments are at each community's discretion; TinyLVT cannot issue them on a community's behalf, so contact your community's leaders. Card processing fees may be deducted from card refunds.
 

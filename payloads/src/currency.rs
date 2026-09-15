@@ -226,7 +226,10 @@ pub fn denomination(iso: &str) -> Option<&'static Denomination> {
 /// Platform fee rate on stripe_payment charges (captures and purchases).
 /// Applied Stripe-side only, via `application_fee_amount` — never as a
 /// ledger entry; members always pay face value.
-pub const PLATFORM_FEE_RATE: Decimal = rust_decimal::dec!(0.01);
+///
+/// Temporarily zero: the fee is suspended while the operating entity is
+/// dissolved. The plumbing stays in place so a nonzero rate restores it.
+pub const PLATFORM_FEE_RATE: Decimal = Decimal::ZERO;
 
 /// Platform fee for a charge amount, rounded down to the currency's minor
 /// units. Call sites skip the `application_fee_amount` parameter entirely
@@ -286,16 +289,15 @@ mod tests {
         assert_eq!(from_minor_units(150, 0), dec!(150));
     }
 
+    /// While the fee is suspended every charge yields a zero fee, so call
+    /// sites skip the fee parameter entirely. Once a nonzero rate is
+    /// restored, extend this to check the round-down to minor units
+    /// (e.g. 1% of $10.99 floors to $0.10).
     #[test]
-    fn platform_fee_rounds_down_to_minor_units() {
-        // 1% of $10.00 lands exactly on the grain
-        assert_eq!(platform_fee(dec!(10.00), 2), dec!(0.10));
-        // 1% of $10.99 = $0.1099, floored to the cent
-        assert_eq!(platform_fee(dec!(10.99), 2), dec!(0.10));
-        // Sub-dollar charges floor to zero (call sites then skip the
-        // fee parameter entirely)
-        assert_eq!(platform_fee(dec!(0.99), 2), dec!(0.00));
-        // Zero-minor-unit currencies floor to whole units
-        assert_eq!(platform_fee(dec!(150), 0), dec!(1));
+    fn platform_fee_is_zero_while_suspended() {
+        assert_eq!(PLATFORM_FEE_RATE, Decimal::ZERO);
+        assert_eq!(platform_fee(dec!(10.00), 2), dec!(0.00));
+        assert_eq!(platform_fee(dec!(10.99), 2), dec!(0.00));
+        assert_eq!(platform_fee(dec!(150), 0), dec!(0));
     }
 }
