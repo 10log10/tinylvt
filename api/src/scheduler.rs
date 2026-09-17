@@ -48,13 +48,13 @@
 //! 3. `run_proxy_bid_claim` — the bidding claim, always on the shared pool (it
 //!    never carries a Stripe call): take the `auction_user` pair lock, clear
 //!    the `use_proxy_bidding.needs_processing` dirty flag under that row's
-//!    lock, re-verify the item is still due, run `run_proxy_item_work` in a
-//!    savepoint (delete the member's bids for the round and re-place them,
-//!    surplus-ordered `create_bid_tx` calls; a card-backed bid failing on funds
-//!    sizes an authorization for that exact bid and commits the
-//!    `funding_intents` pending row — the authorization order, via
-//!    `funding_flow::order_proxy_bid_auth_tx` — and stops the walk), and write
-//!    the outcome to the `proxy_round_processing` marker (success, or
+//!    lock, re-verify the member is still active and the item still due, run
+//!    `run_proxy_item_work` in a savepoint (delete the member's bids for the
+//!    round and re-place them, surplus-ordered `create_bid_tx` calls; a
+//!    card-backed bid failing on funds sizes an authorization for that exact
+//!    bid and commits the `funding_intents` pending row — the authorization
+//!    order, via `funding_flow::order_proxy_bid_auth_tx` — and stops the walk),
+//!    and write the outcome to the `proxy_round_processing` marker (success, or
 //!    failure_count for backoff re-selection). Flag-clear, bids, order, and
 //!    marker land atomically in its single commit.
 //! 4. `funding_flow::execute_auth_order` (when the claim ordered) — a
@@ -1351,7 +1351,9 @@ async fn process_due_proxy_items(
 /// is due when its active round has no marker row (per-round baseline), its
 /// settings row is flagged dirty (mid-round change — this arm ignores
 /// backoff, making a member change during backoff a fresh-input retry), or
-/// its marker records failures and the backoff has expired.
+/// its marker records failures and the backoff has expired. Inactive
+/// members are never due: they can't bid, and leaving their marker
+/// untouched makes the item due again on reactivation.
 async fn list_due_proxy_items(
     pool: &PgPool,
     time_source: &TimeSource,
@@ -1375,10 +1377,14 @@ async fn list_due_proxy_items(
         JOIN communities c ON si.community_id = c.id
         JOIN use_proxy_bidding upb ON upb.auction_id = ar.auction_id
         JOIN users u ON upb.user_id = u.id
+        JOIN community_members cm
+            ON cm.community_id = si.community_id
+            AND cm.user_id = upb.user_id
         LEFT JOIN proxy_round_processing prp
             ON prp.round_id = ar.id AND prp.user_id = upb.user_id
         WHERE $1 >= ar.start_at
             AND $1 < ar.end_at
+            AND cm.is_active
             AND (
                 prp.round_id IS NULL
                 OR upb.needs_processing
@@ -1620,6 +1626,21 @@ async fn run_proxy_bid_claim(
         locks.rollback().await?;
         return Ok(ProxyClaimOutcome::Done);
     };
+    let is_active: Option<bool> = sqlx::query_scalar(
+        "SELECT is_active FROM community_members
+        WHERE community_id = $1 AND user_id = $2",
+    )
+    .bind(item.community_id)
+    .bind(item.user_id)
+    .fetch_optional(&mut **locks.tx())
+    .await?;
+    if is_active != Some(true) {
+        // Deactivated or removed since listing. Rolling back leaves the
+        // marker alone, so reactivation re-selects the item; the
+        // member's existing bids stand.
+        locks.rollback().await?;
+        return Ok(ProxyClaimOutcome::Done);
+    }
     if cycle == ClaimCycle::First {
         let due: bool = sqlx::query_scalar(&format!(
             "SELECT $3
@@ -2373,6 +2394,18 @@ async fn run_proxy_item_work(
                     space_id
                 );
                 continue;
+            }
+            Err(store::StoreError::Api(ApiError::MemberInactive)) => {
+                // Deactivated after the claim's check. Fail the item so
+                // the savepoint restores the bids cleared above rather
+                // than committing a partial re-placement. The failure
+                // marker's backoff is moot while inactive (listing skips
+                // the member); after reactivation it's short relative
+                // to a round.
+                anyhow::bail!(
+                    "member {:?} deactivated mid-walk",
+                    settings.user_id
+                );
             }
             Err(store::StoreError::Api(ApiError::InsufficientBalance)) => {
                 // The failed bid passed every other gate (eligibility is

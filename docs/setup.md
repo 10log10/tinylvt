@@ -85,20 +85,22 @@ Moderators can clear an inappropriate link.
 
 ## Active vs Inactive Members
 
-**Active members** receive their share of auction proceeds (in Distributed
-Clearing mode) or allowances (in Points Allocation mode).
+**Active members** can bid in auctions. In Distributed Clearing mode they
+also receive their share of auction proceeds, and in Points Allocation mode
+they receive allowances.
 
-**Inactive members** can still participate in auctions but don't receive
-distributions. This is useful for:
+**Inactive members** remain in the community and keep their account, but
+can't place bids and don't receive distributions. Bids they already hold
+when deactivated stay in place. This is useful for:
 
 - Members who are temporarily away
-- People who want to reserve space before officially joining
+- Members who must meet a requirement before renting space, such as a
+  vendor whose seller's permit needs to be on file before each market
 
-Active status can be updated frequently to reflect who is actually present and
-participating. For example, a shared workspace might define "active" as being
-physically present—if the value of the space comes from the people gathered
-there, then distributions should flow to those who are actually present and
-available for collaboration.
+Moderators toggle active status from the member list, and the community's
+currency settings choose whether newly joined members start out active. A
+community that checks requirements before allowing bids would have new
+members start inactive and activate them once cleared.
 
 ## Creating Sites and Spaces
 

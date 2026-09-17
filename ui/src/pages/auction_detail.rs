@@ -42,6 +42,7 @@ pub fn AuctionDetailPage(props: &Props) -> Html {
                         currency={ctx.currency().clone()}
                         current_user={ctx.current_user.clone()}
                         user_role={ctx.community.user_role}
+                        user_is_active={ctx.community.user_is_active}
                         community_id={ctx.community.community.id}
                     />
                 </div>
@@ -64,6 +65,8 @@ struct AuctionContentProps {
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
     user_role: payloads::Role,
+    /// Inactive members can't bid; the page says so and hides bid buttons.
+    user_is_active: bool,
     community_id: payloads::CommunityId,
 }
 
@@ -81,6 +84,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                 currency={props.currency.clone()}
                 current_user={props.current_user.clone()}
                 user_role={props.user_role}
+                user_is_active={props.user_is_active}
                 community_id={props.community_id}
             />
         }
@@ -92,6 +96,7 @@ fn AuctionContent(props: &AuctionContentProps) -> Html {
                 currency={props.currency.clone()}
                 current_user={props.current_user.clone()}
                 user_role={props.user_role}
+                user_is_active={props.user_is_active}
                 community_id={props.community_id}
                 my_caps={Fetch::fetched(None)}
             />
@@ -110,6 +115,7 @@ fn CappedAuctionContent(props: &AuctionContentProps) -> Html {
             currency={props.currency.clone()}
             current_user={props.current_user.clone()}
             user_role={props.user_role}
+            user_is_active={props.user_is_active}
             community_id={props.community_id}
             my_caps={my_caps_hook.inner.map_ref(|m| Some(m.clone()))}
         />
@@ -123,6 +129,7 @@ struct AuctionContentBodyProps {
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
     user_role: payloads::Role,
+    user_is_active: bool,
     community_id: payloads::CommunityId,
     /// The user's own caps: fetched for capped auctions, an
     /// already-fetched `None` otherwise. Caps are useful information in
@@ -167,6 +174,7 @@ fn AuctionContentBody(props: &AuctionContentBodyProps) -> Html {
                         site_timezone={props.site_timezone.clone()}
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
+                        user_is_active={props.user_is_active}
                         community_id={props.community_id}
                         spaces={spaces_hook.inner.clone()}
                         user_values={user_values_hook.clone()}
@@ -191,6 +199,7 @@ fn AuctionContentBody(props: &AuctionContentBodyProps) -> Html {
                                     .map(|r| r.round_id)
                             }
                             current_user={props.current_user.clone()}
+                            user_is_active={props.user_is_active}
                             spaces={spaces_hook.inner.clone()}
                             user_values={user_values_hook.clone()}
                             proxy_bidding={proxy_bidding_hook.clone()}
@@ -207,6 +216,7 @@ fn AuctionContentBody(props: &AuctionContentBodyProps) -> Html {
                         currency={props.currency.clone()}
                         current_user={props.current_user.clone()}
                         user_role={props.user_role}
+                        user_is_active={props.user_is_active}
                         community_id={props.community_id}
                         connection_status={connection_status}
                         spaces={spaces_hook.inner.clone()}
@@ -233,6 +243,7 @@ struct AuctionCancelledContentProps {
     site_timezone: Option<String>,
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
+    user_is_active: bool,
     community_id: payloads::CommunityId,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
@@ -311,12 +322,31 @@ fn AuctionCancelledContent(props: &AuctionCancelledContentProps) -> Html {
                                 props.user_values.delete_value.clone()
                             }
                             auction_ended={true}
+                            member_is_active={props.user_is_active}
                             categories={(*categories).clone()}
                             bidder_caps={(*my_caps).clone()}
                         />
                     </>
                 },
             )}
+        </div>
+    }
+}
+
+/// Notice shown to an inactive member wherever bidding would otherwise be
+/// offered.
+fn inactive_member_notice() -> Html {
+    html! {
+        <div class="border border-neutral-200 dark:border-neutral-700 \
+                    rounded-lg p-6 bg-white dark:bg-neutral-800">
+            <h3 class="text-lg font-medium text-neutral-900 dark:text-white \
+                       mb-2">
+                {"You're inactive in this community"}
+            </h3>
+            <p class="text-sm text-neutral-600 dark:text-neutral-400">
+                {"Inactive members can't place bids. Ask a moderator to \
+                  activate you if you'd like to bid in this auction."}
+            </p>
         </div>
     }
 }
@@ -328,6 +358,7 @@ struct AuctionNotStartedContentProps {
     currency: CurrencySettings,
     current_user: payloads::responses::UserProfile,
     user_role: payloads::Role,
+    user_is_active: bool,
     community_id: payloads::CommunityId,
     connection_status: crate::hooks::ConnectionStatus,
     spaces: Fetch<Vec<payloads::responses::Space>>,
@@ -417,6 +448,12 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                 </div>
             </div>
 
+            {if props.user_is_active {
+                html! {}
+            } else {
+                inactive_member_notice()
+            }}
+
             <CapDelegationPanel
                 auction={props.auction.clone()}
                 community_id={props.community_id}
@@ -484,6 +521,7 @@ fn AuctionNotStartedContent(props: &AuctionNotStartedContentProps) -> Html {
                                 props.user_values.delete_value.clone()
                             }
                             auction_ended={false}
+                            member_is_active={props.user_is_active}
                             categories={(*categories).clone()}
                             bidder_caps={(*my_caps).clone()}
                             on_update_values={
@@ -508,6 +546,7 @@ struct AuctionRoundContentProps {
     /// `None` when `last_round` is round 0 (no previous round exists).
     previous_round_id: Option<payloads::AuctionRoundId>,
     current_user: payloads::responses::UserProfile,
+    user_is_active: bool,
     spaces: Fetch<Vec<payloads::responses::Space>>,
     user_values: UserSpaceValuesHookReturn,
     proxy_bidding: ProxyBiddingSettingsHookReturn,
@@ -662,6 +701,12 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                 categories={props.categories.clone()}
             />
 
+            {if props.user_is_active || props.auction.end_at.is_some() {
+                html! {}
+            } else {
+                inactive_member_notice()
+            }}
+
             // User eligibility
             <UserEligibilityDisplay
                 eligibility={eligibility.clone()}
@@ -749,6 +794,7 @@ fn AuctionRoundContent(props: &AuctionRoundContentProps) -> Html {
                             on_delete_value={on_delete_value.clone()}
                             auction_ended={props.auction.end_at.is_some()}
                             auction_started={true}
+                            member_is_active={props.user_is_active}
                             user_eligibility={**eligibility_opt}
                             current_activity={**activity}
                             categories={(*categories).clone()}

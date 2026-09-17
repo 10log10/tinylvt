@@ -596,21 +596,19 @@ pub enum CurrencyMode {
 
 impl CurrencyMode {
     /// Whether the mode involves equal currency distributions across the set
-    /// of active members, making a member's `is_active` flag economically
-    /// meaningful.
+    /// of active members.
     ///
-    /// True for points_allocation (each active member receives an equal
-    /// allowance) and distributed_clearing (auction proceeds are redistributed
-    /// equally among active members). False for deferred_payment and
-    /// backed_credits, which lack equalization, so no distribution is gated on
-    /// activity.
+    /// A member's `is_active` flag gates bidding in every mode; in these
+    /// modes it additionally selects who receives distributions. True for
+    /// points_allocation (each active member receives an equal allowance)
+    /// and distributed_clearing (auction proceeds are redistributed equally
+    /// among active members). False for deferred_payment and backed_credits,
+    /// which lack equalization, so no distribution is gated on activity.
     ///
     /// This is the single source of truth for that distinction. It gates the
     /// `TreasuryRecipient::AllActiveMembers` default in the treasury credit
-    /// form and the visibility of the active-status controls (per-member
-    /// toggle and bulk activation) on the members page. Settlement logic in
-    /// `api/src/store/currency.rs` redistributes to active members for exactly
-    /// these modes.
+    /// form. Settlement logic in `api/src/store/currency.rs` redistributes to
+    /// active members for exactly these modes.
     pub fn has_active_member_distributions(&self) -> bool {
         match self {
             CurrencyMode::PointsAllocation

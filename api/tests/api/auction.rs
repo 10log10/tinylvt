@@ -1412,3 +1412,57 @@ async fn test_bid_unavailable_space() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// An inactive member can't place bids, and regains the ability as soon as
+/// they're reactivated.
+#[tokio::test]
+async fn test_bid_inactive_member() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    let start_time = app.time_source.now();
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(start_time);
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    app.tick().await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round = &rounds[0];
+
+    let members = app.client.get_members(&community_id).await?;
+    let bob_id = members
+        .iter()
+        .find(|m| m.user.username == "bob")
+        .unwrap()
+        .user
+        .user_id;
+    let set_bob_active = async |is_active: bool| {
+        app.client
+            .update_member_active_status(&requests::UpdateMemberActiveStatus {
+                community_id,
+                member_user_id: bob_id,
+                is_active,
+            })
+            .await
+    };
+
+    set_bob_active(false).await?;
+    app.login_bob().await?;
+    let result = app
+        .client
+        .create_bid(&space.space_id, &round.round_id)
+        .await;
+    assert_api_error(result, ApiError::MemberInactive);
+
+    app.login_alice().await?;
+    set_bob_active(true).await?;
+    app.login_bob().await?;
+    app.client
+        .create_bid(&space.space_id, &round.round_id)
+        .await?;
+
+    Ok(())
+}

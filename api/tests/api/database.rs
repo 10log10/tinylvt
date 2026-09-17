@@ -75,6 +75,17 @@ async fn test_populate() -> Result<(), StoreError> {
         store::get_community_by_id(&community.id, conn).await?;
 
     assert_eq!(community, community_retrieved);
+
+    // The creator's active status follows new_members_default_active.
+    let leader_active: bool = sqlx::query_scalar(
+        "SELECT is_active FROM community_members
+        WHERE community_id = $1 AND user_id = $2",
+    )
+    .bind(community.id)
+    .bind(user.id)
+    .fetch_one(conn)
+    .await?;
+    assert!(!leader_active);
     println!("1");
     let _users = populate_users(conn, &community.id, &app.time_source).await?;
     println!("2");

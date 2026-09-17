@@ -98,13 +98,15 @@ pub async fn create_community(
 
     let community: Community = db_community.try_into()?;
 
+    // The creator's active status follows the same default as later joiners.
     sqlx::query(
-        "INSERT INTO community_members (community_id, user_id, role, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $4);",
+        "INSERT INTO community_members (community_id, user_id, role, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $5);",
     )
     .bind(community.id)
     .bind(user_id)
     .bind(Role::Leader)
+    .bind(currency_db.new_members_default_active)
     .bind(time_source.now().to_sqlx())
     .execute(&mut *tx)
     .await?;

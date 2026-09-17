@@ -924,6 +924,78 @@ async fn test_per_user_failure_isolation() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// An inactive member's proxy item is skipped without a marker, so it
+/// becomes due again as soon as the member is reactivated.
+#[tokio::test]
+async fn test_inactive_member_proxy_item_skipped() -> anyhow::Result<()> {
+    let app = spawn_app().await;
+    let community_id = app.create_two_person_community().await?;
+    let site = app.create_test_site(&community_id).await?;
+    let space = app.create_test_space(&site.site_id).await?;
+
+    let mut auction_details =
+        test_helpers::auction_details_a(site.site_id, &app.time_source);
+    auction_details.start_at = Some(app.time_source.now());
+    let auction_id = app.client.create_auction(&auction_details).await?;
+
+    app.login_bob().await?;
+    app.client
+        .create_or_update_user_value(&requests::UserValue {
+            space_id: space.space_id,
+            value: Decimal::new(4, 0),
+        })
+        .await?;
+    app.client
+        .create_or_update_proxy_bidding(&requests::UseProxyBidding {
+            auction_id,
+            max_items: 1,
+        })
+        .await?;
+
+    let members = app.client.get_members(&community_id).await?;
+    let bob_id = members
+        .iter()
+        .find(|m| m.user.username == "bob")
+        .unwrap()
+        .user
+        .user_id;
+    let set_bob_active = async |is_active: bool| {
+        app.client
+            .update_member_active_status(&requests::UpdateMemberActiveStatus {
+                community_id,
+                member_user_id: bob_id,
+                is_active,
+            })
+            .await
+    };
+
+    app.login_alice().await?;
+    set_bob_active(false).await?;
+
+    // Round 0 creation; bob's item is not due while he's inactive.
+    app.tick().await;
+    let rounds = app.client.list_auction_rounds(&auction_id).await?;
+    let round_id = rounds[0].round_id;
+    assert!(
+        proxy_marker(&app.db_pool, &round_id, "bob")
+            .await?
+            .is_none()
+    );
+    assert_eq!(bid_count(&app.db_pool, &round_id, "bob").await?, 0);
+
+    // Reactivation makes the item due through the missing-marker arm.
+    set_bob_active(true).await?;
+    app.time_source.advance(Span::new().seconds(1));
+    app.tick().await;
+    let marker = proxy_marker(&app.db_pool, &round_id, "bob")
+        .await?
+        .expect("reactivated member is processed");
+    assert_eq!(marker.1, 0);
+    assert_eq!(bid_count(&app.db_pool, &round_id, "bob").await?, 1);
+
+    Ok(())
+}
+
 /// One user's mid-round settings change reprocesses only that user's item.
 /// (The old design reprocessed every user in the round.)
 #[tokio::test]

@@ -60,6 +60,7 @@ pub fn CurrencyConfigEditor(props: &Props) -> Html {
                     {render_currency_minor_units_input(props)}
                 }
                 {render_balances_visible_checkbox(props)}
+                {render_new_members_default_active_checkbox(props)}
             </div>
 
             // Mode-specific fields section
@@ -416,17 +417,15 @@ fn render_new_members_default_active_checkbox(props: &Props) -> Html {
                     {"New members active by default"}
                 </label>
                 <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                    {"Active members receive "}
+                    {"Active members can bid in auctions"}
                     {match props.currency.mode_config {
                         CurrencyModeConfig::PointsAllocation(_) => {
-                            "allowances from treasury issuance"
+                            " and receive allowances from treasury issuance"
                         },
                         CurrencyModeConfig::DistributedClearing(_) => {
-                            "a share of auction settlements"
+                            " and receive a share of auction settlements"
                         },
-                        _ => {
-                            "nothing" // should not be rendered
-                        },
+                        _ => "",
                     }}
                 </p>
             </div>
@@ -437,24 +436,14 @@ fn render_new_members_default_active_checkbox(props: &Props) -> Html {
 fn render_mode_specific_fields(props: &Props, _mode: &CurrencyMode) -> Html {
     match props.currency.mode_config {
         CurrencyModeConfig::PointsAllocation(ref config) => {
-            html! {
-                <>
-                    {render_points_allocation_fields(props, config)}
-                    {render_new_members_default_active_checkbox(props)}
-                </>
-            }
+            render_points_allocation_fields(props, config)
         }
         CurrencyModeConfig::DistributedClearing(ref config) => {
-            html! {
-                <>
-                    {render_iou_fields(
-                        props,
-                        config,
-                        "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
-                    )}
-                    {render_new_members_default_active_checkbox(props)}
-                </>
-            }
+            render_iou_fields(
+                props,
+                config,
+                "In Distributed Clearing mode, members issue IOUs to each other which are settled among themselves.",
+            )
         }
         CurrencyModeConfig::DeferredPayment(ref config) => render_iou_fields(
             props,

@@ -65,6 +65,9 @@ pub struct Props {
     pub auction_ended: bool,
     #[prop_or_default]
     pub auction_started: bool,
+    /// Inactive members can't bid, so their bid buttons give way to a
+    /// note.
+    pub member_is_active: bool,
     /// User's eligibility for the current round, already interpreted by the
     /// API against the prior round's threshold. The parent gates the list on
     /// this fetch resolving, so it's a plain value here. Defaults to
@@ -488,6 +491,7 @@ pub fn SpaceListForBidding(props: &Props) -> Html {
                                 on_delete_value={props.on_delete_value.clone()}
                                 auction_ended={props.auction_ended}
                                 auction_started={props.auction_started}
+                                member_is_active={props.member_is_active}
                                 winner={row.winner.clone()}
                                 would_exceed_eligibility={would_exceed_eligibility}
                                 is_deleted={space.deleted_at.is_some()}
@@ -757,6 +761,7 @@ struct SpaceRowProps {
     on_delete_value: Callback<SpaceId>,
     auction_ended: bool,
     auction_started: bool,
+    member_is_active: bool,
     winner: Option<UserIdentity>,
     would_exceed_eligibility: bool,
     is_deleted: bool,
@@ -1025,6 +1030,13 @@ fn SpaceRow(props: &SpaceRowProps) -> Html {
                     } else if !props.auction_started {
                         // Auction hasn't started yet - no bidding allowed
                         html! {}
+                    } else if !props.member_is_active {
+                        html! {
+                            <span class="text-xs text-neutral-600 \
+                                         dark:text-neutral-400 text-right">
+                                {"Inactive members can't bid"}
+                            </span>
+                        }
                     } else if let Some(message) = &props.cap_message {
                         // The user's per-category cap blocks this bid
                         html! {

@@ -214,6 +214,8 @@ pub enum ApiError {
     AlreadyBidOnSpace,
     #[error("Space is not available for bidding")]
     SpaceNotAvailable,
+    #[error("Inactive members cannot bid")]
+    MemberInactive,
     #[error("Space has been deleted")]
     SpaceDeleted,
     #[error("Site has been deleted")]

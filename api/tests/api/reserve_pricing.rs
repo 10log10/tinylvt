@@ -262,17 +262,6 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
     let community_id = app.create_two_person_community().await?;
     let site = app.create_test_site(&community_id).await?;
 
-    // Deactivate both members so the no-active-members fallback fires on
-    // settlement. We do this by directly clearing community_members'
-    // is_active flag via SQL.
-    sqlx::query(
-        "UPDATE community_members SET is_active = false
-         WHERE community_id = $1",
-    )
-    .bind(community_id)
-    .execute(&app.db_pool)
-    .await?;
-
     let mut space_details = test_helpers::space_details_a(site.site_id);
     space_details.reserve_price = ReservePrice(Decimal::new(-10, 0));
     let space_id = app.client.create_space(&space_details).await?;
@@ -287,11 +276,20 @@ async fn chore_settlement_parks_debt_on_treasury_then_redistributes()
     let rounds = app.client.list_auction_rounds(&auction_id).await?;
     let round_0 = &rounds[0];
 
-    // Bob can still bid even if inactive -- bid creation isn't gated on
-    // active. He'll be the winner, and the active members list (empty)
-    // means the chore debt parks on treasury.
+    // Bob bids while active; his standing bid survives deactivation.
     app.login_bob().await?;
     app.client.create_bid(&space_id, &round_0.round_id).await?;
+
+    // Deactivate both members so the no-active-members fallback fires on
+    // settlement: Bob wins, and with the active members list empty, the
+    // chore debt parks on treasury.
+    sqlx::query(
+        "UPDATE community_members SET is_active = false
+         WHERE community_id = $1",
+    )
+    .bind(community_id)
+    .execute(&app.db_pool)
+    .await?;
 
     loop {
         let rounds = app.client.list_auction_rounds(&auction_id).await?;

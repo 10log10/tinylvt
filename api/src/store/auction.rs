@@ -910,8 +910,8 @@ pub(crate) async fn planned_bid_amount_tx(
     ))
 }
 
-/// Validate and insert one bid: liveness, cap and eligibility budgets,
-/// then funding.
+/// Validate and insert one bid: membership and active status, liveness,
+/// cap and eligibility budgets, then funding.
 ///
 /// Lock contract: caller holds the pair lock for (auction, user)
 /// (asserted); acquires the bidder's account row for the funding gate on
@@ -924,7 +924,7 @@ pub async fn create_bid_tx(
     time_source: &TimeSource,
 ) -> Result<(), StoreError> {
     // Get the space to validate user permissions and check availability
-    let (space, _) = get_validated_space_conn(
+    let (space, member) = get_validated_space_conn(
         space_id,
         user_id,
         PermissionLevel::Member,
@@ -932,6 +932,12 @@ pub async fn create_bid_tx(
     )
     .await?;
     let tx = ttx.tx();
+
+    // Active status gates bidding in every auction, manual and proxy alike.
+    // Bids already standing when a member is deactivated remain in place.
+    if !member.0.is_active {
+        return Err(ApiError::MemberInactive.into());
+    }
 
     // Ensure the space is available for bidding
     if !space.is_available {

@@ -57,18 +57,8 @@ fn MembersContent(props: &MembersContentProps) -> Html {
     let community_id = props.community.id;
     let show_bulk_activate_modal = use_state(|| false);
 
-    // Bulk activation is gated the same as the per-member active-status
-    // toggle: the editor must have permission, and the active flag must be
-    // meaningful (i.e. the mode distributes across active members).
     let can_bulk_activate =
-        props.community.user_role.can_change_active_status()
-            && props
-                .community
-                .community
-                .currency
-                .mode_config
-                .mode()
-                .has_active_member_distributions();
+        props.community.user_role.can_change_active_status();
 
     let on_invite_click = {
         let push_route = push_route.clone();
@@ -273,15 +263,7 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                 | payloads::CurrencyModeConfig::DeferredPayment(_)
         );
 
-    // Editing active status is meaningful only when the mode distributes
-    // across active members.
-    let can_edit_active_status = community.user_role.can_change_active_status()
-        && community
-            .community
-            .currency
-            .mode_config
-            .mode()
-            .has_active_member_distributions();
+    let can_edit_active_status = community.user_role.can_change_active_status();
 
     // Check if user can remove this member
     let can_remove = community.user_role.can_remove_role(&member.role);
@@ -453,11 +435,18 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                         html! {}
                     }}
 
-                    // Active status toggle slot. Fixed width so its
+                    // Active status slot. Fixed width so its
                     // presence/absence doesn't shift elements to the left.
-                    // Width accommodates the toggle (w-11) + ml-3 gap +
-                    // "Inactive" label (~13).
-                    <div class="w-28">
+                    // For editors the width accommodates the toggle (w-11)
+                    // + ml-3 gap + "Inactive" label (~13); other viewers
+                    // get a slot sized for the label alone. They still
+                    // see when a member is inactive, since inactive
+                    // members can't bid.
+                    <div class={if can_edit_active_status {
+                        "w-28"
+                    } else {
+                        "w-16"
+                    }}>
                         {if can_edit_active_status {
                             html! {
                                 <ActiveStatusToggle
@@ -467,6 +456,14 @@ fn MemberRow(props: &MemberRowProps) -> Html {
                                     on_success={props.on_update.clone()}
                                     disabled={false}
                                 />
+                            }
+                        } else if !member.is_active {
+                            html! {
+                                <span class="text-sm font-medium \
+                                             text-neutral-500 \
+                                             dark:text-neutral-400">
+                                    {"Inactive"}
+                                </span>
                             }
                         } else {
                             html! {}
