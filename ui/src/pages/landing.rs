@@ -16,7 +16,15 @@ pub fn LandingPage() -> Html {
     let (state, _dispatch) = use_store::<State>();
     let stats = use_platform_stats();
 
-    let on_learn_more = {
+    let on_read_auction_guide = {
+        let push_route = push_route.clone();
+        Callback::from(move |e: MouseEvent| {
+            e.prevent_default();
+            push_route.emit(Route::AuctionGuide);
+        })
+    };
+
+    let on_read_docs = {
         let push_route = push_route.clone();
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
@@ -84,7 +92,8 @@ pub fn LandingPage() -> Html {
                     </div>
 
                     // CTAs
-                    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <div class="flex flex-col sm:flex-row sm:flex-wrap gap-4 \
+                        justify-center">
                         <button
                             onclick={on_sign_up.clone()}
                             class="inline-block px-8 py-3 text-lg \
@@ -97,7 +106,7 @@ pub fn LandingPage() -> Html {
                             {"Sign Up"}
                         </button>
                         <button
-                            onclick={on_learn_more.clone()}
+                            onclick={on_read_auction_guide.clone()}
                             class="inline-block px-8 py-3 text-lg \
                                 font-semibold text-neutral-900 \
                                 dark:text-neutral-100 border-2 \
@@ -107,7 +116,20 @@ pub fn LandingPage() -> Html {
                                 dark:hover:bg-neutral-800 rounded \
                                 transition-colors"
                         >
-                            {"Learn How It Works"}
+                            {"Read the auction guide"}
+                        </button>
+                        <button
+                            onclick={on_read_docs.clone()}
+                            class="inline-block px-8 py-3 text-lg \
+                                font-semibold text-neutral-900 \
+                                dark:text-neutral-100 border-2 \
+                                border-neutral-900 \
+                                dark:border-neutral-100 \
+                                hover:bg-neutral-100 \
+                                dark:hover:bg-neutral-800 rounded \
+                                transition-colors"
+                        >
+                            {"Read the docs"}
                         </button>
                     </div>
                 </div>
@@ -309,7 +331,8 @@ pub fn LandingPage() -> Html {
             </div>
 
             // Final CTAs
-            <div class="py-4 flex flex-col sm:flex-row gap-4 justify-center">
+            <div class="py-4 flex flex-col sm:flex-row sm:flex-wrap gap-4 \
+                justify-center">
                 <button
                     onclick={on_sign_up}
                     class="inline-block px-8 py-3 text-lg font-semibold \
@@ -320,14 +343,24 @@ pub fn LandingPage() -> Html {
                     {"Sign Up"}
                 </button>
                 <button
-                    onclick={on_learn_more}
+                    onclick={on_read_auction_guide}
                     class="inline-block px-8 py-3 text-lg font-semibold \
                         text-neutral-900 dark:text-neutral-100 border-2 \
                         border-neutral-900 dark:border-neutral-100 \
                         hover:bg-neutral-100 dark:hover:bg-neutral-800 \
                         rounded transition-colors"
                 >
-                    {"Learn How It Works"}
+                    {"Read the auction guide"}
+                </button>
+                <button
+                    onclick={on_read_docs}
+                    class="inline-block px-8 py-3 text-lg font-semibold \
+                        text-neutral-900 dark:text-neutral-100 border-2 \
+                        border-neutral-900 dark:border-neutral-100 \
+                        hover:bg-neutral-100 dark:hover:bg-neutral-800 \
+                        rounded transition-colors"
+                >
+                    {"Read the docs"}
                 </button>
                 <a
                     href="https://peoplesrent.substack.com/"
